@@ -14,12 +14,6 @@ Guide competitors to **top rankings** in MotrixArena S1 quadruped navigation cha
 - **Score optimization** - Maximize points through bonus zones and efficient traversal
 - **Submission preparation** - Code, weights, video, technical documentation
 
-> **IMPORTANT — Current State:**
-> - The primary training environment is `vbot_navigation_section001` (flat ground, Stage 1).
-> - Reward function is fully implemented in `starter_kit/navigation1/vbot/vbot_section001_np.py`.
-> - AutoML pipeline is working: `uv run starter_kit_schedule/scripts/automl.py --mode stage --budget-hours 12 --hp-trials 8`
-> - Do NOT re-read or re-check pipeline files before launching training. See `training-pipeline` skill for commands.
-
 ## Competition Overview: MotrixArena S1
 
 ### Two-Phase Structure
@@ -195,8 +189,8 @@ class VBotSection001PPOConfig(PPOCfg):
 
 ## Reward Function Engineering
 
-> **Current implementation:** `starter_kit/navigation1/vbot/vbot_section001_np.py` → `_compute_reward()`.
-> **Reward weights:** `starter_kit/navigation1/vbot/cfg.py` → `RewardConfig.scales` dict.
+> **Current implementation:** `starter_kit/navigation*/vbot/vbot_*_np.py` → `_compute_reward()`.
+> **Reward weights:** `starter_kit/navigation*/vbot/cfg.py` → `RewardConfig.scales` dict.
 > **Exploration methodology** (how to find/test/archive rewards): See `reward-penalty-engineering` skill.
 > **Archived configurations:** See `starter_kit_schedule/reward_library/`.
 
