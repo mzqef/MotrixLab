@@ -657,7 +657,7 @@ class VBotSection001Env(NpEnv):
         return reward
 
     def reset(self, data: mtx.SceneData, done: np.ndarray = None) -> tuple[np.ndarray, dict]:
-        cfg: VBotEnvCfg = self._cfg
+        cfg: VBotSection001EnvCfg = self._cfg
         num_envs = data.shape[0]
 
         # 在spawn_center周围 ±spawn_range 范围内随机

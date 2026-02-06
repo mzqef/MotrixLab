@@ -3,7 +3,7 @@
 # MotrixArena-S1
 
 - This is the branch of MotrixLab for MotrixArena-S1. The event is restrict to this branch.
-- **Please download the ASSETS of the ARENA from https://dist.bj.bcebos.com/motphys-arena/starter_kit.zip**
+- **Please download the ASSETS of the ARENA from** https://dist.bj.bcebos.com/motphys-arena/starter_kit.zip
 - For further imfomation of our event:
 
 <img src="./MotrixArema-S1-post.jpg" width="70%" alt="description">
