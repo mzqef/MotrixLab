@@ -1,21 +1,16 @@
 ---
 name: curriculum-learning
-description: Multi-stage curriculum training for VBot quadruped navigation. Stage 1 (flat) → Stage 2 (obstacles) progression with warm-starts and promotion criteria.
+description: Multi-stage curriculum training for VBot quadruped navigation. Stage progression with warm-starts and promotion criteria.
 ---
 
 ## Purpose
 
 **Curriculum-based training** for progressive skill acquisition:
 
-- Stage 1 → Stage 2 progression with warm-start
+- Stage progression with warm-start
 - Per-stage reward overrides
 - Promotion criteria (reward threshold, success rate)
 - Checkpoint transfer between stages
-
-> **IMPORTANT — Operational Note:**
-> - The primary competition environment is `vbot_navigation_section001` (flat ground, Stage 1).
-> - Start with Stage 1 mastery before progressing to obstacle terrains.
-> - Use the AutoML pipeline for Stage 1. Curriculum progression to Stage 2 is manual.
 
 > **Related Skills:**
 > - `training-pipeline` — Hub with Quick Start commands (start here)
@@ -84,7 +79,7 @@ description: Multi-stage curriculum training for VBot quadruped navigation. Stag
 ## Curriculum Plan Schema
 
 ```yaml
-# starter_kit_schedule/plans/curriculum_full.yaml
+# starter_kit_schedule/templates/curriculum_full.yaml
 plan_id: "curriculum_vbot_20260206"
 name: "VBot Full Curriculum"
 
@@ -163,8 +158,7 @@ promotion_criteria:
 uv run starter_kit_schedule/scripts/automl.py `
     --mode stage `
     --budget-hours 12 `
-    --hp-trials 8 `
-    --reward-generations 3
+    --hp-trials 8
 
 # === STAGE 2+: Manual warm-start from Stage 1 best checkpoint ===
 uv run scripts/train.py --env vbot_navigation_stairs `

@@ -94,22 +94,30 @@ class RewardConfig:
     scales: dict[str, float] = field(
         default_factory=lambda: {
             # ===== 导航任务核心奖励 =====
-            "position_tracking": 2.0,      # 位置误差奖励（提高10倍）
-            "fine_position_tracking": 2.0,  # 精细位置奖励（提高10倍）
-            "heading_tracking": 1.0,        # 朝向跟踪奖励（新增）
-            "forward_velocity": 0.5,        # 前进速度奖励（鼓励朝目标移动）
-            
-            # ===== Locomotion稳定性奖励（保持但降低权重） =====
-            "orientation": -0.05,           # 姿态稳定（降低权重）
-            "lin_vel_z": -0.5,              # 垂直速度惩罚
-            "ang_vel_xy": -0.05,            # XY轴角速度惩罚
-            "torques": -1e-5,               # 扭矩惩罚
-            "dof_vel": -5e-5,               # 关节速度惩罚
-            "dof_acc": -2.5e-7,             # 关节加速度惩罚
-            "action_rate": -0.01,           # 动作变化率惩罚
-            
+            "position_tracking": 1.5,       # exp(-d/sigma) 位置跟踪 (sigma widened in env)
+            "fine_position_tracking": 2.0,   # 精细位置跟踪 (< 1m)
+            "heading_tracking": 0.8,         # 朝向跟踪
+            "forward_velocity": 1.5,         # 前进速度奖励（提高，鼓励朝目标移动）
+            "distance_progress": 2.0,        # 新增：线性距离递减奖励 (1 - d/d_max)
+            "alive_bonus": 0.5,              # 新增：每步存活奖励
+
+            # ===== 导航接近/到达奖励 =====
+            "approach_scale": 8.0,           # 距离递减奖励 (提高: 4→8)
+            "arrival_bonus": 15.0,           # 首次到达一次性奖励 (提高: 10→15)
+            "stop_scale": 2.0,               # 到达后停止奖励
+            "zero_ang_bonus": 6.0,           # 到达后零角速度奖励
+
+            # ===== Locomotion稳定性惩罚（降低权重，让导航信号占主导） =====
+            "orientation": -0.05,            # 姿态稳定
+            "lin_vel_z": -0.3,               # 垂直速度惩罚 (降低: -0.5→-0.3)
+            "ang_vel_xy": -0.03,             # XY轴角速度惩罚 (降低: -0.05→-0.03)
+            "torques": -1e-5,                # 扭矩惩罚
+            "dof_vel": -5e-5,                # 关节速度惩罚
+            "dof_acc": -2.5e-7,              # 关节加速度惩罚
+            "action_rate": -0.01,            # 动作变化率惩罚
+
             # ===== 终止惩罚 =====
-            "termination": -200.0,          # 终止惩罚
+            "termination": -50.0,            # 终止惩罚 (大幅降低: -200→-50)
         }
     )
 
@@ -382,14 +390,10 @@ class VBotSection001EnvCfg(VBotStairsEnvCfg):
         }
     @dataclass
     class Commands:
-        # 目标位置：缩短距离，固定目标点
-        # 起始位置Y=-2.4, 目标Y=3.6, 距离=6米（与vbot_np相近）
-        # pose_command_range = [0.0, 3.6, 0.0, 0.0, 3.6, 0.0]
-        # 原始配置（已注释）：
-        # 目标位置：固定在终止角范围远端（完全无随机化）
-        # 固定目标点: X=0, Y=10.2, Z=2 (Z通过XML控制)
-        # 起始位置Y=-2.4, 目标Y=10.2, 距离=12.6米
-        pose_command_range = [0.0, 10.2, 0.0, 0.0, 10.2, 0.0]
+        # 目标位置：随机化范围，匹配竞赛场景（10 dogs从外围到中心，距离~3-12m）
+        # dx/dy: 相对机器人初始位置的偏移（米）
+        # 使用随机目标训练泛化能力，覆盖短距（3m）到长距（12m）
+        pose_command_range = [-3.0, 3.0, -3.14, 3.0, 12.0, 3.14]
     @dataclass
     class ControlConfig:
         action_scale = 0.25

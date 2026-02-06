@@ -1,16 +1,11 @@
 ---
 name: training-pipeline
-description: Index skill for VBot quadruped RL training. Routes to specialized skills for curriculum learning, hyperparameter optimization, reward engineering, and campaign management.
+description: Index skill for VBot quadruped RL training. Routes to specialized skills for curriculum learning, hyperparameter optimization, reward/penalty engineering, and campaign management.
 ---
 
 ## Purpose
 
 **Entry point** for RL training tasks. Routes to specialized skills.
-
-> **IMPORTANT — Operational Guardrails:**
-> - The pipeline code is **tested and working**. Do NOT re-read pipeline files, re-check imports, or re-verify dependencies before launching training.
-> - Known bugs (numpy int64 JSON serialization, import ordering) have been **fixed**. Do not re-investigate them.
-> - When the user asks to "train", "automl", or "launch training", go directly to the Quick Start commands below. Do not spend turns gathering context.
 
 ## Quick Start — Just Run Training
 
@@ -24,8 +19,7 @@ uv run scripts/train.py --env vbot_navigation_section001
 uv run starter_kit_schedule/scripts/automl.py `
     --mode stage `
     --budget-hours 12 `
-    --hp-trials 8 `
-    --reward-generations 3
+    --hp-trials 8
 
 # === MONITOR AUTOML STATE ===
 # State is saved to: starter_kit_schedule/progress/automl_state.yaml

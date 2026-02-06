@@ -5,18 +5,13 @@ Multi-stage curriculum training system for the MotrixArena S1 quadruped navigati
 ## ⚡ Quick Start
 
 ```powershell
-# 1. Initialize curriculum campaign
-uv run python starter_kit_schedule/scripts/init_campaign.py `
-    --name "VBot Stage1 Curriculum" `
-    --template curriculum_plan_template.yaml
+# 1. Start training (AutoML hyperparameter search)
+uv run starter_kit_schedule/scripts/automl.py --mode stage --env vbot_navigation_section001 --budget-hours 12 --hp-trials 8
 
-# 2. Start training
-uv run python starter_kit_schedule/scripts/run_search.py
-
-# 3. Monitor progress
+# 2. Monitor progress
 uv run python starter_kit_schedule/scripts/status.py --watch
 
-# 4. Analyze results
+# 3. Analyze results (after training completes)
 uv run python starter_kit_schedule/scripts/analyze.py --top 5
 ```
 
@@ -71,13 +66,13 @@ uv run python starter_kit_schedule/scripts/analyze.py --top 5
 
 ```
 starter_kit_schedule/
-├── plans/                     # Curriculum plan definitions
-│   ├── active_plan.yaml       # Current active training plan
-│   └── archive/               # Completed plans
-│
-├── configs/                   # Hyperparameter configurations
-│   └── generated/             # Auto-generated configs from search
-│
+├── templates/                 # All YAML templates & config references
+│   ├── automl_config.yaml             # AutoML configuration template
+│   ├── config_template.yaml           # Individual training config
+│   ├── curriculum_plan_template.yaml  # Multi-stage curriculum
+│   ├── plan_template.yaml             # Training plan template
+│   ├── reward_config_template.yaml    # Reward engineering config
+│   └── search_space_template.yaml     # Hyperparameter search space
 ├── progress/                  # Execution tracking
 │   ├── current_run.yaml       # Currently running experiment
 │   ├── queue.yaml             # Pending experiments
@@ -86,26 +81,24 @@ starter_kit_schedule/
 ├── checkpoints/               # Checkpoint registry for warm-starts
 │
 ├── scripts/                   # Pipeline scripts
-│   ├── init_campaign.py       # Initialize new curriculum campaign
-│   ├── run_search.py          # Execute training runs
+│   ├── automl.py              # AutoML HP search engine
 │   ├── status.py              # Monitor progress
 │   └── analyze.py             # Analyze and compare results
 │
-└── templates/                 # Configuration templates
-    ├── curriculum_plan_template.yaml   # Multi-stage curriculum
-    ├── reward_config_template.yaml     # Reward engineering config
-    ├── search_space_template.yaml      # Hyperparameter search space
-    └── config_template.yaml            # Basic config template
+└── templates/                 # All YAML templates & config references
+    ├── automl_config.yaml             # AutoML configuration
+    ├── config_template.yaml           # Basic config template
+    ├── curriculum_plan_template.yaml  # Multi-stage curriculum
+    ├── plan_template.yaml             # Training plan
+    ├── reward_config_template.yaml    # Reward engineering
+    └── search_space_template.yaml     # HP search space
 
 starter_kit_log/
-├── experiments/               # Individual experiment logs
-│   └── EXP_YYYYMMDD_HHMMSS/   # Per-experiment data
-├── campaigns/                 # Campaign-level summaries
-│   └── campaign_YYYYMMDD/     # Per-campaign data
-└── analysis/                  # Comparison reports
-    ├── rankings/              # Sorted by metrics
-    ├── hyperparameter_importance/
-    └── visualizations/
+└── <automl_id>/               # Self-contained per-run folder
+    ├── configs/               # HP + reward configs per trial
+    ├── experiments/           # Per-experiment summaries
+    ├── index.yaml             # Run-level index
+    └── state.yaml             # AutoML state snapshot
 ```
 
 ## ⚙️ Templates
@@ -141,7 +134,7 @@ uv run python starter_kit_schedule/scripts/status.py --campaign campaign_2025010
 uv run python starter_kit_schedule/scripts/analyze.py --top 5 --sort reward
 
 # Export best config for deployment
-uv run python starter_kit_schedule/scripts/analyze.py --export-best configs/best.yaml
+uv run python starter_kit_schedule/scripts/analyze.py --export-best templates/best.yaml
 ```
 
 ## 🔗 Integration with subagent-copilot-cli

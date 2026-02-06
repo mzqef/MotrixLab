@@ -63,3 +63,5 @@ Select-String -Path starter_kit_schedule/reward_library/components/*.yaml -Patte
 - **Component reference & scale ranges:** `starter_kit_schedule/templates/reward_config_template.yaml`
 - **Exploration methodology:** `.github/skills/reward-penalty-engineering/SKILL.md`
 - **Reward code examples:** `.github/skills/quadruped-competition-tutor/SKILL.md`
+
+

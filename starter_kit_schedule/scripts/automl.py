@@ -5,7 +5,6 @@ AutoML Training Pipeline for VBot Quadruped Navigation.
 Automatically orchestrates:
 - Curriculum learning (stage progression)
 - Hyperparameter optimization (Bayesian/random/grid)
-- Reward engineering (evolutionary/grid)
 - Training execution and evaluation
 - Feedback loop for continuous improvement
 
@@ -43,7 +42,7 @@ class _NumpyEncoder(json.JSONEncoder):
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-LOG_DIR = PROJECT_ROOT / "starter_kit_log"
+LOG_ROOT = PROJECT_ROOT / "starter_kit_log"
 sys.path.insert(0, str(PROJECT_ROOT))
 
 # Configure logging
@@ -146,11 +145,7 @@ class AutoMLConfig:
     hp_warmup_trials: int = 5
     hp_eval_steps: int = 5_000_000
 
-    # Reward search settings
-    reward_method: str = "evolutionary"  # evolutionary | grid | bayesian
-    reward_population_size: int = 10
-    reward_generations: int = 5
-    reward_eval_steps: int = 2_000_000
+    # (Reward weights are searched jointly with HP — no separate reward search phase)
 
     # Evaluation settings
     eval_episodes: int = 100
@@ -188,7 +183,6 @@ class AutoMLState:
 
     # Search history
     hp_search_history: List[Dict] = field(default_factory=list)
-    reward_search_history: List[Dict] = field(default_factory=list)
 
     # Curriculum progress
     curriculum_progress: Dict[str, str] = field(default_factory=dict)
@@ -228,6 +222,73 @@ REWARD_SEARCH_SPACE = {
     "action_rate": {"type": "uniform", "low": -0.05, "high": -0.001},
     "termination": {"type": "choice", "values": [-500, -300, -200, -100, -50]},
 }
+
+
+# =============================================================================
+# Reward Component Categorization
+# =============================================================================
+
+# Canonical category mapping for reward scales
+REWARD_COMPONENT_CATEGORIES = {
+    # Navigation core
+    "position_tracking": "navigation",
+    "fine_position_tracking": "navigation",
+    "heading_tracking": "navigation",
+    "forward_velocity": "navigation",
+    "approach_scale": "navigation",
+    "arrival_bonus": "navigation",
+    "stop_scale": "navigation",
+    "zero_ang_bonus": "navigation",
+    # Stability penalties
+    "orientation": "stability",
+    "lin_vel_z": "stability",
+    "ang_vel_xy": "stability",
+    "base_height": "stability",
+    "feet_air_time": "stability",
+    # Efficiency penalties
+    "torques": "efficiency",
+    "dof_vel": "efficiency",
+    "dof_acc": "efficiency",
+    "action_rate": "efficiency",
+    "action_magnitude": "efficiency",
+    # Termination
+    "termination": "termination",
+    # Terrain-specific
+    "knee_lift_bonus": "terrain",
+    "foot_clearance": "terrain",
+    "foot_slip_penalty": "terrain",
+    # Gait
+    "gait_frequency": "gait",
+    "gait_symmetry": "gait",
+}
+
+
+def _categorize_reward_scales(reward_scales: dict) -> dict:
+    """Categorize a flat reward_scales dict into component groups.
+
+    Returns a dict like:
+        {
+            "navigation": {"position_tracking": 2.0, ...},
+            "stability": {"orientation": -0.05, ...},
+            ...
+            "active_components": ["position_tracking", ...],
+            "active_count": 12,
+        }
+    """
+    categorized: Dict[str, Dict[str, Any]] = {}
+    active_components = []
+
+    for key, value in reward_scales.items():
+        cat = REWARD_COMPONENT_CATEGORIES.get(key, "other")
+        if cat not in categorized:
+            categorized[cat] = {}
+        categorized[cat][key] = value
+        if value != 0.0:
+            active_components.append(key)
+
+    categorized["active_components"] = active_components
+    categorized["active_count"] = len(active_components)
+    return categorized
 
 
 # =============================================================================
@@ -274,33 +335,8 @@ def sample_reward_config() -> RewardConfig:
 # Evolutionary Reward Search
 # =============================================================================
 
-def crossover_rewards(parent1: RewardConfig, parent2: RewardConfig) -> RewardConfig:
-    """Crossover two reward configs."""
-    child_dict = {}
-    for key in asdict(parent1).keys():
-        if random.random() < 0.5:
-            child_dict[key] = getattr(parent1, key)
-        else:
-            child_dict[key] = getattr(parent2, key)
-    return RewardConfig(**child_dict)
-
-
-def mutate_reward(config: RewardConfig, mutation_rate: float = 0.2) -> RewardConfig:
-    """Mutate a reward config."""
-    config_dict = asdict(config)
-    for key, space in REWARD_SEARCH_SPACE.items():
-        if random.random() < mutation_rate:
-            if space["type"] in ["uniform", "loguniform"]:
-                current = config_dict[key]
-                # Perturb by ±20%
-                perturbation = current * random.uniform(-0.2, 0.2)
-                new_val = current + perturbation
-                # Clip to bounds
-                new_val = max(space["low"], min(space["high"], new_val))
-                config_dict[key] = new_val
-            elif space["type"] == "choice":
-                config_dict[key] = random.choice(space["values"])
-    return RewardConfig(**config_dict)
+# NOTE: Evolutionary reward search functions removed.
+# Reward weights are now searched jointly with HP params in _run_hp_search.
 
 
 # =============================================================================
@@ -318,8 +354,8 @@ class AutoMLPipeline:
             budget_hours=config.budget_hours,
         )
 
-        # Initialize directories
-        self.log_dir = PROJECT_ROOT / "starter_kit_log" / "automl" / self.state.automl_id
+        # Initialize directories — everything lives under starter_kit_log/{automl_id}/
+        self.log_dir = LOG_ROOT / self.state.automl_id
         self.schedule_dir = PROJECT_ROOT / "starter_kit_schedule"
         self.log_dir.mkdir(parents=True, exist_ok=True)
 
@@ -329,10 +365,16 @@ class AutoMLPipeline:
                 self.state.curriculum_progress[stage] = "pending"
 
     def save_state(self):
-        """Save current state for resume."""
-        state_path = self.schedule_dir / "progress" / "automl_state.yaml"
+        """Save current state into the automl run folder."""
+        # Primary: inside run folder
+        state_path = self.log_dir / "state.yaml"
         state_path.parent.mkdir(parents=True, exist_ok=True)
         with open(state_path, "w") as f:
+            yaml.dump(asdict(self.state), f, default_flow_style=False)
+        # Also write a symlink/copy to schedule/progress for quick --resume lookup
+        progress_path = self.schedule_dir / "progress" / "automl_state.yaml"
+        progress_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(progress_path, "w") as f:
             yaml.dump(asdict(self.state), f, default_flow_style=False)
         logger.info(f"State saved to {state_path}")
 
@@ -375,8 +417,6 @@ class AutoMLPipeline:
                 self._run_stage_optimization(self.config.environment)
             elif self.config.mode == "hp-search":
                 self._run_hp_search_only()
-            elif self.config.mode == "reward-search":
-                self._run_reward_search_only()
             elif self.config.mode == "eval":
                 self._run_evaluation_only()
 
@@ -429,20 +469,15 @@ class AutoMLPipeline:
             self.save_state()
 
     def _run_stage_optimization(self, stage: str) -> EvalMetrics:
-        """Optimize a single curriculum stage."""
+        """Optimize a single curriculum stage (unified HP + reward weight search)."""
         logger.info(f"Optimizing stage: {stage}")
 
-        # Phase 1: HP Search
+        # Phase 1: Unified HP + Reward Weight Search
         self.state.current_phase = "hp_search"
         self.save_state()
-        best_hp = self._run_hp_search(stage)
+        best_hp, best_reward = self._run_hp_search(stage)
 
-        # Phase 2: Reward Search
-        self.state.current_phase = "reward_search"
-        self.save_state()
-        best_reward = self._run_reward_search(stage, best_hp)
-
-        # Phase 3: Full Training
+        # Phase 2: Full Training with best configs
         self.state.current_phase = "training"
         self.save_state()
         metrics = self._run_full_training(stage, best_hp, best_reward)
@@ -457,11 +492,16 @@ class AutoMLPipeline:
 
         return metrics
 
-    def _run_hp_search(self, stage: str) -> HPConfig:
-        """Run hyperparameter search for a stage."""
-        logger.info(f"Running HP search for {stage}: {self.config.hp_trials_per_stage} trials")
+    def _run_hp_search(self, stage: str) -> tuple:
+        """Run unified HP + reward weight search for a stage.
+
+        Returns:
+            (HPConfig, RewardConfig) — best configs found.
+        """
+        logger.info(f"Running unified HP+reward search for {stage}: {self.config.hp_trials_per_stage} trials")
 
         best_hp = None
+        best_reward = None
         best_score = -float("inf")
 
         for trial in range(self.config.hp_trials_per_stage):
@@ -473,15 +513,20 @@ class AutoMLPipeline:
             # Sample or use Bayesian acquisition
             if trial < self.config.hp_warmup_trials or self.config.hp_method == "random":
                 hp_config = sample_hp_config()
+                reward_config = sample_reward_config()
             else:
-                # Simple Bayesian: use best + perturbation
-                hp_config = self._bayesian_hp_suggest(best_hp)
+                # Simple Bayesian: perturb best HP + reward config
+                hp_config, reward_config = self._bayesian_suggest(best_hp, best_reward)
 
-            logger.info(f"HP Trial {trial+1}/{self.config.hp_trials_per_stage}: lr={hp_config.learning_rate:.2e}")
+            logger.info(
+                f"Trial {trial+1}/{self.config.hp_trials_per_stage}: "
+                f"lr={hp_config.learning_rate:.2e}, term={reward_config.termination:.0f}, "
+                f"approach={reward_config.approach_scale:.1f}"
+            )
 
             # Train and evaluate
             metrics = self._train_and_eval(
-                stage, hp_config, RewardConfig(),
+                stage, hp_config, reward_config,
                 max_steps=self.config.hp_eval_steps
             )
 
@@ -490,7 +535,8 @@ class AutoMLPipeline:
             # Record history
             self.state.hp_search_history.append({
                 "trial": trial,
-                "config": asdict(hp_config),
+                "hp_config": asdict(hp_config),
+                "reward_config": asdict(reward_config),
                 "metrics": asdict(metrics),
                 "score": score,
             })
@@ -498,99 +544,71 @@ class AutoMLPipeline:
             if score > best_score:
                 best_score = score
                 best_hp = hp_config
-                logger.info(f"New best HP! Score: {score:.4f}, Reward: {metrics.episode_reward_mean:.2f}")
+                best_reward = reward_config
+                logger.info(f"New best! Score: {score:.4f}, Reward: {metrics.episode_reward_mean:.2f}")
 
             self.update_elapsed_time()
             self.save_state()
 
-        logger.info(f"HP search complete. Best lr: {best_hp.learning_rate:.2e}")
-        return best_hp or HPConfig()
+        logger.info(f"Unified search complete. Best lr: {best_hp.learning_rate:.2e}, term: {best_reward.termination:.0f}")
+        return (best_hp or HPConfig(), best_reward or RewardConfig())
 
-    def _bayesian_hp_suggest(self, current_best: Optional[HPConfig]) -> HPConfig:
-        """Simple Bayesian suggestion (perturb best config)."""
-        if current_best is None:
-            return sample_hp_config()
+    def _bayesian_suggest(
+        self,
+        current_best_hp: Optional[HPConfig],
+        current_best_reward: Optional[RewardConfig],
+    ) -> tuple:
+        """Bayesian suggestion: perturb best HP + reward config jointly.
 
-        # Perturb the best config
-        config_dict = asdict(current_best)
+        Returns:
+            (HPConfig, RewardConfig)
+        """
+        if current_best_hp is None:
+            return sample_hp_config(), sample_reward_config()
+
+        # --- Perturb HP config ---
+        hp_dict = asdict(current_best_hp)
 
         # Perturb learning rate in log space
-        lr = config_dict["learning_rate"]
+        lr = hp_dict["learning_rate"]
         lr = lr * np.exp(np.random.normal(0, 0.3))
         lr = max(1e-5, min(1e-3, lr))
-        config_dict["learning_rate"] = lr
+        hp_dict["learning_rate"] = lr
 
         # Perturb entropy
-        ent = config_dict["entropy_loss_scale"]
+        ent = hp_dict["entropy_loss_scale"]
         ent = ent * np.exp(np.random.normal(0, 0.3))
         ent = max(1e-4, min(1e-2, ent))
-        config_dict["entropy_loss_scale"] = ent
+        hp_dict["entropy_loss_scale"] = ent
 
         # Occasionally try different architecture
         if random.random() < 0.2:
-            config_dict["policy_hidden_layer_sizes"] = sample_from_space(
+            hp_dict["policy_hidden_layer_sizes"] = sample_from_space(
                 HP_SEARCH_SPACE["policy_hidden_layer_sizes"]
             )
-            config_dict["value_hidden_layer_sizes"] = config_dict["policy_hidden_layer_sizes"]
+            hp_dict["value_hidden_layer_sizes"] = hp_dict["policy_hidden_layer_sizes"]
 
-        return HPConfig(**config_dict)
+        hp_config = HPConfig(**hp_dict)
 
-    def _run_reward_search(self, stage: str, hp_config: HPConfig) -> RewardConfig:
-        """Run evolutionary reward search."""
-        logger.info(f"Running reward search for {stage}: {self.config.reward_generations} generations")
+        # --- Perturb reward config ---
+        reward_dict = asdict(current_best_reward)
+        for key, space in REWARD_SEARCH_SPACE.items():
+            if random.random() < 0.3:  # Perturb ~30% of weights per trial
+                if space["type"] in ["uniform", "loguniform"]:
+                    current = reward_dict[key]
+                    perturbation = current * random.uniform(-0.25, 0.25)
+                    new_val = current + perturbation
+                    new_val = max(space["low"], min(space["high"], new_val))
+                    reward_dict[key] = new_val
+                elif space["type"] == "choice":
+                    reward_dict[key] = random.choice(space["values"])
 
-        # Initialize population
-        population = [sample_reward_config() for _ in range(self.config.reward_population_size)]
+        reward_config = RewardConfig(**reward_dict)
 
-        best_reward = None
-        best_score = -float("inf")
+        return hp_config, reward_config
 
-        for gen in range(self.config.reward_generations):
-            if not self.check_budget():
-                break
-
-            logger.info(f"Reward Generation {gen+1}/{self.config.reward_generations}")
-
-            # Evaluate population
-            scores = []
-            for i, reward_config in enumerate(population):
-                metrics = self._train_and_eval(
-                    stage, hp_config, reward_config,
-                    max_steps=self.config.reward_eval_steps
-                )
-                score = metrics.compute_score()
-                scores.append((score, reward_config, metrics))
-
-                if score > best_score:
-                    best_score = score
-                    best_reward = reward_config
-
-            # Record history
-            self.state.reward_search_history.append({
-                "generation": gen,
-                "best_config": asdict(best_reward),
-                "best_score": best_score,
-            })
-
-            # Selection (top 50%)
-            scores.sort(reverse=True, key=lambda x: x[0])
-            survivors = [s[1] for s in scores[:len(scores)//2]]
-
-            # Create next generation
-            new_population = [best_reward]  # Elite
-            while len(new_population) < self.config.reward_population_size:
-                parent1, parent2 = random.sample(survivors, 2)
-                child = crossover_rewards(parent1, parent2)
-                child = mutate_reward(child)
-                new_population.append(child)
-
-            population = new_population
-
-            self.update_elapsed_time()
-            self.save_state()
-
-        logger.info(f"Reward search complete. Best termination: {best_reward.termination}")
-        return best_reward or RewardConfig()
+    # NOTE: _run_reward_search removed — reward weights are now searched
+    # jointly with HP params in _run_hp_search via _bayesian_suggest.
 
     def _run_full_training(
         self, stage: str, hp_config: HPConfig, reward_config: RewardConfig
@@ -727,13 +745,17 @@ class AutoMLPipeline:
             f"reached={metrics.success_rate:.2%}, elapsed={elapsed:.0f}s"
         )
 
-        # Write experiment summary for analyze.py compatibility
-        exp_dir = LOG_DIR / "experiments" / iteration_tag
+        # Build reward component breakdown for analysis
+        reward_components = _categorize_reward_scales(reward_scales)
+
+        # Write experiment summary inside the automl run folder
+        exp_dir = self.log_dir / "experiments" / iteration_tag
         exp_dir.mkdir(parents=True, exist_ok=True)
         summary = {
             "experiment_id": iteration_tag,
             "config_id": iteration_tag,
             "campaign_id": self.state.automl_id,
+            "trial_index": self.state.current_iteration,
             "config": {
                 "environment": self.config.environment,
                 "algorithm": "PPO",
@@ -751,25 +773,27 @@ class AutoMLPipeline:
                     "success_rate": metrics.success_rate,
                 },
                 "reward_scales": reward_scales,
+                "reward_components": reward_components,
                 "run_dir": run_dir,
             },
         }
         with open(exp_dir / "summary.yaml", "w") as f:
             yaml.dump(summary, f, default_flow_style=False)
 
-        # Update master index
-        index_path = LOG_DIR / "index.yaml"
+        # Update index inside automl run folder
+        index_path = self.log_dir / "index.yaml"
         if index_path.exists():
             with open(index_path) as f:
-                index = yaml.safe_load(f) or {"campaigns": [], "experiments": []}
+                index = yaml.safe_load(f) or {"experiments": []}
         else:
-            index = {"campaigns": [], "experiments": []}
+            index = {"experiments": []}
         index["experiments"].append({
             "experiment_id": iteration_tag,
-            "campaign_id": self.state.automl_id,
             "environment": self.config.environment,
             "status": "completed",
             "completed_at": datetime.now().isoformat() + "Z",
+            "final_reward": metrics.episode_reward_mean,
+            "success_rate": metrics.success_rate,
         })
         with open(index_path, "w") as f:
             yaml.dump(index, f, default_flow_style=False)
@@ -777,16 +801,10 @@ class AutoMLPipeline:
         return metrics
 
     def _run_hp_search_only(self):
-        """Run HP search only mode."""
+        """Run HP + reward weight search only mode."""
         stage = self.state.current_stage or self.config.stages[0]
-        best_hp = self._run_hp_search(stage)
+        best_hp, best_reward = self._run_hp_search(stage)
         self.state.current_hp_config = asdict(best_hp)
-
-    def _run_reward_search_only(self):
-        """Run reward search only mode."""
-        stage = self.state.current_stage or self.config.stages[0]
-        hp_config = HPConfig(**self.state.current_hp_config) if self.state.current_hp_config else HPConfig()
-        best_reward = self._run_reward_search(stage, hp_config)
         self.state.current_reward_config = asdict(best_reward)
 
     def _run_evaluation_only(self):
@@ -859,8 +877,8 @@ def parse_args():
 
     # Mode selection
     parser.add_argument("--mode", type=str, default="full",
-                       choices=["full", "stage", "hp-search", "reward-search", "eval"],
-                       help="AutoML mode")
+                       choices=["full", "stage", "hp-search", "eval"],
+                       help="AutoML mode (reward weights are searched jointly with HP)")
 
     # Configuration
     parser.add_argument("--config", type=str, help="Path to AutoML config YAML")
@@ -878,8 +896,8 @@ def parse_args():
     parser.add_argument("--dashboard", action="store_true", help="Launch live dashboard")
 
     # Search settings
-    parser.add_argument("--hp-trials", type=int, default=20, help="HP search trials per stage")
-    parser.add_argument("--reward-generations", type=int, default=5, help="Reward search generations")
+    parser.add_argument("--hp-trials", type=int, default=20,
+                       help="Unified HP + reward weight search trials per stage")
 
     return parser.parse_args()
 
@@ -895,7 +913,6 @@ def main():
         target_reward=args.target_reward,
         environment=args.env,
         hp_trials_per_stage=args.hp_trials,
-        reward_generations=args.reward_generations,
     )
 
     # Load from YAML if provided

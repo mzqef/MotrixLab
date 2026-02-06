@@ -1,0 +1,14 @@
+automl_id: automl_20260206_163021
+experiments:
+- completed_at: '2026-02-06T16:52:01.776980Z'
+  environment: vbot_navigation_section001
+  experiment_id: automl_20260206_163021_vbot_navigation_section001_i0_1770366621
+  final_reward: -195.13963317871094
+  status: completed
+  success_rate: 0.0
+- completed_at: '2026-02-06T22:01:15.062407Z'
+  environment: vbot_navigation_section001
+  experiment_id: automl_20260206_163021_vbot_navigation_section001_i1_1770367921
+  final_reward: 231.98098754882812
+  status: completed
+  success_rate: 0.0

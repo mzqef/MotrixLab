@@ -58,7 +58,7 @@ def print_status():
     queue = load_yaml_safe(SCHEDULE_DIR / "progress" / "queue.yaml")
     if not queue:
         print("No active campaign found.")
-        print("Run: uv run starter_kit_schedule/scripts/init_campaign.py --name 'My Campaign' --env <env_name>")
+        print("Run: uv run starter_kit_schedule/scripts/automl.py --mode stage --env <env_name> --budget-hours 12 --hp-trials 8")
         return
     
     # Load current run
@@ -143,7 +143,7 @@ def print_status():
         print("   uv run starter_kit_schedule/scripts/analyze.py")
     elif pending > 0:
         print(f"📋 {pending} configs remaining. To continue:")
-        print("   uv run starter_kit_schedule/scripts/run_search.py")
+        print("   uv run starter_kit_schedule/scripts/automl.py --mode stage")
     elif running > 0:
         print("🔄 Training in progress...")
         print("   TensorBoard: uv run tensorboard --logdir starter_kit_log/experiments/")

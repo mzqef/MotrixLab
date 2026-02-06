@@ -449,7 +449,7 @@ class VBotSection001Env(NpEnv):
         # 更新目标标记和箭头
         self._update_target_marker(data, pose_commands)
         base_lin_vel_xy = base_lin_vel[:, :2]
-        self._update_heading_arrows(data, root_pos, desired_vel_xy, base_lin_vel_xy)
+        self._update_heading_arrows(data, root_pos, position_error, base_lin_vel_xy)
 
         # 计算终止条件（必须在奖励之前，因为终止惩罚需要此结果）
         terminated_state = self._compute_terminated(state, projected_gravity, joint_vel)
@@ -538,13 +538,13 @@ class VBotSection001Env(NpEnv):
         scales = self._cfg.reward_config.scales
 
         # ========== 终止惩罚（使用已计算的 terminated 标志） ==========
-        term_scale = scales.get("termination", -200.0)
+        term_scale = scales.get("termination", -50.0)
         termination_penalty = np.where(terminated, term_scale, 0.0)
 
         # ========== 导航跟踪奖励（未到达时激活） ==========
 
-        # 位置跟踪：exp(-distance / sigma)
-        position_tracking = np.exp(-distance_to_target / 0.5)
+        # 位置跟踪：exp(-distance / sigma) — sigma=5.0 解决远距离梯度死区
+        position_tracking = np.exp(-distance_to_target / 5.0)
 
         # 精细位置跟踪：仅在距离 < 1.0m 时激活
         fine_position_tracking = np.where(
@@ -566,7 +566,14 @@ class VBotSection001Env(NpEnv):
             info["min_distance"] = distance_to_target.copy()
         distance_improvement = info["min_distance"] - distance_to_target
         info["min_distance"] = np.minimum(info["min_distance"], distance_to_target)
-        approach_reward = np.clip(distance_improvement * scales.get("approach_scale", 4.0), -1.0, 1.0)
+        approach_reward = np.clip(distance_improvement * scales.get("approach_scale", 8.0), -1.0, 1.0)
+
+        # 线性距离递减奖励（新增）：提供全局梯度信号
+        initial_distance = info.get("initial_distance", distance_to_target)
+        distance_progress = np.clip(1.0 - distance_to_target / (initial_distance + 1e-8), -0.5, 1.0)
+
+        # 存活奖励（新增）：每步固定小奖励，鼓励不摘倒
+        alive_bonus = np.ones(self._num_envs, dtype=np.float32)
 
         # ========== 到达后的停止奖励 ==========
 
@@ -574,7 +581,7 @@ class VBotSection001Env(NpEnv):
         info["ever_reached"] = info.get("ever_reached", np.zeros(self._num_envs, dtype=bool))
         first_time_reach = np.logical_and(reached_all, ~info["ever_reached"])
         info["ever_reached"] = np.logical_or(info["ever_reached"], reached_all)
-        arrival_bonus = np.where(first_time_reach, scales.get("arrival_bonus", 10.0), 0.0)
+        arrival_bonus = np.where(first_time_reach, scales.get("arrival_bonus", 15.0), 0.0)
 
         # 停止奖励：到达后鼓励静止
         speed_xy = np.linalg.norm(base_lin_vel[:, :2], axis=1)
@@ -628,14 +635,16 @@ class VBotSection001Env(NpEnv):
 
         reward = np.where(
             reached_all,
-            # 到达后：停止奖励 + 到达奖励 + 惩罚
-            stop_bonus + arrival_bonus + penalties,
-            # 未到达：导航跟踪 + 前进 + 接近 + 惩罚
+            # 到达后：停止奖励 + 到达奖励 + 存活 + 惩罚
+            stop_bonus + arrival_bonus + scales.get("alive_bonus", 0.5) * alive_bonus + penalties,
+            # 未到达：导航跟踪 + 前进 + 接近 + 距离递减 + 存活 + 惩罚
             (
-                scales.get("position_tracking", 2.0) * position_tracking
+                scales.get("position_tracking", 1.5) * position_tracking
                 + scales.get("fine_position_tracking", 2.0) * fine_position_tracking
-                + scales.get("heading_tracking", 1.0) * heading_tracking
-                + scales.get("forward_velocity", 0.5) * forward_velocity
+                + scales.get("heading_tracking", 0.8) * heading_tracking
+                + scales.get("forward_velocity", 1.5) * forward_velocity
+                + scales.get("distance_progress", 2.0) * distance_progress
+                + scales.get("alive_bonus", 0.5) * alive_bonus
                 + approach_reward
                 + penalties
             )
@@ -648,6 +657,8 @@ class VBotSection001Env(NpEnv):
             "heading_tracking": scales.get("heading_tracking", 1.0) * heading_tracking,
             "forward_velocity": scales.get("forward_velocity", 0.5) * forward_velocity,
             "approach_reward": approach_reward,
+            "distance_progress": scales.get("distance_progress", 2.0) * distance_progress,
+            "alive_bonus": scales.get("alive_bonus", 0.5) * alive_bonus,
             "arrival_bonus": arrival_bonus,
             "stop_bonus": stop_bonus,
             "penalties": penalties,
@@ -764,7 +775,7 @@ class VBotSection001Env(NpEnv):
         desired_vel_xy = np.where(reached_all[:, np.newaxis], 0.0, desired_vel_xy)
 
         base_lin_vel_xy = base_lin_vel[:, :2]
-        self._update_heading_arrows(data, root_pos, desired_vel_xy, base_lin_vel_xy)
+        self._update_heading_arrows(data, root_pos, position_error, base_lin_vel_xy)
 
         heading_diff = target_heading - robot_heading
         heading_diff = np.where(heading_diff > np.pi, heading_diff - 2 * np.pi, heading_diff)
@@ -838,6 +849,7 @@ class VBotSection001Env(NpEnv):
             "filtered_actions": np.zeros((num_envs, self._num_action), dtype=np.float32),
             "ever_reached": np.zeros(num_envs, dtype=bool),
             "min_distance": distance_to_target.copy(),
+            "initial_distance": distance_to_target.copy(),  # 用于distance_progress归一化
             "last_dof_vel": np.zeros((num_envs, self._num_action), dtype=np.float32),
             "contacts": np.zeros((num_envs, self.num_foot_check), dtype=np.bool_),
         }

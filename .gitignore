@@ -37,7 +37,6 @@ starter_kit/navigation2/vbot/阶段二-world_0202_clean/
 
 # AutoML runtime state (changes every run, track for history)
 # starter_kit_schedule/progress/ — tracked (contains automl_state.yaml)
-starter_kit_schedule/configs/generated/
 starter_kit_schedule/checkpoints/
 
 # OS

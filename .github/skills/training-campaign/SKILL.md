@@ -42,8 +42,7 @@ description: Execute and monitor long-running RL training campaigns. Progress tr
 uv run starter_kit_schedule/scripts/automl.py `
     --mode stage `
     --budget-hours 12 `
-    --hp-trials 8 `
-    --reward-generations 3
+    --hp-trials 8
 
 # === SIMPLE: Single training run ===
 uv run scripts/train.py --env vbot_navigation_section001
@@ -83,10 +82,13 @@ uv run scripts/play.py --env vbot_navigation_section001 `
 
 ```
 starter_kit_schedule/
-├── plans/                     # Training plans
-│   └── archive/               # Completed plans
-├── configs/
-│   └── generated/             # Auto-generated HP configs
+├── templates/                 # All YAML templates & config references
+│   ├── automl_config.yaml     # AutoML configuration template
+│   ├── config_template.yaml   # Individual training config
+│   ├── curriculum_plan_template.yaml
+│   ├── plan_template.yaml
+│   ├── reward_config_template.yaml
+│   └── search_space_template.yaml
 ├── progress/
 │   └── automl_state.yaml      # AutoML search state (primary tracking file)
 ├── checkpoints/
@@ -94,9 +96,11 @@ starter_kit_schedule/
 └── reward_library/            # Archived reward/penalty components
 
 starter_kit_log/
-├── experiments/               # Per-experiment logs
-├── campaigns/                 # Campaign-level results
-└── index.yaml                 # Master index
+└── <automl_id>/               # Self-contained per-run folder
+    ├── configs/               # HP + reward configs per trial
+    ├── experiments/           # Per-experiment summaries
+    ├── index.yaml             # Run-level index
+    └── state.yaml             # AutoML state snapshot
 
 runs/                          # Training outputs
 └── vbot_navigation_section001/
@@ -144,7 +148,7 @@ run.py (entry point, sets --env vbot_navigation_section001)
 1. **Checkpoint every 500-1000 iters** - Training can be interrupted
 2. **Use separate log directories** - One per experiment
 3. **Monitor GPU memory** - Set alerts at 90% usage
-4. **Version control configs** - Store all in `configs/`
+5. **Version control configs** - Store templates in `templates/`
 5. **Back up best checkpoints** - Before advancing stages
 6. **Use `--resume` liberally** - Don't restart from scratch
 ```

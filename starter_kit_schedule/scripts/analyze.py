@@ -270,7 +270,7 @@ def main(argv):
     
     if not experiments:
         print("No experiments found to analyze.")
-        print("Run training first: uv run starter_kit_schedule/scripts/run_search.py")
+        print("Run training first: uv run starter_kit_schedule/scripts/automl.py --mode stage --env <env_name>")
         return
     
     # Generate report

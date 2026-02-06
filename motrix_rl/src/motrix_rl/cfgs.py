@@ -321,6 +321,7 @@ class navigation:
         discount_factor: float = 0.99
         lambda_param: float = 0.95
         grad_norm_clip: float = 1.0
+        entropy_loss_scale: float = 0.005  # 启用entropy鼓励探索 (base=0.0 太低)
 
         ratio_clip: float = 0.2
         value_clip: float = 0.2

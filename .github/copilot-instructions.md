@@ -34,7 +34,7 @@ uv run scripts/train.py --env <env-name> --render         # with live visualizat
 uv run scripts/train.py --env <env-name> --train-backend torch
 
 # AutoML / HP Search (preferred for optimization)
-uv run starter_kit_schedule/scripts/automl.py --mode stage --budget-hours 12 --hp-trials 8 --reward-generations 3
+uv run starter_kit_schedule/scripts/automl.py --mode stage --budget-hours 12 --hp-trials 8
 
 # Monitor AutoML state
 Get-Content starter_kit_schedule/progress/automl_state.yaml
@@ -115,7 +115,7 @@ Key state object: `NpEnvState(data, obs, reward, terminated, truncated, info)` w
 | `starter_kit/navigation2/vbot/xmls/` | MuJoCo MJCF scene files |
 | `starter_kit_schedule/` | Training campaign pipeline, reward library, hyperparameter search |
 | `starter_kit_schedule/scripts/automl.py` | AutoML HP search engine |
-| `starter_kit_schedule/progress/` | AutoML state tracking |
+| `starter_kit_log/{automl_id}/` | Self-contained automl run: configs/, experiments/, index.yaml, report.md |
 | `starter_kit_docs/` | Competition guides and scoring rules |
 | `runs/` | Training outputs (checkpoints, TensorBoard logs) |
 | `.github/skills/` | AI agent skill files for specialized tasks |

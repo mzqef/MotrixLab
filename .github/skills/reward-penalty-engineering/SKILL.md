@@ -12,12 +12,11 @@ This skill teaches the **methodology of reward/penalty exploration** — how to 
 - **How to evaluate** whether a reward change helped
 - **How to archive** findings in the reward library for reuse
 
-> **IMPORTANT — Current State:**
-> - The competition environment is `vbot_navigation_section001` (registered in `starter_kit/navigation1/vbot/cfg.py`).
-> - The reward function lives in `starter_kit/navigation1/vbot/vbot_section001_np.py` → `_compute_reward()`.
-> - Reward weights are in `starter_kit/navigation1/vbot/cfg.py` → `RewardConfig.scales` dict.
-> - The reward function is fully implemented with: position tracking, heading, forward velocity, approach, arrival bonus, stop bonus, stability penalties, and termination penalty (-200).
-> - Do NOT re-implement the reward function from scratch. Modify weights or add new terms incrementally.
+> **IMPORTANT:**
+> - The reward function lives in `starter_kit/navigation*/vbot/vbot_*_np.py` → `_compute_reward()`.
+> - Reward weights are in `starter_kit/navigation*/vbot/cfg.py` → `RewardConfig.scales` dict.
+> - The reward function has NOT been fully implemented with: position tracking, heading, forward velocity, approach, arrival bonus, stop bonus, stability penalties, and termination penalty (-200).
+> - Do re-implement the reward function from scratch. Modify weights or add new terms incrementally.
 
 > This skill does NOT contain reward component examples or scale tables.
 > Those live in their respective locations:
@@ -268,8 +267,7 @@ uv run scripts/train.py --env vbot_navigation_section001 --render
 uv run starter_kit_schedule/scripts/automl.py `
     --mode stage `
     --budget-hours 4 `
-    --hp-trials 3 `
-    --reward-generations 1
+    --hp-trials 3
 ```
 
 ### What Counts as "Enough" Testing

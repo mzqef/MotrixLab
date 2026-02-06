@@ -17,7 +17,7 @@ Guide competitors to **top rankings** in MotrixArena S1 quadruped navigation cha
 > **IMPORTANT — Current State:**
 > - The primary training environment is `vbot_navigation_section001` (flat ground, Stage 1).
 > - Reward function is fully implemented in `starter_kit/navigation1/vbot/vbot_section001_np.py`.
-> - AutoML pipeline is working: `uv run starter_kit_schedule/scripts/automl.py --mode stage --budget-hours 12 --hp-trials 8 --reward-generations 3`
+> - AutoML pipeline is working: `uv run starter_kit_schedule/scripts/automl.py --mode stage --budget-hours 12 --hp-trials 8`
 > - Do NOT re-read or re-check pipeline files before launching training. See `training-pipeline` skill for commands.
 
 ## Competition Overview: MotrixArena S1
@@ -143,8 +143,7 @@ torque = kp * (target - current_pos) - kv * current_vel
 uv run starter_kit_schedule/scripts/automl.py `
     --mode stage `
     --budget-hours 12 `
-    --hp-trials 8 `
-    --reward-generations 3
+    --hp-trials 8
 
 # Basic training (2048 parallel envs)
 uv run scripts/train.py --env vbot_navigation_section001

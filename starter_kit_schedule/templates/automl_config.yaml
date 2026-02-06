@@ -55,16 +55,16 @@ hp_search:
       type: choice
       values: [16, 32, 64]
 
-# Reward Search Settings
-reward_search:
-  method: evolutionary  # evolutionary | grid | bayesian
-  population_size: 10
-  generations: 5
-  eval_steps: 2_000_000
-  
-  # Search space for reward weights
+# Reward Weight Search Settings (searched jointly with HP params)
+# Reward weights are sampled alongside PPO params in each trial — no separate phase.
+reward_weights:
+  # Search space for reward/penalty weights
   search_space:
     position_tracking:
+      type: uniform
+      low: 0.5
+      high: 5.0
+    fine_position_tracking:
       type: uniform
       low: 0.5
       high: 4.0
@@ -75,7 +75,23 @@ reward_search:
     forward_velocity:
       type: uniform
       low: 0.0
-      high: 1.5
+      high: 2.0
+    approach_scale:
+      type: uniform
+      low: 2.0
+      high: 10.0
+    arrival_bonus:
+      type: uniform
+      low: 5.0
+      high: 25.0
+    stop_scale:
+      type: uniform
+      low: 1.0
+      high: 5.0
+    zero_ang_bonus:
+      type: uniform
+      low: 2.0
+      high: 12.0
     orientation:
       type: uniform
       low: -0.3
@@ -84,13 +100,13 @@ reward_search:
       type: uniform
       low: -2.0
       high: -0.1
-    termination:
-      type: choice
-      values: [-500, -300, -200, -100, -50]
     action_rate:
       type: uniform
       low: -0.05
       high: -0.001
+    termination:
+      type: choice
+      values: [-500, -300, -200, -100, -50]
 
 # Evaluation Settings
 evaluation:

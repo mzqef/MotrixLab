@@ -40,6 +40,8 @@ _RENDER = flags.DEFINE_bool("render", False, "Render the env")
 _TRAIN_BACKEND = flags.DEFINE_string("train-backend", "jax", "The learning backend. (jax/torch)")
 _SEED = flags.DEFINE_integer("seed", None, "Random seed for reproducibility")
 _RAND_SEED = flags.DEFINE_bool("rand-seed", False, "Generate random seed")
+_MAX_ENV_STEPS = flags.DEFINE_integer("max-env-steps", None, "Override max environment steps (for quick probes)")
+_CHECK_POINT_INTERVAL = flags.DEFINE_integer("check-point-interval", None, "Override checkpoint save interval")
 
 
 def get_train_backend(supports: utils.DeviceSupports):
@@ -71,8 +73,14 @@ def main(argv):
     elif _SEED.present:
         rl_override["seed"] = _SEED.value
 
+    if _MAX_ENV_STEPS.present:
+        rl_override["max_env_steps"] = _MAX_ENV_STEPS.value
+
+    if _CHECK_POINT_INTERVAL.present:
+        rl_override["check_point_interval"] = _CHECK_POINT_INTERVAL.value
+
     sim_backend = _SIM_BACKEND.value
-    train_backend = "jax"
+    train_backend = "torch"  # JAX not available on this machine
     if not _TRAIN_BACKEND.present:
         train_backend = get_train_backend(device_supports)
     else:
