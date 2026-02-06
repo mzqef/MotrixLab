@@ -1,0 +1,394 @@
+# Search Space Template for Curriculum Learning Hyperparameter Optimization
+# Focus: Reward weights, PPO dynamics, and curriculum progression
+
+search_id: "search_YYYYMMDD_curriculum"
+name: "Curriculum Learning Search Space"
+
+# Search strategy
+strategy: "random"    # grid | random | bayesian
+max_trials: 100       # Maximum configs to generate
+num_seeds: 3          # Seeds per config for statistical significance
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PPO HYPERPARAMETERS (Critical for learning dynamics)
+# ═══════════════════════════════════════════════════════════════════════════════
+ppo_params:
+  # Learning rate - most critical parameter
+  learning_rate:
+    type: "log_uniform"
+    min: 1e-5
+    max: 1e-3
+    default: 3e-4
+    priority: "high"
+    notes: "Lower (1e-5–1e-4) for fine-tuning, higher (1e-4–1e-3) for fresh training"
+    
+  # Discount factor - affects credit assignment horizon
+  discount_factor:
+    type: "choice"
+    values: [0.95, 0.97, 0.99, 0.995]
+    default: 0.99
+    priority: "medium"
+    notes: "Higher values for long-horizon tasks, lower for reactive tasks"
+    
+  # GAE lambda - bias-variance tradeoff
+  lambda_param:
+    type: "choice"
+    values: [0.9, 0.95, 0.97]
+    default: 0.95
+    priority: "low"
+    
+  # PPO clipping - policy conservatism
+  ratio_clip:
+    type: "choice"
+    values: [0.1, 0.2, 0.3]
+    default: 0.2
+    priority: "medium"
+    notes: "0.1 for stable fine-tuning, 0.3 for aggressive early learning"
+    
+  # Entropy coefficient - exploration/exploitation
+  entropy_loss_scale:
+    type: "log_uniform"
+    min: 1e-4
+    max: 1e-2
+    default: 1e-3
+    priority: "high"
+    notes: "Higher for exploration in early stages, lower for exploitation in late stages"
+    
+  # Mini-batch size
+  mini_batches:
+    type: "choice"
+    values: [16, 32, 64]
+    default: 32
+    priority: "low"
+    
+  # Learning epochs per update
+  learning_epochs:
+    type: "choice"
+    values: [4, 5, 8]
+    default: 5
+    priority: "low"
+    
+  # Gradient clipping
+  grad_norm_clip:
+    type: "choice"
+    values: [0.5, 1.0, 2.0]
+    default: 1.0
+    priority: "low"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# NETWORK ARCHITECTURE
+# ═══════════════════════════════════════════════════════════════════════════════
+network:
+  policy_hidden_layer_sizes:
+    type: "choice"
+    values:
+      - [128, 64]           # Small - fast, may underfit
+      - [256, 128, 64]      # Medium - balanced
+      - [256, 256, 128]     # Large - more capacity
+      - [512, 256, 128]     # XL - for complex policies
+    default: [256, 128, 64]
+    priority: "medium"
+    
+  value_hidden_layer_sizes:
+    type: "choice"
+    values:
+      - [128, 64]
+      - [256, 128, 64]
+      - [256, 256, 128]
+    default: [256, 128, 64]
+    priority: "low"
+    notes: "Value network can often be smaller than policy"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ENVIRONMENT PARAMETERS
+# ═══════════════════════════════════════════════════════════════════════════════
+environment:
+  num_envs:
+    type: "choice"
+    values: [1024, 2048, 4096]
+    default: 2048
+    priority: "low"
+    notes: "More envs = more stable gradients, but slower iteration"
+    
+  rollouts:
+    type: "choice"
+    values: [16, 24, 32, 48]
+    default: 24
+    priority: "medium"
+    notes: "Longer rollouts capture temporal structure"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# REWARD WEIGHTS (Primary search target for curriculum)
+# ═══════════════════════════════════════════════════════════════════════════════
+reward_weights:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Navigation Rewards
+  # ─────────────────────────────────────────────────────────────────────────────
+  position_tracking:
+    type: "uniform"
+    min: 0.5
+    max: 4.0
+    default: 2.0
+    priority: "high"
+    notes: "Primary goal reward - higher values push toward target"
+    
+  fine_position_tracking:
+    type: "uniform"
+    min: 0.5
+    max: 4.0
+    default: 2.0
+    priority: "high"
+    notes: "Fine positioning when near goal"
+    
+  heading_tracking:
+    type: "uniform"
+    min: 0.1
+    max: 2.0
+    default: 1.0
+    priority: "medium"
+    notes: "Face direction of travel"
+    
+  forward_velocity:
+    type: "uniform"
+    min: 0.0
+    max: 1.5
+    default: 0.5
+    priority: "medium"
+    notes: "Encourages faster traversal"
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Stability Penalties
+  # ─────────────────────────────────────────────────────────────────────────────
+  orientation_penalty:
+    type: "uniform"
+    min: -0.3
+    max: -0.01
+    default: -0.05
+    priority: "high"
+    notes: "Penalize body tilt (roll/pitch)"
+    
+  lin_vel_z_penalty:
+    type: "uniform"
+    min: -2.0
+    max: -0.1
+    default: -0.5
+    priority: "high"
+    notes: "Penalize vertical bouncing"
+    
+  ang_vel_xy_penalty:
+    type: "uniform"
+    min: -0.2
+    max: -0.01
+    default: -0.05
+    priority: "medium"
+    notes: "Penalize body rotation"
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Efficiency Penalties
+  # ─────────────────────────────────────────────────────────────────────────────
+  torques_penalty:
+    type: "log_uniform"
+    min: 1e-6
+    max: 1e-4
+    default: 1e-5
+    transform: "negate"  # Will be multiplied by -1
+    priority: "medium"
+    notes: "Energy efficiency"
+    
+  dof_vel_penalty:
+    type: "log_uniform"
+    min: 1e-6
+    max: 1e-4
+    default: 5e-5
+    transform: "negate"
+    priority: "low"
+    notes: "Joint velocity penalty"
+    
+  action_rate_penalty:
+    type: "uniform"
+    min: -0.05
+    max: -0.001
+    default: -0.01
+    priority: "medium"
+    notes: "Smooth policy outputs"
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Termination Penalties
+  # ─────────────────────────────────────────────────────────────────────────────
+  termination_penalty:
+    type: "choice"
+    values: [-50, -100, -200, -300, -500]
+    default: -200
+    priority: "high"
+    notes: "Body collision penalty - higher = more conservative"
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Terrain-Specific (Stage 2+ only)
+  # ─────────────────────────────────────────────────────────────────────────────
+  knee_lift_bonus:
+    type: "uniform"
+    min: 0.0
+    max: 0.5
+    default: 0.2
+    priority: "medium"
+    stage_applicable: ["stage2b_stairs", "final"]
+    notes: "Encourage leg lift for stairs"
+    
+  ball_collision_penalty:
+    type: "uniform"
+    min: -10.0
+    max: -1.0
+    default: -5.0
+    priority: "high"
+    stage_applicable: ["stage2c_obstacles", "final"]
+    notes: "Rolling ball collision"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CURRICULUM PROGRESSION PARAMETERS
+# ═══════════════════════════════════════════════════════════════════════════════
+curriculum:
+  # Stage promotion thresholds
+  promotion_reward_threshold:
+    type: "choice"
+    values: [20.0, 25.0, 30.0, 35.0]
+    default: 30.0
+    priority: "high"
+    notes: "Minimum mean reward to advance stage"
+    
+  promotion_success_rate:
+    type: "choice"
+    values: [0.80, 0.85, 0.90, 0.95]
+    default: 0.90
+    priority: "medium"
+    notes: "Required success rate to advance"
+    
+  # Warm-start parameters
+  warm_start_lr_multiplier:
+    type: "choice"
+    values: [0.1, 0.3, 0.5, 1.0]
+    default: 0.5
+    priority: "high"
+    notes: "LR scaling when loading checkpoint"
+    
+  warm_start_reset_optimizer:
+    type: "choice"
+    values: [true, false]
+    default: true
+    priority: "medium"
+    notes: "Reset optimizer state on warm-start"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# REWARD SHAPING PARAMETERS
+# ═══════════════════════════════════════════════════════════════════════════════
+reward_shaping:
+  # Exponential distance reward: exp(-dist/sigma)
+  position_sigma:
+    type: "uniform"
+    min: 0.1
+    max: 1.0
+    default: 0.5
+    priority: "high"
+    notes: "Smaller = sharper gradient near target"
+    
+  fine_position_sigma:
+    type: "uniform"
+    min: 0.05
+    max: 0.3
+    default: 0.1
+    priority: "medium"
+    notes: "Very sharp when close to target"
+    
+  heading_sigma:
+    type: "uniform"
+    min: 0.2
+    max: 1.0
+    default: 0.5
+    priority: "low"
+    
+  # Fine position activation distance
+  fine_position_activation:
+    type: "uniform"
+    min: 0.5
+    max: 2.0
+    default: 1.0
+    priority: "medium"
+    notes: "Distance within which fine_position_tracking activates"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CONSTRAINTS (Filter bad combinations)
+# ═══════════════════════════════════════════════════════════════════════════════
+constraints:
+  - condition: "learning_rate > 5e-4 and learning_epochs > 8"
+    action: "skip"
+    reason: "High LR + many epochs = instability"
+    
+  - condition: "entropy_loss_scale > 5e-3 and ratio_clip < 0.15"
+    action: "skip"
+    reason: "High entropy + low clip = no learning"
+    
+  - condition: "position_tracking < 1.0 and forward_velocity < 0.3"
+    action: "skip"
+    reason: "Insufficient goal-seeking incentive"
+    
+  - condition: "termination_penalty > -100 and orientation_penalty > -0.03"
+    action: "skip"
+    reason: "Too lenient - robot won't learn stability"
+    
+  - condition: "warm_start_lr_multiplier > 0.7 and learning_rate > 3e-4"
+    action: "skip"
+    reason: "High LR for fine-tuning may diverge"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# FIXED PARAMETERS (Not searched)
+# ═══════════════════════════════════════════════════════════════════════════════
+fixed:
+  seed_base: 42
+  value_clip: 0.2
+  max_env_steps_stage1: 50_000_000
+  checkpoint_interval: 500
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SEARCH PRESETS (Quick configurations)
+# ═══════════════════════════════════════════════════════════════════════════════
+presets:
+  quick_test:
+    description: "Fast validation (few trials, narrow ranges)"
+    max_trials: 10
+    parameters:
+      learning_rate: { type: "choice", values: [1e-4, 3e-4] }
+      position_tracking: { type: "choice", values: [1.5, 2.0, 2.5] }
+      termination_penalty: { type: "choice", values: [-100, -200] }
+      
+  reward_focus:
+    description: "Search reward weights only (fix PPO params)"
+    max_trials: 50
+    fixed_groups: ["ppo_params", "network"]
+    search_groups: ["reward_weights", "reward_shaping"]
+    
+  ppo_focus:
+    description: "Search PPO hyperparameters (fix rewards)"
+    max_trials: 50
+    fixed_groups: ["reward_weights", "reward_shaping"]
+    search_groups: ["ppo_params", "network", "environment"]
+    
+  full_search:
+    description: "Search everything (computationally expensive)"
+    max_trials: 200
+    num_seeds: 5
+
+# Notes
+notes: |
+  Curriculum learning search space for VBot navigation.
+  
+  Search priority order:
+  1. Reward weights (position_tracking, termination_penalty)
+  2. PPO dynamics (learning_rate, entropy_loss_scale)
+  3. Curriculum params (promotion thresholds, warm_start_lr)
+  4. Architecture (hidden_layer_sizes)
+  5. Environment (num_envs, rollouts)
+  
+  Recommended workflow:
+  1. Use 'quick_test' preset for sanity check
+  2. Use 'reward_focus' to find good reward balance
+  3. Use 'ppo_focus' to tune learning dynamics
+  4. Use 'full_search' for final optimization

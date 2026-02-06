@@ -1,0 +1,132 @@
+# AutoML Configuration Template
+# Copy and customize for your training campaigns
+
+automl:
+  mode: full  # full | stage | hp-search | reward-search | eval
+  budget_hours: 48.0
+  target_reward: 35.0
+  max_iterations: 100
+  environment: vbot_navigation_section001
+  seed: 42
+
+# Curriculum Learning Settings
+curriculum:
+  auto_promote: true
+  promotion_patience: 3  # Attempts before auto-promote
+  promotion_threshold: 30.0  # Reward threshold for promotion
+  stages:
+    - stage1_flat
+    - stage2a_waves
+    - stage2b_stairs
+    - stage2c_obstacles
+    # Add custom stages as needed
+
+# Hyperparameter Search Settings
+hp_search:
+  method: bayesian  # bayesian | random | grid
+  trials_per_stage: 20
+  warmup_trials: 5  # Random trials before Bayesian
+  eval_steps: 5_000_000
+  
+  # Search space (values will be sampled)
+  search_space:
+    learning_rate:
+      type: loguniform
+      low: 1.0e-5
+      high: 1.0e-3
+    entropy_loss_scale:
+      type: loguniform
+      low: 1.0e-4
+      high: 1.0e-2
+    policy_hidden_layer_sizes:
+      type: categorical
+      choices:
+        - [128, 64]
+        - [256, 128, 64]
+        - [512, 256, 128]
+        - [256, 256, 256]
+    rollouts:
+      type: choice
+      values: [16, 24, 32, 48]
+    learning_epochs:
+      type: choice
+      values: [4, 5, 6, 8]
+    mini_batches:
+      type: choice
+      values: [16, 32, 64]
+
+# Reward Search Settings
+reward_search:
+  method: evolutionary  # evolutionary | grid | bayesian
+  population_size: 10
+  generations: 5
+  eval_steps: 2_000_000
+  
+  # Search space for reward weights
+  search_space:
+    position_tracking:
+      type: uniform
+      low: 0.5
+      high: 4.0
+    heading_tracking:
+      type: uniform
+      low: 0.1
+      high: 2.0
+    forward_velocity:
+      type: uniform
+      low: 0.0
+      high: 1.5
+    orientation:
+      type: uniform
+      low: -0.3
+      high: -0.01
+    lin_vel_z:
+      type: uniform
+      low: -2.0
+      high: -0.1
+    termination:
+      type: choice
+      values: [-500, -300, -200, -100, -50]
+    action_rate:
+      type: uniform
+      low: -0.05
+      high: -0.001
+
+# Evaluation Settings
+evaluation:
+  episodes: 100
+  metrics:
+    - episode_reward_mean
+    - episode_reward_std
+    - success_rate
+    - termination_rate
+    - episode_length_mean
+  
+  # Composite score weights
+  score_weights:
+    episode_reward_mean: 0.4
+    success_rate: 0.3
+    episode_length: 0.2  # Inverse: shorter is better
+    termination_rate: 0.1  # Inverse: lower is better
+
+# Early Stopping Settings
+early_stopping:
+  patience: 10  # Iterations without improvement
+  min_improvement: 0.5  # Minimum reward delta to count as improvement
+  
+# Training Settings (for full training phase)
+training:
+  full_train_steps: 50_000_000
+  checkpoint_interval: 500
+  num_envs: 2048
+  device: cuda
+  log_interval: 10
+
+# Logging and Checkpoints
+logging:
+  log_dir: starter_kit_log/automl
+  save_best_only: true
+  tensorboard: true
+  wandb: false  # Set true and configure below for W&B
+  wandb_project: motrix-automl
+  wandb_entity: null  # Your W&B username/org

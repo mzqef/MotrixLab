@@ -1,0 +1,132 @@
+# Training Plan Template
+# Copy and customize this template for your training campaign
+
+plan_id: "plan_YYYYMMDD_HHMMSS"  # Auto-generated, or set custom ID
+name: "My Training Campaign"
+description: "Description of the training campaign goals"
+created_at: null  # Auto-filled
+status: "draft"  # draft | queued | running | paused | completed | failed
+
+# Target environment configuration
+environment:
+  name: "anymal_c_navigation_flat"  # Environment name from registry
+  stage: 1  # Stage number (1 or 2)
+  starter_kit_path: "starter_kit/navigation1/anymal_c"
+
+# Training phases (sequential)
+phases:
+  # Phase 1: Warmup (optional)
+  - phase_id: "warmup"
+    name: "Warmup Phase"
+    description: "Initial training to establish baseline"
+    max_env_steps: 10_000_000
+    checkpoint_interval: 500
+    early_stopping:
+      metric: "episode_reward_mean"
+      patience: 20  # Stop if no improvement for 20 evaluations
+      min_delta: 0.01  # Minimum improvement threshold
+  
+  # Phase 2: Main training
+  - phase_id: "main"
+    name: "Main Training Phase"
+    description: "Full training until convergence"
+    max_env_steps: 100_000_000
+    checkpoint_interval: 1000
+    warm_start_from: "warmup"  # Resume from warmup phase best checkpoint
+    early_stopping:
+      metric: "episode_reward_mean"
+      patience: 50
+      min_delta: 0.001
+
+# Hyperparameter search configuration
+search:
+  method: "grid"  # grid | random | bayesian
+  max_trials: 20  # Maximum number of configurations to try
+  parallel_trials: 1  # Number of parallel trials (1 for single GPU)
+  
+  # Search space definition
+  space:
+    # Fixed parameters (applied to all configs)
+    fixed:
+      seed: 42
+      num_envs: 2048
+      discount_factor: 0.99
+      lambda_param: 0.95
+      grad_norm_clip: 1.0
+      ratio_clip: 0.2
+      value_clip: 0.2
+    
+    # Searchable parameters
+    searchable:
+      learning_rate:
+        type: "choice"  # choice | loguniform | uniform
+        values: [1e-4, 3e-4, 1e-3]
+      
+      policy_hidden_layer_sizes:
+        type: "choice"
+        values:
+          - [256, 128, 64]
+          - [512, 256, 128]
+          - [256, 256, 256]
+      
+      value_hidden_layer_sizes:
+        type: "choice"
+        values:
+          - [256, 128, 64]
+          - [512, 256, 128]
+          - [256, 256, 256]
+      
+      rollouts:
+        type: "choice"
+        values: [24, 32, 48]
+      
+      learning_epochs:
+        type: "choice"
+        values: [4, 5, 6]
+      
+      mini_batches:
+        type: "choice"
+        values: [16, 32, 64]
+
+# Resource constraints
+resources:
+  max_runtime_hours: 48  # Maximum total runtime for campaign
+  checkpoint_storage_gb: 50  # Maximum checkpoint storage
+  gpu_memory_gb: 16  # Expected GPU memory
+
+# Evaluation criteria
+evaluation:
+  primary_metric: "episode_reward_mean"  # Main optimization target
+  secondary_metrics:
+    - "episode_length_mean"
+    - "success_rate"
+    - "policy_loss"
+    - "value_loss"
+  evaluation_episodes: 100  # Episodes for final evaluation
+
+# Warm start configuration (for transfer learning)
+warm_start:
+  enabled: false
+  source:
+    checkpoint_path: null  # Path to source checkpoint
+    # Or specify by campaign/experiment:
+    # campaign_id: "campaign_xxx"
+    # experiment_id: "exp_xxx"
+  strategy:
+    reset_optimizer: true  # Reset optimizer state
+    reset_scheduler: true  # Reset learning rate scheduler
+    freeze_layers: []  # Layer names to freeze
+    learning_rate_multiplier: 0.1  # Reduce LR for fine-tuning
+
+# Notification settings (optional)
+notifications:
+  on_completion: false
+  on_failure: false
+  # webhook_url: "https://..."
+
+# Notes
+notes: |
+  Add any notes about this training plan here.
+  - Experiment goals
+  - Expected outcomes
+  - Previous results to compare against

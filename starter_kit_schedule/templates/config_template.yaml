@@ -1,0 +1,67 @@
+# Configuration Template
+# Individual training configuration file
+
+config_id: "config_001"  # Unique identifier
+campaign_id: null  # Parent campaign (if part of search)
+
+# Environment
+environment: "anymal_c_navigation_flat"
+
+# Training parameters
+max_env_steps: 100_000_000
+checkpoint_interval: 1000
+
+# Hyperparameters
+hyperparameters:
+  # Reproducibility
+  seed: 42
+  
+  # Parallelization
+  num_envs: 2048
+  
+  # Network architecture
+  policy_hidden_layer_sizes: [256, 128, 64]
+  value_hidden_layer_sizes: [256, 128, 64]
+  share_policy_value_features: false
+  
+  # PPO algorithm parameters
+  rollouts: 24
+  learning_epochs: 5
+  mini_batches: 32
+  
+  # Discount and GAE
+  discount_factor: 0.99
+  lambda_param: 0.95
+  
+  # Learning rate
+  learning_rate: 3e-4
+  learning_rate_scheduler_kl_threshold: 0.008
+  
+  # Clipping
+  ratio_clip: 0.2
+  value_clip: 0.2
+  clip_predicted_values: true
+  grad_norm_clip: 1.0
+  
+  # Loss scaling
+  entropy_loss_scale: 0.0
+  value_loss_scale: 2.0
+  kl_threshold: 0
+  
+  # Reward shaping
+  rewards_shaper_scale: 1.0
+  
+  # Other
+  random_timesteps: 0
+  learning_starts: 0
+  time_limit_bootstrap: true
+
+# Warm start (optional)
+warm_start:
+  enabled: false
+  checkpoint_path: null
+  reset_optimizer: true
+  reset_scheduler: true
+
+# Notes
+notes: ""

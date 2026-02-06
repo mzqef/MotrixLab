@@ -1,0 +1,275 @@
+# Curriculum Training Plan Template
+# Multi-stage progressive training with reward shaping
+
+plan_id: "curriculum_YYYYMMDD_HHMMSS"
+name: "My Curriculum Training"
+description: "Stage 1 → Stage 2 progressive curriculum"
+created_at: null  # Auto-filled
+status: "draft"  # draft | queued | running | paused | completed | failed
+
+# Curriculum stages (executed sequentially)
+curriculum:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # STAGE 1: Flat Ground Navigation
+  # ═══════════════════════════════════════════════════════════════════════════
+  - stage_id: "stage1_flat"
+    name: "Stage 1: Flat Ground Navigation"
+    description: "Learn basic locomotion and navigation on flat terrain"
+    environment: "vbot_navigation_section001"  # or anymal_c_navigation_flat
+    max_env_steps: 50_000_000
+    checkpoint_interval: 500
+    
+    # No warm-start for first stage
+    warm_start: null
+    
+    # Reward configuration for this stage
+    reward_overrides:
+      # Primary navigation rewards
+      position_tracking: 2.0        # Core: track target position
+      fine_position_tracking: 2.0   # Bonus when close to target
+      heading_tracking: 1.0         # Face movement direction
+      forward_velocity: 0.5         # Encourage forward motion
+      
+      # Stability penalties
+      orientation: -0.05            # Penalize body tilt
+      lin_vel_z: -0.5               # Penalize vertical bounce
+      ang_vel_xy: -0.05             # Penalize body rotation
+      
+      # Efficiency penalties
+      torques: -1e-5                # Energy efficiency
+      dof_vel: -5e-5                # Smooth joint motion
+      action_rate: -0.01            # Smooth policy output
+      
+      # Terminal penalty
+      termination: -200.0           # Body-ground collision
+    
+    # Criteria to advance to next stage
+    promotion_criteria:
+      metric: "episode_reward_mean"
+      threshold: 30.0               # Minimum reward to pass
+      min_steps: 20_000_000         # Train at least this much
+      success_rate: 0.95            # 95% episodes reach goal
+    
+  # ═══════════════════════════════════════════════════════════════════════════
+  # STAGE 2A: Wave Terrain
+  # ═══════════════════════════════════════════════════════════════════════════
+  - stage_id: "stage2a_waves"
+    name: "Stage 2A: Wave Terrain"
+    description: "Adapt flat-ground policy to undulating terrain"
+    environment: "vbot_navigation_section012"
+    max_env_steps: 30_000_000
+    checkpoint_interval: 1000
+    
+    # Warm-start from Stage 1
+    warm_start:
+      from_stage: "stage1_flat"
+      strategy: "best_checkpoint"   # Use best, not final
+      reset_optimizer: true         # Fresh optimizer state
+      reset_scheduler: true
+      learning_rate_multiplier: 0.5 # Lower LR for fine-tuning
+    
+    # Terrain-specific reward adjustments
+    reward_overrides:
+      position_tracking: 1.5        # Slightly lower (harder task)
+      heading_tracking: 0.8
+      
+      # Wave-specific rewards
+      height_variance_penalty: -0.1 # Don't bounce on waves
+      forward_progress_wave: 0.5    # Bonus for crossing waves
+      
+      # Keep stability penalties
+      orientation: -0.05
+      lin_vel_z: -0.8               # Stronger bounce penalty
+      termination: -200.0
+    
+    promotion_criteria:
+      metric: "episode_reward_mean"
+      threshold: 25.0
+      success_rate: 0.85
+    
+  # ═══════════════════════════════════════════════════════════════════════════
+  # STAGE 2B: Stairs
+  # ═══════════════════════════════════════════════════════════════════════════
+  - stage_id: "stage2b_stairs"
+    name: "Stage 2B: Stairs"
+    description: "Learn stair climbing and descent"
+    environment: "vbot_navigation_stairs"
+    max_env_steps: 40_000_000
+    checkpoint_interval: 1000
+    
+    warm_start:
+      from_stage: "stage2a_waves"
+      strategy: "best_checkpoint"
+      reset_optimizer: true
+      learning_rate_multiplier: 0.3 # Even lower LR
+    
+    reward_overrides:
+      position_tracking: 1.5
+      
+      # Stair-specific rewards
+      knee_lift_bonus: 0.2          # Encourage leg clearance
+      foot_clearance_reward: 0.1    # Clear the step edge
+      foot_slip_penalty: -0.5       # Don't slip on edges
+      gradient_adaptation: 0.3      # Detect and adapt to incline
+      edge_avoidance_penalty: -0.3  # Don't step on edges
+      
+      termination: -200.0
+    
+    promotion_criteria:
+      metric: "episode_reward_mean"
+      threshold: 20.0
+      success_rate: 0.80
+    
+  # ═══════════════════════════════════════════════════════════════════════════
+  # STAGE 2C: Dynamic Obstacles
+  # ═══════════════════════════════════════════════════════════════════════════
+  - stage_id: "stage2c_obstacles"
+    name: "Stage 2C: Rolling Ball Avoidance"
+    description: "Learn to avoid dynamic obstacles"
+    environment: "vbot_navigation_section013"
+    max_env_steps: 30_000_000
+    checkpoint_interval: 1000
+    
+    warm_start:
+      from_stage: "stage2b_stairs"
+      strategy: "best_checkpoint"
+      reset_optimizer: true
+      learning_rate_multiplier: 0.3
+    
+    # Extend observation space for ball tracking
+    observation_extensions:
+      ball_positions: 6             # 2 balls × 3D relative position
+      ball_velocities: 6            # 2 balls × 3D velocity
+    
+    reward_overrides:
+      position_tracking: 1.0
+      
+      # Obstacle avoidance rewards
+      ball_collision_penalty: -5.0  # Hit by ball
+      ball_proximity_penalty: -0.1  # Per-step penalty when close
+      safe_distance_bonus: 0.1      # Maintain safe clearance
+      safe_passage_bonus: 2.0       # Clear the obstacle zone
+      
+      termination: -200.0
+    
+    promotion_criteria:
+      metric: "episode_reward_mean"
+      threshold: 18.0
+      success_rate: 0.75
+    
+  # ═══════════════════════════════════════════════════════════════════════════
+  # FINAL: Full Course Integration
+  # ═══════════════════════════════════════════════════════════════════════════
+  - stage_id: "final_full_course"
+    name: "Final: Full Course Integration"
+    description: "End-to-end training on complete 30m course"
+    environment: "vbot_navigation_long_course"
+    max_env_steps: 50_000_000
+    checkpoint_interval: 1000
+    
+    warm_start:
+      from_stage: "stage2c_obstacles"
+      strategy: "best_checkpoint"
+      reset_optimizer: false        # Keep momentum for final tuning
+      learning_rate_multiplier: 1.0
+    
+    # Use all reward components
+    reward_overrides:
+      # Navigation
+      position_tracking: 1.5
+      heading_tracking: 0.8
+      forward_velocity: 0.3
+      
+      # Stability
+      orientation: -0.05
+      lin_vel_z: -0.5
+      ang_vel_xy: -0.05
+      
+      # Terrain-specific (activated by terrain detection)
+      knee_lift_bonus: 0.2
+      height_variance_penalty: -0.1
+      
+      # Obstacles
+      ball_collision_penalty: -5.0
+      safe_distance_bonus: 0.1
+      
+      # Efficiency
+      torques: -1e-5
+      action_rate: -0.01
+      
+      # Checkpoint bonuses (along course)
+      checkpoint_rewards:
+        - position: [5.0, 0.0]
+          radius: 1.0
+          reward: 3.0
+        - position: [10.0, 0.0]
+          radius: 1.0
+          reward: 4.0
+        - position: [15.0, 0.0]
+          radius: 1.0
+          reward: 5.0
+        - position: [20.0, 0.0]
+          radius: 1.0
+          reward: 6.0
+        - position: [25.0, 0.0]
+          radius: 1.0
+          reward: 7.0
+      
+      termination: -200.0
+    
+    # No promotion - this is final stage
+    promotion_criteria: null
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Global Settings
+# ═══════════════════════════════════════════════════════════════════════════
+
+# PPO hyperparameters (applied to all stages unless overridden)
+ppo_config:
+  seed: 42
+  num_envs: 2048
+  policy_hidden_layer_sizes: [256, 128, 64]
+  value_hidden_layer_sizes: [256, 128, 64]
+  learning_rate: 3e-4
+  rollouts: 24
+  learning_epochs: 5
+  mini_batches: 32
+  discount_factor: 0.99
+  lambda_param: 0.95
+  ratio_clip: 0.2
+  value_clip: 0.2
+  grad_norm_clip: 1.0
+  entropy_loss_scale: 0.001
+
+# Resource constraints
+resources:
+  max_runtime_hours: 72          # Total curriculum time limit
+  checkpoint_storage_gb: 100
+  gpu_memory_gb: 16
+
+# Evaluation for each stage
+evaluation:
+  primary_metric: "episode_reward_mean"
+  secondary_metrics:
+    - "episode_length_mean"
+    - "success_rate"
+    - "termination_rate"
+  evaluation_episodes: 100
+
+# Notification settings
+notifications:
+  on_stage_complete: true
+  on_curriculum_complete: true
+  on_failure: true
+
+# Notes
+notes: |
+  Curriculum training plan for VBot navigation challenge.
+  - Stage 1: Master flat ground locomotion
+  - Stage 2A-C: Progressive terrain adaptation
+  - Final: Integration on full course
+  
+  Key reward shaping strategy:
+  - Sigmoid distance rewards for smooth gradients
+  - Progressive checkpoint bonuses along course
+  - Terrain-specific rewards activated per stage

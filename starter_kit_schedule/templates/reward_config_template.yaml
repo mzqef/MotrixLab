@@ -1,0 +1,316 @@
+# Reward Engineering Configuration Template
+# Define reward components, scaling, and terrain-specific weights
+
+reward_config_id: "reward_YYYYMMDD"
+name: "Navigation Reward Config"
+description: "Reward shaping for quadruped navigation"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# REWARD COMPONENTS REFERENCE
+# ═══════════════════════════════════════════════════════════════════════════════
+# 
+# +─────────────────────────────────────────────────────────────────────────────+
+# │ COMPONENT               │ UNIT         │ HOT RANGE   │ TYPICAL SCALE        │
+# +─────────────────────────────────────────────────────────────────────────────+
+# │ position_tracking       │ exp(-dist)   │ 0.0–1.0     │ 1.0–3.0 (dense)      │
+# │ fine_position_tracking  │ exp(-dist)   │ 0.0–1.0     │ 1.0–3.0 (close)      │
+# │ heading_tracking        │ exp(-err)    │ 0.0–1.0     │ 0.5–1.5              │
+# │ forward_velocity        │ m/s          │ 0.0–2.0     │ 0.3–1.0              │
+# +─────────────────────────────────────────────────────────────────────────────+
+# │ orientation             │ rad²         │ 0.0–0.5     │ -0.01–-0.1 (pen)     │
+# │ lin_vel_z               │ (m/s)²       │ 0.0–4.0     │ -0.1–-1.0 (pen)      │
+# │ ang_vel_xy              │ (rad/s)²     │ 0.0–10.0    │ -0.01–-0.1 (pen)     │
+# +─────────────────────────────────────────────────────────────────────────────+
+# │ torques                 │ (N⋅m)²       │ varies      │ -1e-6–-1e-4 (pen)    │
+# │ dof_vel                 │ (rad/s)²     │ varies      │ -1e-5–-1e-4 (pen)    │
+# │ action_rate             │ Δ²           │ 0.0–1.0     │ -0.005–-0.05 (pen)   │
+# +─────────────────────────────────────────────────────────────────────────────+
+# │ termination             │ binary       │ 0 or 1      │ -100–-500 (pen)      │
+# +─────────────────────────────────────────────────────────────────────────────+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# NAVIGATION REWARDS
+# ═══════════════════════════════════════════════════════════════════════════════
+navigation:
+  position_tracking:
+    enabled: true
+    weight: 2.0
+    distance_type: "euclidean_xy"  # xy | xyz | euclidean_xy
+    shaping: "exponential"         # exponential | linear | sigmoid
+    sigma: 0.5                     # For exponential: exp(-dist/sigma)
+    description: "Primary goal-seeking reward"
+    
+  fine_position_tracking:
+    enabled: true
+    weight: 2.0
+    activation_distance: 1.0      # Only active within this radius
+    sigma: 0.1                    # Sharper shaping when close
+    description: "Dense reward when near target"
+    
+  heading_tracking:
+    enabled: true
+    weight: 1.0
+    reference: "velocity_direction"  # velocity_direction | target_direction
+    sigma: 0.5
+    description: "Face movement direction"
+    
+  forward_velocity:
+    enabled: true
+    weight: 0.5
+    target_velocity: 1.5          # Desired forward speed (m/s)
+    velocity_range: [0.5, 2.0]    # Acceptable range
+    penalty_outside_range: -0.1
+    description: "Encourage forward motion at target speed"
+
+  checkpoint_bonuses:
+    enabled: true
+    checkpoints:
+      - position: [5.0, 0.0, 0.0]
+        radius: 1.0
+        reward: 3.0
+        one_time: true            # Only award once per episode
+      - position: [10.0, 0.0, 0.0]
+        radius: 1.0
+        reward: 4.0
+        one_time: true
+      - position: [15.0, 0.0, 0.0]
+        radius: 1.0
+        reward: 5.0
+        one_time: true
+    description: "Progress markers along course"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# STABILITY PENALTIES
+# ═══════════════════════════════════════════════════════════════════════════════
+stability:
+  orientation:
+    enabled: true
+    weight: -0.05
+    max_roll: 0.4                  # rad (≈23°)
+    max_pitch: 0.4                 # rad (≈23°)
+    description: "Penalize body tilt"
+    
+  lin_vel_z:
+    enabled: true
+    weight: -0.5
+    description: "Penalize vertical velocity (bouncing)"
+    
+  ang_vel_xy:
+    enabled: true
+    weight: -0.05
+    description: "Penalize body rotation rate"
+    
+  base_height:
+    enabled: false
+    weight: -0.1
+    target_height: 0.45           # meters
+    tolerance: 0.05
+    description: "Maintain nominal body height"
+    
+  feet_air_time:
+    enabled: false
+    weight: 0.1
+    ideal_air_time: 0.25          # seconds
+    description: "Encourage proper gait timing"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# EFFICIENCY PENALTIES
+# ═══════════════════════════════════════════════════════════════════════════════
+efficiency:
+  torques:
+    enabled: true
+    weight: -1e-5
+    description: "Penalize joint effort (energy efficiency)"
+    
+  dof_vel:
+    enabled: true
+    weight: -5e-5
+    description: "Penalize joint velocity magnitude"
+    
+  dof_acc:
+    enabled: false
+    weight: -1e-6
+    description: "Penalize joint acceleration (smoothness)"
+    
+  action_rate:
+    enabled: true
+    weight: -0.01
+    description: "Penalize rapid policy changes"
+    
+  action_magnitude:
+    enabled: false
+    weight: -0.001
+    description: "Penalize large actions"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TERMINATION PENALTIES
+# ═══════════════════════════════════════════════════════════════════════════════
+termination:
+  body_collision:
+    enabled: true
+    weight: -200.0
+    monitored_bodies: ["base", "trunk"]
+    description: "Body touches ground"
+    
+  timeout:
+    enabled: false
+    max_episode_steps: 1000
+    penalty: -10.0
+    description: "Episode timeout penalty"
+    
+  out_of_bounds:
+    enabled: false
+    bounds: [[-5, -5], [35, 5]]   # [[xmin, ymin], [xmax, ymax]]
+    penalty: -50.0
+    description: "Leave designated area"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TERRAIN-SPECIFIC REWARDS
+# ═══════════════════════════════════════════════════════════════════════════════
+terrain_specific:
+  # Wave terrain rewards
+  waves:
+    enabled: false
+    height_variance_penalty:
+      weight: -0.1
+      description: "Penalize excessive height variance"
+    wave_crossing_bonus:
+      weight: 0.5
+      description: "Bonus for crossing wave crests"
+      
+  # Stair terrain rewards
+  stairs:
+    enabled: false
+    knee_lift_bonus:
+      weight: 0.2
+      min_lift: 0.05              # meters
+      description: "Encourage leg clearance for steps"
+    foot_clearance:
+      weight: 0.1
+      min_clearance: 0.03         # meters above step edge
+      description: "Clear step edges"
+    foot_slip_penalty:
+      weight: -0.5
+      slip_threshold: 0.1         # m/s foot slip velocity
+      description: "Penalize slipping on edges"
+    gradient_adaptation:
+      weight: 0.3
+      description: "Adapt posture to incline"
+      
+  # Obstacle avoidance rewards
+  obstacles:
+    enabled: false
+    ball_collision_penalty:
+      weight: -5.0
+      description: "Collision with rolling ball"
+    proximity_penalty:
+      weight: -0.1
+      safe_distance: 0.5          # meters
+      description: "Per-step penalty when near obstacles"
+    safe_passage_bonus:
+      weight: 2.0
+      description: "Successfully clear obstacle zone"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# AUXILIARY / CURRICULUM REWARDS
+# ═══════════════════════════════════════════════════════════════════════════════
+curriculum:
+  early_stage_bonuses:
+    # Shaping rewards that are reduced/removed in later stages
+    standing_reward:
+      enabled: true
+      weight: 0.1
+      stage_decay: 0.5            # Multiply by this each stage
+      description: "Bonus for staying upright (early training)"
+      
+    any_progress_reward:
+      enabled: true
+      weight: 0.05
+      stage_decay: 0.3
+      description: "Tiny reward for any forward progress"
+      
+  late_stage_additions:
+    # Rewards added only in advanced stages
+    speed_optimization:
+      enabled: false
+      weight: 0.3
+      target_speed: 2.0           # m/s
+      buffer: 0.2
+      description: "Optimize for speed once stable"
+      
+    path_efficiency:
+      enabled: false
+      weight: 0.2
+      description: "Minimize path length to goal"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# REWARD PREPROCESSING
+# ═══════════════════════════════════════════════════════════════════════════════
+preprocessing:
+  clipping:
+    enabled: true
+    min: -50.0                    # Per-step minimum
+    max: 50.0                     # Per-step maximum
+    
+  normalization:
+    enabled: false
+    running_mean: true            # Use running mean normalization
+    window_size: 10000
+    
+  discount_factor: 0.99           # For return calculation
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# STAGE PRESETS
+# ═══════════════════════════════════════════════════════════════════════════════
+# Quick presets to enable/disable groups of rewards for different stages
+
+stage_presets:
+  stage1_flat:
+    navigation: [position_tracking, fine_position_tracking, heading_tracking, forward_velocity]
+    stability: [orientation, lin_vel_z, ang_vel_xy]
+    efficiency: [torques, dof_vel, action_rate]
+    termination: [body_collision]
+    terrain_specific: []
+    curriculum: [standing_reward, any_progress_reward]
+    
+  stage2_terrain:
+    navigation: [position_tracking, fine_position_tracking, heading_tracking]
+    stability: [orientation, lin_vel_z, ang_vel_xy]
+    efficiency: [torques, action_rate]
+    termination: [body_collision]
+    terrain_specific: [waves, stairs]
+    curriculum: []
+    
+  stage2_obstacles:
+    navigation: [position_tracking, heading_tracking]
+    stability: [orientation, lin_vel_z]
+    efficiency: [torques, action_rate]
+    termination: [body_collision]
+    terrain_specific: [obstacles]
+    curriculum: []
+    
+  final_optimized:
+    navigation: [position_tracking, fine_position_tracking, heading_tracking, forward_velocity, checkpoint_bonuses]
+    stability: [orientation, lin_vel_z, ang_vel_xy]
+    efficiency: [torques, dof_vel, action_rate]
+    termination: [body_collision]
+    terrain_specific: [waves, stairs, obstacles]
+    curriculum: [speed_optimization, path_efficiency]
+
+# Notes
+notes: |
+  Reward engineering configuration for VBot navigation.
+  
+  Key principles:
+  1. Dense rewards early (position_tracking with small sigma)
+  2. Sparse rewards later (checkpoint bonuses)
+  3. Stability penalties always active
+  4. Terrain rewards only when relevant
+  5. Curriculum shaping decays over stages
+  
+  Tuning tips:
+  - If robot doesn't move: increase position_tracking weight
+  - If robot falls often: increase orientation penalty
+  - If robot bounces: increase lin_vel_z penalty
+  - If robot is jerky: increase action_rate penalty
+  - If robot doesn't reach goal: add checkpoint_bonuses
