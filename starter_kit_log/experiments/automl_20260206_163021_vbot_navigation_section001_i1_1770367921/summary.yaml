@@ -1,0 +1,50 @@
+campaign_id: automl_20260206_163021
+config:
+  algorithm: PPO
+  environment: vbot_navigation_section001
+  hyperparameters:
+    discount_factor: 0.99
+    entropy_loss_scale: 0.0002999158720777919
+    learning_epochs: 5
+    learning_rate: 0.00017168586660425397
+    max_env_steps: 5000000
+    mini_batches: 64
+    policy_hidden_layer_sizes:
+    - 256
+    - 256
+    - 256
+    rollouts: 16
+    seed: 42
+    value_hidden_layer_sizes:
+    - 512
+    - 256
+    - 128
+config_id: automl_20260206_163021_vbot_navigation_section001_i1_1770367921
+execution:
+  completed_at: '2026-02-06T22:01:15.062407Z'
+  duration_hours: 5.153663400477833
+  started_at: '2026-02-06T16:52:01.792619Z'
+  status: completed
+experiment_id: automl_20260206_163021_vbot_navigation_section001_i1_1770367921
+results:
+  final_metrics:
+    episode_reward_mean: 231.98098754882812
+    success_rate: 0.0
+  reward_scales:
+    action_rate: -0.01
+    ang_vel_xy: -0.05
+    approach_scale: 4.0
+    arrival_bonus: 10.0
+    dof_acc: -2.5e-07
+    dof_vel: -5.0e-05
+    fine_position_tracking: 2.0
+    forward_velocity: 0.5
+    heading_tracking: 1.0
+    lin_vel_z: -0.5
+    orientation: -0.05
+    position_tracking: 2.0
+    stop_scale: 2.0
+    termination: -200.0
+    torques: -1.0e-05
+    zero_ang_bonus: 6.0
+  run_dir: runs\vbot_navigation_section001\26-02-06_16-52-13-061153_PPO

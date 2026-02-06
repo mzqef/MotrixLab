@@ -1,0 +1,34 @@
+{
+  "run_tag": "automl_20260206_162141_stage1_flat_i0_1770366102",
+  "env_name": "vbot_navigation_section001",
+  "reward_scales": {
+    "position_tracking": 2.0,
+    "fine_position_tracking": 2.0,
+    "heading_tracking": 1.0,
+    "forward_velocity": 0.5,
+    "approach_scale": 4.0,
+    "arrival_bonus": 10.0,
+    "stop_scale": 2.0,
+    "zero_ang_bonus": 6.0,
+    "orientation": -0.05,
+    "lin_vel_z": -0.5,
+    "ang_vel_xy": -0.05,
+    "torques": -1e-05,
+    "dof_vel": -5e-05,
+    "dof_acc": -2.5e-07,
+    "action_rate": -0.01,
+    "termination": -200.0
+  },
+  "rl_overrides": {
+    "learning_rate": 6.523891825471585e-05,
+    "entropy_loss_scale": 0.003195671517245452,
+    "policy_hidden_layer_sizes": [
+      128,
+      64
+    ],
+    "value_hidden_layer_sizes": [
+      512,
+      256,
+      128
+    ],
+    "rollouts": 

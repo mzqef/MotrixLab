@@ -1,0 +1,42 @@
+{
+  "run_tag": "automl_20260206_163021_vbot_navigation_section001_i7_1770386501",
+  "env_name": "vbot_navigation_section001",
+  "reward_scales": {
+    "position_tracking": 1.65523030352069,
+    "fine_position_tracking": 3.0130267351558984,
+    "heading_tracking": 0.13176036419519221,
+    "forward_velocity": 0.7676610301895499,
+    "approach_scale": 4.864233394345765,
+    "arrival_bonus": 18.23027100181565,
+    "stop_scale": 4.34546703570462,
+    "zero_ang_bonus": 5.460749555932221,
+    "orientation": -0.06980210952327282,
+    "lin_vel_z": -0.49145996338748366,
+    "ang_vel_xy": -0.05,
+    "torques": -1e-05,
+    "dof_vel": -5e-05,
+    "dof_acc": -2.5e-07,
+    "action_rate": -0.012199034721012102,
+    "termination": -50
+  },
+  "rl_overrides": {
+    "learning_rate": 0.00017168586660425397,
+    "entropy_loss_scale": 0.0002999158720777919,
+    "policy_hidden_layer_sizes": [
+      256,
+      256,
+      256
+    ],
+    "value_hidden_layer_sizes": [
+      512,
+      256,
+      128
+    ],
+    "rollouts": 16,
+    "learning_epochs": 5,
+    "mini_batches": 64,
+    "discount_factor": 0.99,
+    "max_env_steps": 2000000,
+    "seed": 42
+  }
+}

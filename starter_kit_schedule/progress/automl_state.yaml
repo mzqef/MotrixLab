@@ -1,0 +1,310 @@
+automl_id: automl_20260206_222815
+best_results: {}
+budget_hours: 12.0
+current_hp_config: {}
+current_iteration: 7
+current_phase: training
+current_reward_config: {}
+current_stage: stage1_flat
+curriculum_progress:
+  stage1_flat: pending
+  stage2a_waves: pending
+  stage2b_stairs: pending
+  stage2c_obstacles: pending
+elapsed_hours: 1.8049598161111111
+hp_search_history:
+- config:
+    discount_factor: 0.99
+    entropy_loss_scale: 0.0004472301634250785
+    grad_norm_clip: 1.0
+    lambda_param: 0.95
+    learning_epochs: 8
+    learning_rate: 0.000759847732858125
+    mini_batches: 64
+    policy_hidden_layer_sizes:
+    - 256
+    - 256
+    - 256
+    ratio_clip: 0.2
+    rollouts: 24
+    value_hidden_layer_sizes:
+    - 256
+    - 256
+    - 256
+  metrics:
+    episode_length_mean: 0.0
+    episode_reward_mean: -105.64031219482422
+    episode_reward_std: 0.0
+    success_rate: 0.0
+    termination_rate: 0.0
+  score: -0.5451224975585939
+  trial: 0
+- config:
+    discount_factor: 0.99
+    entropy_loss_scale: 0.008393168092884479
+    grad_norm_clip: 1.0
+    lambda_param: 0.95
+    learning_epochs: 4
+    learning_rate: 3.8045249347310566e-05
+    mini_batches: 16
+    policy_hidden_layer_sizes:
+    - 128
+    - 64
+    ratio_clip: 0.2
+    rollouts: 48
+    value_hidden_layer_sizes:
+    - 512
+    - 256
+    - 128
+  metrics:
+    episode_length_mean: 0.0
+    episode_reward_mean: -452.0202331542969
+    episode_reward_std: 0.0
+    success_rate: 0.0
+    termination_rate: 0.0
+  score: -3.3161618652343745
+  trial: 1
+- config:
+    discount_factor: 0.99
+    entropy_loss_scale: 0.007660732647870493
+    grad_norm_clip: 1.0
+    lambda_param: 0.95
+    learning_epochs: 8
+    learning_rate: 0.00027323739864374715
+    mini_batches: 64
+    policy_hidden_layer_sizes:
+    - 256
+    - 256
+    - 256
+    ratio_clip: 0.2
+    rollouts: 24
+    value_hidden_layer_sizes:
+    - 256
+    - 128
+    - 64
+  metrics:
+    episode_length_mean: 0.0
+    episode_reward_mean: 83.25495147705078
+    episode_reward_std: 0.0
+    success_rate: 0.0
+    termination_rate: 0.0
+  score: 0.7000000000000001
+  trial: 2
+- config:
+    discount_factor: 0.99
+    entropy_loss_scale: 0.0002824318484699991
+    grad_norm_clip: 1.0
+    lambda_param: 0.95
+    learning_epochs: 5
+    learning_rate: 0.0006515540751946388
+    mini_batches: 64
+    policy_hidden_layer_sizes:
+    - 512
+    - 256
+    - 128
+    ratio_clip: 0.2
+    rollouts: 16
+    value_hidden_layer_sizes:
+    - 256
+    - 128
+    - 64
+  metrics:
+    episode_length_mean: 0.0
+    episode_reward_mean: -62.53567886352539
+    episode_reward_std: 0.0
+    success_rate: 0.0
+    termination_rate: 0.0
+  score: -0.20028543090820308
+  trial: 3
+- config:
+    discount_factor: 0.99
+    entropy_loss_scale: 0.00010933695338588718
+    grad_norm_clip: 1.0
+    lambda_param: 0.95
+    learning_epochs: 8
+    learning_rate: 2.1164811970315924e-05
+    mini_batches: 16
+    policy_hidden_layer_sizes:
+    - 512
+    - 256
+    - 128
+    ratio_clip: 0.2
+    rollouts: 24
+    value_hidden_layer_sizes:
+    - 128
+    - 64
+  metrics:
+    episode_length_mean: 0.0
+    episode_reward_mean: -102.70965576171875
+    episode_reward_std: 0.0
+    success_rate: 0.0
+    termination_rate: 0.0
+  score: -0.5216772460937501
+  trial: 4
+- config:
+    discount_factor: 0.99
+    entropy_loss_scale: 0.01
+    grad_norm_clip: 1.0
+    lambda_param: 0.95
+    learning_epochs: 8
+    learning_rate: !!python/object/apply:numpy._core.multiarray.scalar
+    - &id001 !!python/object/apply:numpy.dtype
+      args:
+      - f8
+      - false
+      - true
+      state: !!python/tuple
+      - 3
+      - <
+      - null
+      - null
+      - null
+      - -1
+      - -1
+      - 0
+    - !!binary |
+      VdCDicHvIz8=
+    mini_batches: 64
+    policy_hidden_layer_sizes:
+    - 256
+    - 256
+    - 256
+    ratio_clip: 0.2
+    rollouts: 24
+    value_hidden_layer_sizes:
+    - 256
+    - 128
+    - 64
+  metrics:
+    episode_length_mean: 0.0
+    episode_reward_mean: 29.352909088134766
+    episode_reward_std: 0.0
+    success_rate: 0.0
+    termination_rate: 0.0
+  score: 0.5348232727050781
+  trial: 5
+- config:
+    discount_factor: 0.99
+    entropy_loss_scale: !!python/object/apply:numpy._core.multiarray.scalar
+    - *id001
+    - !!binary |
+      kONOUGlUgD8=
+    grad_norm_clip: 1.0
+    lambda_param: 0.95
+    learning_epochs: 8
+    learning_rate: !!python/object/apply:numpy._core.multiarray.scalar
+    - *id001
+    - !!binary |
+      4CXjoYPLMz8=
+    mini_batches: 64
+    policy_hidden_layer_sizes:
+    - 256
+    - 256
+    - 256
+    ratio_clip: 0.2
+    rollouts: 24
+    value_hidden_layer_sizes:
+    - 256
+    - 128
+    - 64
+  metrics:
+    episode_length_mean: 0.0
+    episode_reward_mean: 79.13082885742188
+    episode_reward_std: 0.0
+    success_rate: 0.0
+    termination_rate: 0.0
+  score: 0.7000000000000001
+  trial: 6
+- config:
+    discount_factor: 0.99
+    entropy_loss_scale: !!python/object/apply:numpy._core.multiarray.scalar
+    - *id001
+    - !!binary |
+      wyyUIPc3fj8=
+    grad_norm_clip: 1.0
+    lambda_param: 0.95
+    learning_epochs: 8
+    learning_rate: !!python/object/apply:numpy._core.multiarray.scalar
+    - *id001
+    - !!binary |
+      4JfDo4SSMT8=
+    mini_batches: 64
+    policy_hidden_layer_sizes:
+    - 256
+    - 256
+    - 256
+    ratio_clip: 0.2
+    rollouts: 24
+    value_hidden_layer_sizes:
+    - 256
+    - 128
+    - 64
+  metrics:
+    episode_length_mean: 0.0
+    episode_reward_mean: -20.554603576660156
+    episode_reward_std: 0.0
+    success_rate: 0.0
+    termination_rate: 0.0
+  score: 0.13556317138671875
+  trial: 7
+mode: stage
+reward_search_history:
+- best_config:
+    action_rate: -0.037960297269973686
+    ang_vel_xy: -0.05
+    approach_scale: 3.9095438160303466
+    arrival_bonus: 23.33950701578305
+    dof_acc: -2.5e-07
+    dof_vel: -5.0e-05
+    fine_position_tracking: 3.9344350276516082
+    forward_velocity: 0.981657204524049
+    heading_tracking: 0.9843206586687394
+    lin_vel_z: -1.2358151796650036
+    orientation: -0.13532266930336875
+    position_tracking: 2.163243171967859
+    stop_scale: 4.8160569449081425
+    termination: -100
+    torques: -1.0e-05
+    zero_ang_bonus: 11.00142467086305
+  best_score: 0.30000000000000004
+  generation: 0
+- best_config:
+    action_rate: -0.037960297269973686
+    ang_vel_xy: -0.05
+    approach_scale: 3.9095438160303466
+    arrival_bonus: 23.33950701578305
+    dof_acc: -2.5e-07
+    dof_vel: -5.0e-05
+    fine_position_tracking: 3.9344350276516082
+    forward_velocity: 0.981657204524049
+    heading_tracking: 0.9843206586687394
+    lin_vel_z: -1.2358151796650036
+    orientation: -0.13532266930336875
+    position_tracking: 2.163243171967859
+    stop_scale: 4.8160569449081425
+    termination: -100
+    torques: -1.0e-05
+    zero_ang_bonus: 11.00142467086305
+  best_score: 0.30000000000000004
+  generation: 1
+- best_config:
+    action_rate: -0.037960297269973686
+    ang_vel_xy: -0.05
+    approach_scale: 3.9095438160303466
+    arrival_bonus: 23.33950701578305
+    dof_acc: -2.5e-07
+    dof_vel: -5.0e-05
+    fine_position_tracking: 3.9344350276516082
+    forward_velocity: 0.981657204524049
+    heading_tracking: 0.9843206586687394
+    lin_vel_z: -1.2358151796650036
+    orientation: -0.13532266930336875
+    position_tracking: 2.163243171967859
+    stop_scale: 4.8160569449081425
+    termination: -100
+    torques: -1.0e-05
+    zero_ang_bonus: 11.00142467086305
+  best_score: 0.30000000000000004
+  generation: 2
+start_time: '2026-02-06T22:28:15.421453'
+status: running
