@@ -78,25 +78,27 @@ class HPConfig:
 class RewardConfig:
     """Reward weights configuration — matches starter_kit/navigation*/vbot/cfg.py scales."""
     # Navigation core rewards
-    position_tracking: float = 2.0
+    position_tracking: float = 1.5
     fine_position_tracking: float = 2.0
-    heading_tracking: float = 1.0
-    forward_velocity: float = 0.5
+    heading_tracking: float = 0.8
+    forward_velocity: float = 1.5
+    distance_progress: float = 2.0
+    alive_bonus: float = 0.5
     # Navigation-specific rewards (approach/arrival/stop)
-    approach_scale: float = 4.0
-    arrival_bonus: float = 10.0
+    approach_scale: float = 8.0
+    arrival_bonus: float = 15.0
     stop_scale: float = 2.0
     zero_ang_bonus: float = 6.0
     # Stability penalties
     orientation: float = -0.05
-    lin_vel_z: float = -0.5
-    ang_vel_xy: float = -0.05
+    lin_vel_z: float = -0.3
+    ang_vel_xy: float = -0.03
     torques: float = -1e-5
     dof_vel: float = -5e-5
     dof_acc: float = -2.5e-7
     action_rate: float = -0.01
     # Termination
-    termination: float = -200.0
+    termination: float = -50.0
 
 
 @dataclass
@@ -143,7 +145,7 @@ class AutoMLConfig:
     hp_method: str = "bayesian"  # bayesian | random | grid
     hp_trials_per_stage: int = 20
     hp_warmup_trials: int = 5
-    hp_eval_steps: int = 5_000_000
+    hp_eval_steps: int = 5_000_000  # 5M steps ≈ 7min @ 12.5K steps/sec, ~100 iterations
 
     # (Reward weights are searched jointly with HP — no separate reward search phase)
 
@@ -212,15 +214,17 @@ REWARD_SEARCH_SPACE = {
     "position_tracking": {"type": "uniform", "low": 0.5, "high": 5.0},
     "fine_position_tracking": {"type": "uniform", "low": 0.5, "high": 4.0},
     "heading_tracking": {"type": "uniform", "low": 0.1, "high": 2.0},
-    "forward_velocity": {"type": "uniform", "low": 0.0, "high": 2.0},
-    "approach_scale": {"type": "uniform", "low": 2.0, "high": 10.0},
-    "arrival_bonus": {"type": "uniform", "low": 5.0, "high": 25.0},
+    "forward_velocity": {"type": "uniform", "low": 0.5, "high": 3.0},
+    "distance_progress": {"type": "uniform", "low": 0.5, "high": 5.0},
+    "alive_bonus": {"type": "uniform", "low": 0.1, "high": 1.5},
+    "approach_scale": {"type": "uniform", "low": 2.0, "high": 15.0},
+    "arrival_bonus": {"type": "uniform", "low": 5.0, "high": 30.0},
     "stop_scale": {"type": "uniform", "low": 1.0, "high": 5.0},
     "zero_ang_bonus": {"type": "uniform", "low": 2.0, "high": 12.0},
     "orientation": {"type": "uniform", "low": -0.3, "high": -0.01},
-    "lin_vel_z": {"type": "uniform", "low": -2.0, "high": -0.1},
+    "lin_vel_z": {"type": "uniform", "low": -1.0, "high": -0.05},
     "action_rate": {"type": "uniform", "low": -0.05, "high": -0.001},
-    "termination": {"type": "choice", "values": [-500, -300, -200, -100, -50]},
+    "termination": {"type": "choice", "values": [-200, -100, -50, -25, -10]},
 }
 
 
@@ -235,6 +239,8 @@ REWARD_COMPONENT_CATEGORIES = {
     "fine_position_tracking": "navigation",
     "heading_tracking": "navigation",
     "forward_velocity": "navigation",
+    "distance_progress": "navigation",
+    "alive_bonus": "navigation",
     "approach_scale": "navigation",
     "arrival_bonus": "navigation",
     "stop_scale": "navigation",
@@ -658,6 +664,12 @@ class AutoMLPipeline:
             "discount_factor": hp_config.discount_factor,
             "max_env_steps": max_steps,
             "seed": self.config.seed,
+            # Ensure TensorBoard data is written: check_point_interval should fit
+            # within total iterations = max_steps / (num_envs * rollouts)
+            "check_point_interval": max(1, min(
+                self.config.checkpoint_interval,
+                max_steps // (self.config.num_envs * hp_config.rollouts) // 5,  # at least 5 data points
+            )),
         }
 
         # Convert RewardConfig → reward_scales dict

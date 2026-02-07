@@ -546,10 +546,11 @@ class VBotSection001Env(NpEnv):
         # 位置跟踪：exp(-distance / sigma) — sigma=5.0 解决远距离梯度死区
         position_tracking = np.exp(-distance_to_target / 5.0)
 
-        # 精细位置跟踪：仅在距离 < 1.0m 时激活
+        # 精细位置跟踪：仅在距离 < 1.5m 时激活, sigma=0.3
+        # Round2: sigma从0.1→0.3, 阈值1.0→1.5, 提供0.3m-1.5m范围的有效梯度
         fine_position_tracking = np.where(
-            distance_to_target < 1.0,
-            np.exp(-distance_to_target / 0.1),
+            distance_to_target < 1.5,
+            np.exp(-distance_to_target / 0.3),
             0.0
         )
 

@@ -1,0 +1,303 @@
+automl_id: automl_20260207_033849
+best_results: {}
+budget_hours: 8.0
+current_hp_config: {}
+current_iteration: 5
+current_phase: hp_search
+current_reward_config: {}
+current_stage: stage1_flat
+curriculum_progress:
+  stage1_flat: pending
+  stage2a_waves: pending
+  stage2b_stairs: pending
+  stage2c_obstacles: pending
+elapsed_hours: 0.01716340638888889
+hp_search_history:
+- hp_config:
+    discount_factor: 0.99
+    entropy_loss_scale: 0.006573917627760428
+    grad_norm_clip: 1.0
+    lambda_param: 0.95
+    learning_epochs: 5
+    learning_rate: 1.2070729481632685e-05
+    mini_batches: 64
+    policy_hidden_layer_sizes:
+    - 128
+    - 64
+    ratio_clip: 0.2
+    rollouts: 24
+    value_hidden_layer_sizes:
+    - 512
+    - 256
+    - 128
+  metrics:
+    episode_length_mean: 0.0
+    episode_reward_mean: 0.0
+    episode_reward_std: 0.0
+    success_rate: 0.0
+    termination_rate: 0.0
+  reward_config:
+    action_rate: -0.04547382718888864
+    alive_bonus: 1.0360972102556416
+    ang_vel_xy: -0.03
+    approach_scale: 5.886880236877755
+    arrival_bonus: 23.318061676891954
+    distance_progress: 2.6651859107336584
+    dof_acc: -2.5e-07
+    dof_vel: -5.0e-05
+    fine_position_tracking: 1.0804879527970042
+    forward_velocity: 0.7019571975409495
+    heading_tracking: 1.3627448648028848
+    lin_vel_z: -0.06453720516044692
+    orientation: -0.1876444271959578
+    position_tracking: 4.674865902906756
+    stop_scale: 3.928157060727198
+    termination: -200
+    torques: -1.0e-05
+    zero_ang_bonus: 11.69356740439954
+  score: 0.30000000000000004
+  trial: 0
+- hp_config:
+    discount_factor: 0.99
+    entropy_loss_scale: 0.007569234182981086
+    grad_norm_clip: 1.0
+    lambda_param: 0.95
+    learning_epochs: 6
+    learning_rate: 0.0003528912465286317
+    mini_batches: 64
+    policy_hidden_layer_sizes:
+    - 128
+    - 64
+    ratio_clip: 0.2
+    rollouts: 32
+    value_hidden_layer_sizes:
+    - 256
+    - 128
+    - 64
+  metrics:
+    episode_length_mean: 0.0
+    episode_reward_mean: 0.0
+    episode_reward_std: 0.0
+    success_rate: 0.0
+    termination_rate: 0.0
+  reward_config:
+    action_rate: -0.010008714297558167
+    alive_bonus: 1.3644724305123161
+    ang_vel_xy: -0.03
+    approach_scale: 8.675757333766027
+    arrival_bonus: 28.777378911266013
+    distance_progress: 4.034356598992335
+    dof_acc: -2.5e-07
+    dof_vel: -5.0e-05
+    fine_position_tracking: 2.942628886729304
+    forward_velocity: 2.34011934452702
+    heading_tracking: 1.8496295129898523
+    lin_vel_z: -0.738430395402751
+    orientation: -0.1354727716579778
+    position_tracking: 2.8195679254698196
+    stop_scale: 3.9384302598546554
+    termination: -10
+    torques: -1.0e-05
+    zero_ang_bonus: 9.419647927849802
+  score: 0.30000000000000004
+  trial: 1
+- hp_config:
+    discount_factor: 0.99
+    entropy_loss_scale: 0.0007523899159156051
+    grad_norm_clip: 1.0
+    lambda_param: 0.95
+    learning_epochs: 5
+    learning_rate: 0.0003796256345194718
+    mini_batches: 64
+    policy_hidden_layer_sizes:
+    - 512
+    - 256
+    - 128
+    ratio_clip: 0.2
+    rollouts: 16
+    value_hidden_layer_sizes:
+    - 512
+    - 256
+    - 128
+  metrics:
+    episode_length_mean: 0.0
+    episode_reward_mean: 0.0
+    episode_reward_std: 0.0
+    success_rate: 0.0
+    termination_rate: 0.0
+  reward_config:
+    action_rate: -0.0381518149078581
+    alive_bonus: 0.23474438807715584
+    ang_vel_xy: -0.03
+    approach_scale: 7.217589605241368
+    arrival_bonus: 23.54282286568914
+    distance_progress: 1.7929006620842607
+    dof_acc: -2.5e-07
+    dof_vel: -5.0e-05
+    fine_position_tracking: 2.7468634323689054
+    forward_velocity: 0.8982007077235303
+    heading_tracking: 0.6857905579077967
+    lin_vel_z: -0.3479868435073509
+    orientation: -0.054696307860154586
+    position_tracking: 1.4999518981403985
+    stop_scale: 4.944160951720598
+    termination: -10
+    torques: -1.0e-05
+    zero_ang_bonus: 10.929762520646744
+  score: 0.30000000000000004
+  trial: 2
+- hp_config:
+    discount_factor: 0.99
+    entropy_loss_scale: 0.0005897346645647562
+    grad_norm_clip: 1.0
+    lambda_param: 0.95
+    learning_epochs: 8
+    learning_rate: 7.117580397672483e-05
+    mini_batches: 32
+    policy_hidden_layer_sizes:
+    - 128
+    - 64
+    ratio_clip: 0.2
+    rollouts: 48
+    value_hidden_layer_sizes:
+    - 512
+    - 256
+    - 128
+  metrics:
+    episode_length_mean: 0.0
+    episode_reward_mean: 0.0
+    episode_reward_std: 0.0
+    success_rate: 0.0
+    termination_rate: 0.0
+  reward_config:
+    action_rate: -0.02673881527636623
+    alive_bonus: 0.38900506080801633
+    ang_vel_xy: -0.03
+    approach_scale: 14.284941052850723
+    arrival_bonus: 19.36048175004005
+    distance_progress: 0.918245706564063
+    dof_acc: -2.5e-07
+    dof_vel: -5.0e-05
+    fine_position_tracking: 3.9823981599556673
+    forward_velocity: 2.101750046933989
+    heading_tracking: 0.37603489310285076
+    lin_vel_z: -0.18083179772245206
+    orientation: -0.09163532671096986
+    position_tracking: 2.061935180349071
+    stop_scale: 2.261276124353367
+    termination: -100
+    torques: -1.0e-05
+    zero_ang_bonus: 4.2889923553558935
+  score: 0.30000000000000004
+  trial: 3
+- hp_config:
+    discount_factor: 0.99
+    entropy_loss_scale: 0.0001074153886575215
+    grad_norm_clip: 1.0
+    lambda_param: 0.95
+    learning_epochs: 4
+    learning_rate: 3.476337565645209e-05
+    mini_batches: 32
+    policy_hidden_layer_sizes:
+    - 128
+    - 64
+    ratio_clip: 0.2
+    rollouts: 32
+    value_hidden_layer_sizes:
+    - 256
+    - 128
+    - 64
+  metrics:
+    episode_length_mean: 0.0
+    episode_reward_mean: 0.0
+    episode_reward_std: 0.0
+    success_rate: 0.0
+    termination_rate: 0.0
+  reward_config:
+    action_rate: -0.03408751999618135
+    alive_bonus: 0.8654382297194781
+    ang_vel_xy: -0.03
+    approach_scale: 11.550619446414387
+    arrival_bonus: 6.372259094368669
+    distance_progress: 1.7808235321200865
+    dof_acc: -2.5e-07
+    dof_vel: -5.0e-05
+    fine_position_tracking: 3.0598398295805898
+    forward_velocity: 2.199664290420597
+    heading_tracking: 0.5722817205972598
+    lin_vel_z: -0.5114172868289947
+    orientation: -0.2210321491941472
+    position_tracking: 2.646446952877523
+    stop_scale: 3.2162405390925457
+    termination: -200
+    torques: -1.0e-05
+    zero_ang_bonus: 8.395630547109224
+  score: 0.30000000000000004
+  trial: 4
+- hp_config:
+    discount_factor: 0.99
+    entropy_loss_scale: !!python/object/apply:numpy._core.multiarray.scalar
+    - &id001 !!python/object/apply:numpy.dtype
+      args:
+      - f8
+      - false
+      - true
+      state: !!python/tuple
+      - 3
+      - <
+      - null
+      - null
+      - null
+      - -1
+      - -1
+      - 0
+    - !!binary |
+      UExIR3PufD8=
+    grad_norm_clip: 1.0
+    lambda_param: 0.95
+    learning_epochs: 5
+    learning_rate: !!python/object/apply:numpy._core.multiarray.scalar
+    - *id001
+    - !!binary |
+      IMIv82hW8D4=
+    mini_batches: 64
+    policy_hidden_layer_sizes:
+    - 256
+    - 256
+    - 256
+    ratio_clip: 0.2
+    rollouts: 24
+    value_hidden_layer_sizes:
+    - 256
+    - 256
+    - 256
+  metrics:
+    episode_length_mean: 0.0
+    episode_reward_mean: 0.0
+    episode_reward_std: 0.0
+    success_rate: 0.0
+    termination_rate: 0.0
+  reward_config:
+    action_rate: -0.04547382718888864
+    alive_bonus: 0.9127804471561937
+    ang_vel_xy: -0.03
+    approach_scale: 5.886880236877755
+    arrival_bonus: 23.318061676891954
+    distance_progress: 2.6651859107336584
+    dof_acc: -2.5e-07
+    dof_vel: -5.0e-05
+    fine_position_tracking: 1.0804879527970042
+    forward_velocity: 0.7019571975409495
+    heading_tracking: 1.3627448648028848
+    lin_vel_z: -0.06453720516044692
+    orientation: -0.1876444271959578
+    position_tracking: 4.317025590375228
+    stop_scale: 3.928157060727198
+    termination: -200
+    torques: -1.0e-05
+    zero_ang_bonus: 11.451172025761633
+  score: 0.30000000000000004
+  trial: 5
+mode: stage
+start_time: '2026-02-07T03:38:49.457038'
+status: running

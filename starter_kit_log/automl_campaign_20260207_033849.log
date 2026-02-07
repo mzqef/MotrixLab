@@ -1,0 +1,66 @@
+2026-02-07T03:38:49Z [INFO] Starting AutoML pipeline: automl_20260207_033849
+2026-02-07T03:38:49Z [INFO] Mode: stage, Budget: 8.0h
+2026-02-07T03:38:49Z [INFO] State saved to D:\MotrixLab\starter_kit_log\automl_20260207_033849\state.yaml
+2026-02-07T03:38:49Z [INFO] Optimizing stage: vbot_navigation_section001
+2026-02-07T03:38:49Z [INFO] State saved to D:\MotrixLab\starter_kit_log\automl_20260207_033849\state.yaml
+2026-02-07T03:38:49Z [INFO] Running unified HP+reward search for vbot_navigation_section001: 20 trials
+2026-02-07T03:38:49Z [INFO] Trial 1/20: lr=1.21e-05, term=-200, approach=5.9
+2026-02-07T03:38:49Z [INFO] Launching training: automl_20260207_033849_vbot_navigation_section001_i0_1770406729
+2026-02-07T03:38:49Z [INFO]   HP: lr=1.21e-05, rollouts=24
+2026-02-07T03:38:49Z [INFO]   Reward: pos=4.67, approach=5.9, term=-200
+2026-02-07T03:38:49Z [INFO]   Steps: 2,000,000
+2026-02-07T03:39:01Z [INFO] No path found after runs\vbot_navigation_section001\26-02-07_03-38-59-275731_PPO\events.out.tfevents.1770406739.rog_mengzhu.35700.0
+2026-02-07T03:39:01Z [INFO] No path found after runs\vbot_navigation_section001\26-02-07_03-38-59-275731_PPO\events.out.tfevents.1770406739.rog_mengzhu.35700.0
+2026-02-07T03:39:01Z [WARNING] Evaluation returned status=no_data
+2026-02-07T03:39:01Z [INFO] New best! Score: 0.3000, Reward: 0.00
+2026-02-07T03:39:01Z [INFO] State saved to D:\MotrixLab\starter_kit_log\automl_20260207_033849\state.yaml
+2026-02-07T03:39:01Z [INFO] Trial 2/20: lr=3.53e-04, term=-10, approach=8.7
+2026-02-07T03:39:01Z [INFO] Launching training: automl_20260207_033849_vbot_navigation_section001_i1_1770406741
+2026-02-07T03:39:01Z [INFO]   HP: lr=3.53e-04, rollouts=32
+2026-02-07T03:39:01Z [INFO]   Reward: pos=2.82, approach=8.7, term=-10
+2026-02-07T03:39:01Z [INFO]   Steps: 2,000,000
+2026-02-07T03:39:10Z [INFO] No path found after runs\vbot_navigation_section001\26-02-07_03-39-09-268166_PPO\events.out.tfevents.1770406749.rog_mengzhu.37820.0
+2026-02-07T03:39:10Z [INFO] No path found after runs\vbot_navigation_section001\26-02-07_03-39-09-268166_PPO\events.out.tfevents.1770406749.rog_mengzhu.37820.0
+2026-02-07T03:39:10Z [WARNING] Evaluation returned status=no_data
+2026-02-07T03:39:10Z [INFO] State saved to D:\MotrixLab\starter_kit_log\automl_20260207_033849\state.yaml
+2026-02-07T03:39:10Z [INFO] Trial 3/20: lr=3.80e-04, term=-10, approach=7.2
+2026-02-07T03:39:10Z [INFO] Launching training: automl_20260207_033849_vbot_navigation_section001_i2_1770406750
+2026-02-07T03:39:10Z [INFO]   HP: lr=3.80e-04, rollouts=16
+2026-02-07T03:39:10Z [INFO]   Reward: pos=1.50, approach=7.2, term=-10
+2026-02-07T03:39:10Z [INFO]   Steps: 2,000,000
+2026-02-07T03:39:20Z [INFO] No path found after runs\vbot_navigation_section001\26-02-07_03-39-18-892402_PPO\events.out.tfevents.1770406758.rog_mengzhu.32968.0
+2026-02-07T03:39:20Z [INFO] No path found after runs\vbot_navigation_section001\26-02-07_03-39-18-892402_PPO\events.out.tfevents.1770406758.rog_mengzhu.32968.0
+2026-02-07T03:39:20Z [WARNING] Evaluation returned status=no_data
+2026-02-07T03:39:20Z [INFO] State saved to D:\MotrixLab\starter_kit_log\automl_20260207_033849\state.yaml
+2026-02-07T03:39:20Z [INFO] Trial 4/20: lr=7.12e-05, term=-100, approach=14.3
+2026-02-07T03:39:20Z [INFO] Launching training: automl_20260207_033849_vbot_navigation_section001_i3_1770406760
+2026-02-07T03:39:20Z [INFO]   HP: lr=7.12e-05, rollouts=48
+2026-02-07T03:39:20Z [INFO]   Reward: pos=2.06, approach=14.3, term=-100
+2026-02-07T03:39:20Z [INFO]   Steps: 2,000,000
+2026-02-07T03:39:30Z [INFO] No path found after runs\vbot_navigation_section001\26-02-07_03-39-28-505846_PPO\events.out.tfevents.1770406768.rog_mengzhu.36844.0
+2026-02-07T03:39:30Z [INFO] No path found after runs\vbot_navigation_section001\26-02-07_03-39-28-505846_PPO\events.out.tfevents.1770406768.rog_mengzhu.36844.0
+2026-02-07T03:39:30Z [WARNING] Evaluation returned status=no_data
+2026-02-07T03:39:30Z [INFO] State saved to D:\MotrixLab\starter_kit_log\automl_20260207_033849\state.yaml
+2026-02-07T03:39:30Z [INFO] Trial 5/20: lr=3.48e-05, term=-200, approach=11.6
+2026-02-07T03:39:30Z [INFO] Launching training: automl_20260207_033849_vbot_navigation_section001_i4_1770406770
+2026-02-07T03:39:30Z [INFO]   HP: lr=3.48e-05, rollouts=32
+2026-02-07T03:39:30Z [INFO]   Reward: pos=2.65, approach=11.6, term=-200
+2026-02-07T03:39:30Z [INFO]   Steps: 2,000,000
+2026-02-07T03:39:40Z [INFO] No path found after runs\vbot_navigation_section001\26-02-07_03-39-39-063204_PPO\events.out.tfevents.1770406779.rog_mengzhu.5248.0
+2026-02-07T03:39:40Z [INFO] No path found after runs\vbot_navigation_section001\26-02-07_03-39-39-063204_PPO\events.out.tfevents.1770406779.rog_mengzhu.5248.0
+2026-02-07T03:39:40Z [WARNING] Evaluation returned status=no_data
+2026-02-07T03:39:40Z [INFO] State saved to D:\MotrixLab\starter_kit_log\automl_20260207_033849\state.yaml
+2026-02-07T03:39:40Z [INFO] Trial 6/20: lr=1.56e-05, term=-200, approach=5.9
+2026-02-07T03:39:40Z [INFO] Launching training: automl_20260207_033849_vbot_navigation_section001_i5_1770406780
+2026-02-07T03:39:40Z [INFO]   HP: lr=1.56e-05, rollouts=24
+2026-02-07T03:39:40Z [INFO]   Reward: pos=4.32, approach=5.9, term=-200
+2026-02-07T03:39:40Z [INFO]   Steps: 2,000,000
+2026-02-07T03:39:51Z [INFO] No path found after runs\vbot_navigation_section001\26-02-07_03-39-49-490118_PPO\events.out.tfevents.1770406789.rog_mengzhu.28512.0
+2026-02-07T03:39:51Z [INFO] No path found after runs\vbot_navigation_section001\26-02-07_03-39-49-490118_PPO\events.out.tfevents.1770406789.rog_mengzhu.28512.0
+2026-02-07T03:39:51Z [WARNING] Evaluation returned status=no_data
+2026-02-07T03:39:51Z [INFO] State saved to D:\MotrixLab\starter_kit_log\automl_20260207_033849\state.yaml
+2026-02-07T03:39:51Z [INFO] Trial 7/20: lr=1.00e-05, term=-200, approach=6.9
+2026-02-07T03:39:51Z [INFO] Launching training: automl_20260207_033849_vbot_navigation_section001_i6_1770406791
+2026-02-07T03:39:51Z [INFO]   HP: lr=1.00e-05, rollouts=24
+2026-02-07T03:39:51Z [INFO]   Reward: pos=4.67, approach=6.9, term=-200
+2026-02-07T03:39:51Z [INFO]   Steps: 2,000,000

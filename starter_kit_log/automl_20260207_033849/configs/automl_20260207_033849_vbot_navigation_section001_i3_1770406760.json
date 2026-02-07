@@ -1,0 +1,44 @@
+{
+  "run_tag": "automl_20260207_033849_vbot_navigation_section001_i3_1770406760",
+  "env_name": "vbot_navigation_section001",
+  "starter_kit_dir": "D:\\MotrixLab\\starter_kit\\navigation1",
+  "reward_scales": {
+    "position_tracking": 2.061935180349071,
+    "fine_position_tracking": 3.9823981599556673,
+    "heading_tracking": 0.37603489310285076,
+    "forward_velocity": 2.101750046933989,
+    "distance_progress": 0.918245706564063,
+    "alive_bonus": 0.38900506080801633,
+    "approach_scale": 14.284941052850723,
+    "arrival_bonus": 19.36048175004005,
+    "stop_scale": 2.261276124353367,
+    "zero_ang_bonus": 4.2889923553558935,
+    "orientation": -0.09163532671096986,
+    "lin_vel_z": -0.18083179772245206,
+    "ang_vel_xy": -0.03,
+    "torques": -1e-05,
+    "dof_vel": -5e-05,
+    "dof_acc": -2.5e-07,
+    "action_rate": -0.02673881527636623,
+    "termination": -100
+  },
+  "rl_overrides": {
+    "learning_rate": 7.117580397672483e-05,
+    "entropy_loss_scale": 0.0005897346645647562,
+    "policy_hidden_layer_sizes": [
+      128,
+      64
+    ],
+    "value_hidden_layer_sizes": [
+      512,
+      256,
+      128
+    ],
+    "rollouts": 48,
+    "learning_epochs": 8,
+    "mini_batches": 32,
+    "discount_factor": 0.99,
+    "max_env_steps": 2000000,
+    "seed": 42
+  }
+}

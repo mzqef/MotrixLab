@@ -80,13 +80,14 @@ def list_tb_tags(run_dir):
         return []
 
 
-def evaluate_run(run_dir, primary_metric="Reward / Total reward (mean)"):
+def evaluate_run(run_dir, primary_metric="Reward / Instantaneous reward (mean)"):
     """
     Evaluate a single training run by reading TensorBoard logs.
 
     Args:
         run_dir: Path to run directory
-        primary_metric: TensorBoard scalar tag for the main performance metric
+        primary_metric: TensorBoard scalar tag for the main performance metric.
+                        Falls back to legacy 'Reward / Total reward (mean)' if not found.
 
     Returns:
         Dict with evaluation results:
@@ -101,6 +102,9 @@ def evaluate_run(run_dir, primary_metric="Reward / Total reward (mean)"):
         return {"status": "failed", "final_reward": float("-inf"), "error": "run_dir not found"}
 
     data = read_tb_scalars(run_dir, primary_metric)
+    # Fallback to legacy tag name if primary not found
+    if not data and primary_metric == "Reward / Instantaneous reward (mean)":
+        data = read_tb_scalars(run_dir, "Reward / Total reward (mean)")
     if not data:
         return {"status": "no_data", "final_reward": float("-inf"), "error": "no reward data in TensorBoard"}
 
