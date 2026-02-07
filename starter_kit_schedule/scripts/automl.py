@@ -79,14 +79,14 @@ class RewardConfig:
     """Reward weights configuration — matches starter_kit/navigation*/vbot/cfg.py scales."""
     # Navigation core rewards
     position_tracking: float = 1.5
-    fine_position_tracking: float = 2.0
+    fine_position_tracking: float = 5.0
     heading_tracking: float = 0.8
     forward_velocity: float = 1.5
     distance_progress: float = 2.0
     alive_bonus: float = 0.5
     # Navigation-specific rewards (approach/arrival/stop)
     approach_scale: float = 8.0
-    arrival_bonus: float = 15.0
+    arrival_bonus: float = 50.0
     stop_scale: float = 2.0
     zero_ang_bonus: float = 6.0
     # Stability penalties
@@ -98,7 +98,7 @@ class RewardConfig:
     dof_acc: float = -2.5e-7
     action_rate: float = -0.01
     # Termination
-    termination: float = -50.0
+    termination: float = -100.0
 
 
 @dataclass
@@ -145,7 +145,7 @@ class AutoMLConfig:
     hp_method: str = "bayesian"  # bayesian | random | grid
     hp_trials_per_stage: int = 20
     hp_warmup_trials: int = 5
-    hp_eval_steps: int = 5_000_000  # 5M steps ≈ 7min @ 12.5K steps/sec, ~100 iterations
+    hp_eval_steps: int = 10_000_000  # 10M steps: Round2 needs longer for truncation effects
 
     # (Reward weights are searched jointly with HP — no separate reward search phase)
 
@@ -212,13 +212,13 @@ HP_SEARCH_SPACE = {
 
 REWARD_SEARCH_SPACE = {
     "position_tracking": {"type": "uniform", "low": 0.5, "high": 5.0},
-    "fine_position_tracking": {"type": "uniform", "low": 0.5, "high": 4.0},
+    "fine_position_tracking": {"type": "uniform", "low": 2.0, "high": 10.0},
     "heading_tracking": {"type": "uniform", "low": 0.1, "high": 2.0},
     "forward_velocity": {"type": "uniform", "low": 0.5, "high": 3.0},
     "distance_progress": {"type": "uniform", "low": 0.5, "high": 5.0},
-    "alive_bonus": {"type": "uniform", "low": 0.1, "high": 1.5},
+    "alive_bonus": {"type": "uniform", "low": 0.1, "high": 1.0},
     "approach_scale": {"type": "uniform", "low": 2.0, "high": 15.0},
-    "arrival_bonus": {"type": "uniform", "low": 5.0, "high": 30.0},
+    "arrival_bonus": {"type": "uniform", "low": 20.0, "high": 100.0},
     "stop_scale": {"type": "uniform", "low": 1.0, "high": 5.0},
     "zero_ang_bonus": {"type": "uniform", "low": 2.0, "high": 12.0},
     "orientation": {"type": "uniform", "low": -0.3, "high": -0.01},

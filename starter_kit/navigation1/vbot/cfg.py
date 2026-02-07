@@ -95,15 +95,15 @@ class RewardConfig:
         default_factory=lambda: {
             # ===== 导航任务核心奖励 =====
             "position_tracking": 1.5,       # exp(-d/sigma) 位置跟踪 (sigma widened in env)
-            "fine_position_tracking": 2.0,   # 精细位置跟踪 (< 1m)
+            "fine_position_tracking": 5.0,   # 精细位置跟踪 (Round2: 2→5, sigma 0.1→0.3)
             "heading_tracking": 0.8,         # 朝向跟踪
             "forward_velocity": 1.5,         # 前进速度奖励（提高，鼓励朝目标移动）
             "distance_progress": 2.0,        # 新增：线性距离递减奖励 (1 - d/d_max)
-            "alive_bonus": 0.5,              # 新增：每步存活奖励
+            "alive_bonus": 0.5,              # 存活奖励 (Round2: keep at 0.5, 截断解决懒惰问题)
 
             # ===== 导航接近/到达奖励 =====
             "approach_scale": 8.0,           # 距离递减奖励 (提高: 4→8)
-            "arrival_bonus": 15.0,           # 首次到达一次性奖励 (提高: 10→15)
+            "arrival_bonus": 50.0,           # 首次到达一次性奖励 (Round2: 15→50, 必须足够大来激励到达)
             "stop_scale": 2.0,               # 到达后停止奖励
             "zero_ang_bonus": 6.0,           # 到达后零角速度奖励
 
@@ -117,7 +117,7 @@ class RewardConfig:
             "action_rate": -0.01,            # 动作变化率惩罚
 
             # ===== 终止惩罚 =====
-            "termination": -50.0,            # 终止惩罚 (大幅降低: -200→-50)
+            "termination": -100.0,           # 终止惩罚 (Round2: -50→-100 平衡生存激励)
         }
     )
 

@@ -15,8 +15,9 @@ This skill teaches the **methodology of reward/penalty exploration** — how to 
 > **IMPORTANT:**
 > - The reward function lives in `starter_kit/navigation*/vbot/vbot_*_np.py` → `_compute_reward()`.
 > - Reward weights are in `starter_kit/navigation*/vbot/cfg.py` → `RewardConfig.scales` dict.
-> - The reward function has NOT been fully implemented with: position tracking, heading, forward velocity, approach, arrival bonus, stop bonus, stability penalties, and termination penalty (-200).
-> - Do re-implement the reward function from scratch. Modify weights or add new terms incrementally.
+> - The reward function IS fully implemented with: position tracking (sigma=5.0), fine position tracking (sigma=0.3, threshold=1.5m), heading, forward velocity, distance_progress (linear), approach, arrival bonus (50), stop bonus, alive_bonus (conditional on NOT reached), time_decay, stability penalties, and termination (-100).
+> - Anti-laziness mechanisms (conditional alive_bonus, time_decay, successful truncation) are active. Do NOT remove them.
+> - Do NOT re-implement the reward function from scratch. Modify weights or add new terms incrementally.
 
 > This skill does NOT contain reward component examples or scale tables.
 > Those live in their respective locations:
@@ -100,6 +101,9 @@ Before touching rewards, identify **what behavior** is wrong. Not "the reward is
 | Robot is fast but jerky | Missing smoothness penalty |
 | Robot is stable but slow | Positive incentive too weak relative to penalties |
 | Reward curve plateaus | Reward provides no gradient in current state region |
+| **Robot stands still near target** | **alive_bonus accumulation > goal reward — see Lazy Robot Case Study below** |
+| **Distance increases during training** | **Reward hacking via per-step bonus. Check alive_bonus × avg_ep_len vs arrival_bonus** |
+| **Episode length near max, reached% drops** | **Robot exploiting per-step rewards instead of completing task** |
 
 ### Diagnostic Commands
 
@@ -422,6 +426,65 @@ Get-ChildItem starter_kit_schedule/reward_library/rejected/ -Name
 | Tuning weights without diagnosis | Blind search | Diagnose behavior first |
 | Adding rewards without removing | Reward bloat, slow training | Ablate unneeded components |
 | Assuming terrain-agnostic rewards | Different terrains need different signals | Test per-terrain |
+| **Unconditional per-step bonuses** | **Robot learns to survive, not navigate. alive_bonus × max_steps >> goal reward** | **Make per-step bonuses conditional (e.g., only before reaching goal)** |
+| **Goal reward too small vs per-step** | **arrival_bonus=15 vs alive_bonus×3800≈1900** | **arrival_bonus must dominate: set to ≥ alive × typical_episode_len / 3** |
+| **Trusting reward curves alone** | **"Reward=7.6" looked great, but robot was lazy** | **Always verify with distance, reached%, episode length metrics** |
+
+---
+
+## 🔴 Case Study: The Lazy Robot (Reward Hacking)
+
+This case study documents a critical reward hacking failure discovered during Round 1 full training, and the three-pronged fix.
+
+### Timeline
+
+1. **Round 1 AutoML** (15 trials, 5M steps): Best trial achieved reward=6.75, reached=6.45%. Looked promising.
+2. **50M full training**: Early metrics excellent — distance 7.6→0.65m, arrival_total=18.76 (~90% reach rate).
+3. **At step 24320 (~30min)**: Robot became lazy. Distance went UP (0.65→1.65m), reached% dropped (2.93→0.30%), episode length near max (3777/4000).
+4. **Root cause**: `alive_bonus(0.5) × ~3800 steps ≈ 1900` dwarfed `arrival_bonus = 15`. The robot discovered standing still in a safe spot was the optimal strategy.
+
+### Detection Signals
+
+| Metric | Healthy | Lazy Robot |
+|--------|---------|------------|
+| Distance to target | Decreasing → 0 | Decreasing then **increasing** |
+| Reached % | Increasing | Increasing then **dropping to ~0** |
+| Episode length | Moderate (500-2000) | **Near max_steps (3800+)** |
+| Reward | Increasing | **Still looks good** (alive_bonus accumulates!) |
+| Arrival bonus (TensorBoard) | Increasing | **Dropping toward 0** |
+
+### The Fix: Anti-Laziness Trifecta
+
+#### 1. Conditional alive_bonus
+```python
+# BEFORE (exploitable):
+alive_bonus = scales["alive_bonus"]  # 0.5 every step, unconditionally
+
+# AFTER (fixed):
+alive_bonus = np.where(ever_reached, 0.0, scales["alive_bonus"])
+# Once robot reaches target, alive bonus stops → no "stand around" exploit
+```
+
+#### 2. Time decay on navigation rewards
+```python
+time_decay = np.clip(1.0 - 0.5 * env_steps / max_episode_steps, 0.5, 1.0)
+# Step 0: time_decay = 1.0 (full reward)
+# Step 2000 (half episode): time_decay = 0.75
+# Step 4000 (max): time_decay = 0.5
+# Creates URGENCY — reach the goal early for maximum reward
+# NOTE: Penalties are NOT multiplied by time_decay (stay full strength)
+```
+
+#### 3. Massive arrival_bonus
+```python
+# BEFORE: arrival_bonus = 15 (trivially beaten by alive_bonus accumulation)
+# AFTER: arrival_bonus = 50 (searched in range [20, 100])
+# Rule of thumb: arrival_bonus > alive_bonus × max_steps / 4
+```
+
+### Lesson
+
+**Always audit the reward budget.** Compute: what is the maximum reward achievable by the desired behavior vs. by the degenerate behavior? If they're close, the agent WILL find the exploit given enough training time.
 
 ---
 

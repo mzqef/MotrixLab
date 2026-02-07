@@ -83,22 +83,26 @@ These come from `starter_kit/navigation1/vbot/cfg.py` → `RewardConfig.scales`.
 
 | Weight | Type | Range | Default | Category |
 |--------|------|-------|---------|----------|
-| `position_tracking` | uniform | 0.5 – 5.0 | 2.0 | Navigation core |
-| `fine_position_tracking` | uniform | 0.5 – 4.0 | 2.0 | Navigation core |
-| `heading_tracking` | uniform | 0.1 – 2.0 | 1.0 | Navigation core |
-| `forward_velocity` | uniform | 0.0 – 2.0 | 0.5 | Navigation core |
-| `approach_scale` | uniform | 2.0 – 10.0 | 4.0 | Navigation (approach) |
-| `arrival_bonus` | uniform | 5.0 – 25.0 | 10.0 | Navigation (arrival) |
+| `position_tracking` | uniform | 0.5 – 5.0 | 1.5 | Navigation core |
+| `fine_position_tracking` | uniform | 2.0 – 10.0 | 5.0 | Navigation core (sigma=0.3, within 1.5m) |
+| `heading_tracking` | uniform | 0.1 – 2.0 | 0.8 | Navigation core |
+| `forward_velocity` | uniform | 0.0 – 3.0 | 1.5 | Navigation core |
+| `distance_progress` | uniform | 0.5 – 5.0 | 2.0 | Navigation (linear 1-d/d_max) |
+| `approach_scale` | uniform | 2.0 – 10.0 | 8.0 | Navigation (approach) |
+| `arrival_bonus` | uniform | 20.0 – 100.0 | 50.0 | Navigation (arrival) — **must be >> alive_bonus × max_steps** |
+| `alive_bonus` | uniform | 0.1 – 1.0 | 0.5 | Navigation (conditional — 0 after reaching) |
 | `stop_scale` | uniform | 1.0 – 5.0 | 2.0 | Navigation (stop) |
 | `zero_ang_bonus` | uniform | 2.0 – 12.0 | 6.0 | Navigation (stop) |
 | `orientation` | uniform | -0.3 – -0.01 | -0.05 | Stability penalty |
-| `lin_vel_z` | uniform | -2.0 – -0.1 | -0.5 | Stability penalty |
-| `ang_vel_xy` | uniform | -0.3 – -0.01 | -0.05 | Stability penalty |
+| `lin_vel_z` | uniform | -2.0 – -0.1 | -0.3 | Stability penalty |
+| `ang_vel_xy` | uniform | -0.3 – -0.01 | -0.03 | Stability penalty |
 | `torques` | log-uniform | -1e-3 – -1e-6 | -1e-5 | Efficiency penalty |
 | `dof_vel` | log-uniform | -1e-3 – -1e-5 | -5e-5 | Efficiency penalty |
 | `dof_acc` | log-uniform | -1e-5 – -1e-8 | -2.5e-7 | Efficiency penalty |
 | `action_rate` | uniform | -0.05 – -0.001 | -0.01 | Smoothness penalty |
-| `termination` | choice | -500, -300, -200, -100, -50 | -200.0 | Termination penalty |
+| `termination` | choice | -200, -100, -50, -25, -10 | -100.0 | Termination penalty |
+
+> **WARNING:** `arrival_bonus` must be large enough to dominate `alive_bonus × typical_episode_length`. If `alive_bonus=0.5` and episodes run 3800 steps, total alive = 1900. With arrival_bonus=15, the robot learns to stand still instead of navigating. See `reward-penalty-engineering` skill for the "Lazy Robot" case study.
 
 ## Search Space Schema
 
@@ -353,7 +357,27 @@ reward_weights:
 2. **Start with random search** — Better coverage than grid for the combined space
 3. **Use priors** — Center search on known good values from `cfg.py` defaults
 4. **Add constraints** — Filter unstable combinations early
-5. **Shorter training for search** — 5M steps sufficient for comparison
+5. **Shorter training for search** — 10M steps for comparison (5M too short to detect laziness)
 6. **Run multiple seeds** — At least 3 per config for reliability
 7. **Log all configs** — Stored automatically in `starter_kit_log/experiments/`
 8. **Diagnose first, then search** — Use `reward-penalty-engineering` skill to identify WHAT to search before tuning weights
+9. **Review experiment history before launching** — See `training-pipeline` Step 0
+10. **Watch for lazy robot at long horizons** — 5M trials may look great but fail at 50M. Check that reached% is increasing, not just reward.
+
+## Empirical Findings (from actual experiments)
+
+### Round 1 AutoML (15 trials, 5M steps each)
+| Insight | Value |
+|---------|-------|
+| Best learning rate | ~2.4e-04 |
+| Rollouts sweet spot | 32 (16 and 48 also viable) |
+| Termination penalty | -200 worked at 5M but caused issues at 50M |
+| Learning rate < 5e-5 | Too slow to learn meaningfully in 5M |
+
+### Round 2 AutoML (anti-laziness, 10M steps each)
+| Insight | Value |
+|---------|-------|
+| arrival_bonus=87.70 | High values show late learning surge |
+| alive_bonus=0.13 | Very low alive_bonus forces goal-seeking |
+| fine_position_tracking=8.83 | High values help precise positioning |
+| Late learning surge | Reward can jump 50%+ after step 4000-5000, so trials should be ≥10M |

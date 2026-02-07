@@ -7,6 +7,43 @@ description: Index skill for VBot quadruped RL training. Routes to specialized s
 
 **Entry point** for RL training tasks. Routes to specialized skills.
 
+## ⚠️ Step 0: Review Experiment History (MANDATORY)
+
+> **Before running ANY training, AutoML, or reward experiment**, review existing results to avoid repeating work and to build on prior discoveries.
+
+```powershell
+# 1. List all AutoML runs and their outcomes
+Get-ChildItem starter_kit_log/automl_* -Directory | ForEach-Object {
+    Write-Host "`n=== $($_.Name) ===" -ForegroundColor Cyan
+    $state = Join-Path $_.FullName "state.yaml"
+    if (Test-Path $state) { Get-Content $state | Select-Object -First 30 }
+}
+
+# 2. Check current automl progress state
+if (Test-Path starter_kit_schedule/progress/automl_state.yaml) {
+    Get-Content starter_kit_schedule/progress/automl_state.yaml
+}
+
+# 3. List training runs and their timestamps
+Get-ChildItem runs/vbot_navigation_section001/ -Directory | Sort-Object Name -Descending | Select-Object -First 10
+
+# 4. Review reward library for tried components
+Get-ChildItem starter_kit_schedule/reward_library/ -Recurse -Filter "*.yaml" -ErrorAction SilentlyContinue
+
+# 5. Check WAKE_UP.md if progress_watcher was running  
+if (Test-Path starter_kit_schedule/progress/WAKE_UP.md) {
+    Get-Content starter_kit_schedule/progress/WAKE_UP.md
+}
+```
+
+**What to look for:**
+- Best reward/composite score achieved so far
+- Which HP configurations worked best (lr, rollouts, termination, arrival_bonus)
+- Known failure modes already diagnosed (see "Diagnosed & Fixed Issues" below)
+- Whether anti-laziness mechanisms are active in the current code
+
+**Only after reviewing**, proceed to Quick Start commands below.
+
 ## Quick Start — Just Run Training
 
 ```powershell
@@ -64,12 +101,43 @@ These issues were root-caused and fixed. **Do NOT revert**:
 | Problem | Root Cause | Fix |
 |---------|-----------|-----|
 | Robot never reaches target | `exp(-12.6/0.5)≈0` — dead gradient at far distance | Widened sigma to 5.0: `exp(-d/5.0)` |
-| Robot learns "don't move" | `termination=-200` dominates per-step reward (~2-5) | Reduced to `-50` |
+| Robot learns to stand still ("lazy robot") | `alive_bonus × ~3800 steps ≈ 1900` dwarfs `arrival_bonus = 15` | **Anti-laziness trifecta** (see below) |
 | No exploration | `entropy_loss_scale=0.0` in base PPOCfg | Set to `0.005` in VBotSection001PPOConfig |
 | Only fixed 12.6m target | `pose_command_range=[0,10.2,0,0,10.2,0]` — no randomization | Randomized: `[-3,3,-π,3,12,π]` |
 | Hardcoded reward scales | `approach_scale`, `arrival_bonus` etc not in scales dict | Moved all to `RewardConfig.scales` |
 | No gradient at distance | Only exponential decay reward | Added `distance_progress` linear reward (1-d/d_max) |
-| Robot falls and stops learning | Only penalties, no incentive to stay alive | Added `alive_bonus=0.5` per step |
+| Robot reaches but never stops | No episode end after reaching target | Added `_update_truncate()`: 50 steps of reached+stopped → truncate |
+
+### Anti-Laziness Trifecta (Critical Discovery)
+
+At 50M steps, the robot discovered it could maximize reward by **standing still** and collecting alive_bonus every step (~1900 total per episode), completely ignoring the arrival_bonus (15). Three mechanisms fix this:
+
+1. **Conditional alive_bonus:** `alive_bonus = np.where(ever_reached, 0.0, scale)` — No reward for existing after reaching target. Forces the robot to seek the goal, not exploit survival.
+
+2. **Time decay on navigation rewards:** `time_decay = clip(1 - 0.5 * steps/max_steps, 0.5, 1.0)` — Early steps are worth more, creating urgency. Navigation rewards (position_tracking, approach, etc.) multiply by this factor. Penalties are NOT multiplied (termination stays full strength).
+
+3. **Massive arrival_bonus:** Increased from 15 → 50 (now searched in range [20, 100]). Must dominate the total alive_bonus accumulation to incentivize actual goal-reaching.
+
+**Detection signal:** Robot distance goes UP during training (1.0m → 1.6m), episode length near max (3800/4000), reached% drops to ~0.3%. Reward still looks "good" because alive_bonus accumulates.
+
+### Current Reward Configuration (Round 2)
+
+```python
+# cfg.py RewardConfig.scales — current values
+position_tracking: 1.5       # exp(-d/5.0)
+fine_position_tracking: 5.0   # exp(-d/0.3) when d < 1.5m
+heading_tracking: 0.8
+forward_velocity: 1.5
+distance_progress: 2.0       # linear: 1 - d/initial_distance
+alive_bonus: 0.5              # CONDITIONAL — only when NOT ever_reached
+approach_scale: 8.0
+arrival_bonus: 50.0           # Large enough to beat alive_bonus accumulation
+stop_scale: 2.0
+zero_ang_bonus: 6.0
+termination: -100.0
+lin_vel_z: -0.3
+ang_vel_xy: -0.03
+```
 
 ## Skill Routing
 
@@ -122,11 +190,31 @@ These issues have been resolved. Do NOT re-investigate or re-fix them:
 | Import order: `@rlcfg` fails if env not registered | `train_one.py` imports `vbot` before `motrix_rl` | `train_one.py` |
 | Dead reward gradient at distance | Changed sigma from 0.5 to 5.0, added `distance_progress` linear reward | `vbot_section001_np.py` |
 | Zero entropy prevents exploration | Set `entropy_loss_scale=0.005` | `motrix_rl/cfgs.py` |
-| Termination penalty too harsh | Reduced from -200 to -50, dominates per-step reward | `cfg.py` |
+| **Lazy robot (reward hacking)** | Conditional alive_bonus + time_decay + arrival_bonus=50 | `vbot_section001_np.py` + `cfg.py` |
 | Hardcoded reward scales | Moved `approach_scale`, `arrival_bonus`, `stop_scale`, `zero_ang_bonus` into RewardConfig.scales | `cfg.py` + `vbot_section001_np.py` |
 | AutoML no TensorBoard data | `check_point_interval` not passed to rl_overrides. Now auto-calculated to ensure ≥5 data points | `automl.py` |
 | Wrong TensorBoard tag for evaluation | Tag is `Reward / Instantaneous reward (mean)` not `Total reward` | `evaluate.py` |
 | Fixed training target | `pose_command_range` was [0,10.2,0,0,10.2,0] (no randomization) | `cfg.py` |
+| Robot reaches but doesn't stop | Added `_update_truncate()` override — 50 consecutive steps of reached+stopped → truncate | `vbot_section001_np.py` |
+
+## Experiment History Summary
+
+### Round 1 AutoML (15 trials at 5M steps each)
+- Best: reward=6.75, reached=6.45%, composite=0.3733
+- Best HP: lr=2.42e-04, entropy=1.33e-03, rollouts=32, termination=-200
+- **Outcome:** Full 50M training → lazy robot (killed at 30min)
+
+### Round 2 AutoML (anti-laziness, 10 trials at 10M steps each)
+- Trial 1: reward=1.90, reached=0.33%, composite=0.316
+- Late learning surge detected (reward jumped at step 4819)
+- **Status:** Search still in progress — needs more trials and longer training
+
+### Key Findings
+1. Learning rate ~2e-4 works well; very low (<5e-5) too slow
+2. Rollouts 16-32 all viable; 32 slightly better
+3. Termination -100 to -200 range is correct; -10/-25 too lenient
+4. arrival_bonus must be >> alive_bonus × max_episode_steps / 2
+5. Anti-laziness mechanisms are ESSENTIAL for >10M step training
 
 ## Managed Directories
 

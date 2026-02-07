@@ -1,0 +1,7 @@
+experiments:
+- completed_at: '2026-02-07T14:28:41.938958Z'
+  environment: vbot_navigation_section001
+  experiment_id: automl_20260207_140249_vbot_navigation_section001_i0_1770444169
+  final_reward: 1.9008761420845985
+  status: completed
+  success_rate: 0.0033209128378075548

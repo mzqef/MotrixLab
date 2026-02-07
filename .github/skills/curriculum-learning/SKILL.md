@@ -27,6 +27,8 @@ description: Multi-stage curriculum training for VBot quadruped navigation. Stag
 | Configure warm-start transfers | ✅ |
 | Single-stage training | ❌ Use `training-campaign` |
 
+> **Before designing or running any curriculum**, review existing experiment history following `training-pipeline` skill → Step 0.
+
 ## Registered Environments
 
 | Environment ID | Terrain | Package |
@@ -209,3 +211,5 @@ stages_pending:
 3. **Test promotion criteria** - Run 1M steps before committing to full stage
 4. **Checkpoint frequently** - Every 500 iters for Stage 1, 1000 for later
 5. **Log per-stage metrics** - Compare performance across stages
+6. **Enable successful truncation** - `_update_truncate()` ends episodes early when robot reaches+stops for 50 steps. This speeds up training by not wasting steps after the goal is achieved.
+7. **Anti-laziness must be active** - When running long curriculum stages (50M+), conditional alive_bonus and time_decay are essential. See `reward-penalty-engineering` Lazy Robot case study.

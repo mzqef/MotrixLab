@@ -173,7 +173,7 @@ class VBotSection001PPOConfig(PPOCfg):
     
     ratio_clip: float = 0.2         # PPO clip
     value_clip: float = 0.2
-    entropy_loss_scale: float = 0.0 # No entropy bonus
+    entropy_loss_scale: float = 0.005  # Exploration bonus (was 0.0 — fixed)
     value_loss_scale: float = 2.0
     grad_norm_clip: float = 1.0
 ```
@@ -203,26 +203,45 @@ class VBotSection001PPOConfig(PPOCfg):
 
 ### Navigation Task Reward Structure
 
+> **⚠️ CRITICAL COMPETITION INSIGHT (Stage 1):** 10 dogs spawn randomly. Each navigates to inner fence (+1pt) then center (+1pt) = max 20pts. **ANY single fall or out-of-bounds = that dog loses ALL points (both +1s).** This means stability is MORE important than speed — a conservative policy that never falls beats a fast one that falls once.
+
 ```python
 reward_scales = {
     # === Primary Navigation ===
-    "position_tracking": 2.0,       # Exponential decay with distance
-    "fine_position_tracking": 2.0,  # Extra reward when close
-    "heading_tracking": 1.0,        # Face movement direction
-    "forward_velocity": 0.5,        # Encourage speed toward goal
+    "position_tracking": 1.5,       # Exponential decay: exp(-d/5.0)
+    "fine_position_tracking": 5.0,  # Extra reward when < 1.5m: exp(-d/0.3)
+    "heading_tracking": 0.8,        # Face movement direction
+    "forward_velocity": 1.5,        # Encourage speed toward goal
+    "distance_progress": 2.0,       # Linear: clip(1 - d/initial_distance, -0.5, 1.0)
+    
+    # === Goal Completion (anti-laziness aware) ===
+    "approach_scale": 8.0,          # Bonus for reducing distance
+    "arrival_bonus": 50.0,          # One-time bonus on reaching target
+    "stop_scale": 2.0,              # Bonus for stopping at target
+    "zero_ang_bonus": 6.0,          # Bonus for standing still at target
+    "alive_bonus": 0.5,             # CONDITIONAL: only when NOT ever_reached
     
     # === Stability Penalties ===
     "orientation": -0.05,           # Penalize body tilt
-    "lin_vel_z": -0.5,              # Penalize vertical bounce
-    "ang_vel_xy": -0.05,            # Penalize body rotation
+    "lin_vel_z": -0.3,              # Penalize vertical bounce
+    "ang_vel_xy": -0.03,            # Penalize body rotation
     "torques": -1e-5,               # Energy efficiency
     "dof_vel": -5e-5,               # Smooth joint motion
     "dof_acc": -2.5e-7,             # Jerk reduction
     "action_rate": -0.01,           # Smooth policy
     
     # === Terminal States ===
-    "termination": -200.0,          # Body-ground collision
+    "termination": -100.0,          # Body-ground collision
 }
+```
+
+> **Anti-laziness mechanisms active:**
+> 1. `alive_bonus` is **conditional** — becomes 0 after reaching target (prevents "stand around" exploit)
+> 2. Navigation rewards multiply by `time_decay = clip(1 - 0.5*steps/max_steps, 0.5, 1.0)` — creates urgency
+> 3. `arrival_bonus=50` >> `alive_bonus(0.5) × max_steps(4000) / 2` — dominates per-step accumulation
+> 4. `_update_truncate()`: 50 consecutive steps of reached + stopped → episode ends early
+>
+> See `reward-penalty-engineering` skill → "Lazy Robot Case Study" for full details.
 ```
 
 ### Advanced Reward Techniques
@@ -458,15 +477,21 @@ trainer.train()
 
 **Target:** 10/10 dogs, 2 pts each = 20 pts
 
+> **⚠️ CRITICAL:** Each dog navigates to inner fence (+1pt) then center (+1pt). If the dog **falls at ANY point**, it loses ALL its points (both +1s). A single fall costs 2 points. Therefore:
+> - A policy that gets 10/10 dogs to center slowly = **20 pts**
+> - A policy that gets 9/10 dogs fast but 1 falls = **18 pts**
+> - Stability > Speed for competition scoring
+
 **Key metrics:**
-- Distance traveled toward each target
-- Time to reach (faster = better tiebreaker)
-- No falls
+- Success rate (100% target → must be near-perfect)
+- Zero falls (termination penalty must be effective)
+- Time to reach (secondary — tiebreaker only)
 
 **Optimization:**
-1. Train to 100% success rate on flat
-2. Maximize velocity while maintaining stability
-3. Use `vbot_navigation_section001` with tight position tolerance (0.3m)
+1. Train to 100% success rate on flat with randomized targets
+2. Keep stability penalties active — never sacrifice stability for speed
+3. Use `vbot_navigation_section001` with position tolerance 0.3m
+4. Position_threshold for truncation ensures robot actually stops at goal
 
 ### Stage 2: Section 1 (20 pts)
 
@@ -507,6 +532,7 @@ trainer.train()
 
 | Failure | Symptom | Fix |
 |---------|---------|-----|
+| **Lazy robot (reward hacking)** | Distance UP, reached% DOWN, ep_len near max | Conditional alive_bonus, time_decay, increase arrival_bonus |
 | **Falls on flat ground** | Body touches ground | Increase orientation penalty, add armature |
 | **Stuck on stair edge** | No progress, foot scraping | Add foot clearance reward, knee lift bonus |
 | **Overshoots target** | Oscillates around goal | Add velocity damping near target, fine tracking reward |

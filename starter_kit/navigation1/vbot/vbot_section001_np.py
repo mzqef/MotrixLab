@@ -465,6 +465,16 @@ class VBotSection001Env(NpEnv):
         state.reward = reward
         state.terminated = terminated
 
+        # ========== Round2: 达到目标后成功截断 ==========
+        # 当机器人到达目标且速度足够低时，连续计数；超过阈值后截断episode
+        speed_xy = np.linalg.norm(base_lin_vel[:, :2], axis=1)
+        reach_and_stopped = np.logical_and(reached_all, speed_xy < 0.15)
+        reach_stop_count = state.info.get("reach_stop_count", np.zeros(self._num_envs, dtype=np.int32))
+        reach_stop_count = np.where(reach_and_stopped, reach_stop_count + 1, 0)
+        state.info["reach_stop_count"] = reach_stop_count
+        # 连续50步（0.5秒）稳定停在目标处 → 标记成功截断
+        self._success_truncate = reach_stop_count >= 50
+
         # 记录评估指标用于TensorBoard和Pipeline评估
         state.info["metrics"] = {
             "distance_to_target": distance_to_target,
@@ -472,6 +482,12 @@ class VBotSection001Env(NpEnv):
         }
 
         return state
+
+    def _update_truncate(self):
+        """Override: 除max_episode_steps截断外，还包括成功到达截断"""
+        super()._update_truncate()
+        if hasattr(self, '_success_truncate'):
+            self._state.truncated = np.logical_or(self._state.truncated, self._success_truncate)
 
     def _compute_terminated(
         self, state: NpEnvState,
@@ -573,8 +589,16 @@ class VBotSection001Env(NpEnv):
         initial_distance = info.get("initial_distance", distance_to_target)
         distance_progress = np.clip(1.0 - distance_to_target / (initial_distance + 1e-8), -0.5, 1.0)
 
-        # 存活奖励（新增）：每步固定小奖励，鼓励不摘倒
-        alive_bonus = np.ones(self._num_envs, dtype=np.float32)
+        # 存活奖励：每步固定小奖励，但已到达后不再给（防止"站着不动"奖励黑客）
+        # Round2: alive_bonus 仅在 NOT ever_reached 时给予，创造到达紧迫感
+        ever_reached = info.get("ever_reached", np.zeros(self._num_envs, dtype=bool))
+        alive_bonus = np.where(ever_reached, 0.0, 1.0)
+
+        # ========== 时间压力：随步数递减奖励 ==========
+        # 鼓励快速到达：步数越多，每步奖励越少
+        steps = info.get("steps", np.zeros(self._num_envs, dtype=np.float32)).astype(np.float32)
+        max_steps = float(self._cfg.max_episode_steps)
+        time_decay = np.clip(1.0 - 0.5 * steps / max_steps, 0.5, 1.0)  # 从1.0线性衰减到0.5
 
         # ========== 到达后的停止奖励 ==========
 
@@ -636,10 +660,12 @@ class VBotSection001Env(NpEnv):
 
         reward = np.where(
             reached_all,
-            # 到达后：停止奖励 + 到达奖励 + 存活 + 惩罚
-            stop_bonus + arrival_bonus + scales.get("alive_bonus", 0.5) * alive_bonus + penalties,
-            # 未到达：导航跟踪 + 前进 + 接近 + 距离递减 + 存活 + 惩罚
-            (
+            # 到达后：停止奖励 + 到达奖励 + 惩罚（alive_bonus=0 after reach）
+            stop_bonus + arrival_bonus + penalties,
+            # 未到达：导航跟踪 × time_decay + 前进 + 接近 + 距离递减 + 存活 + 惩罚
+            # time_decay 让"站着不动"策略的累积奖励随时间降低，创造紧迫感
+            # 注意：penalties 不受 time_decay 影响，确保终止/稳定性惩罚始终有效
+            time_decay * (
                 scales.get("position_tracking", 1.5) * position_tracking
                 + scales.get("fine_position_tracking", 2.0) * fine_position_tracking
                 + scales.get("heading_tracking", 0.8) * heading_tracking
@@ -647,8 +673,7 @@ class VBotSection001Env(NpEnv):
                 + scales.get("distance_progress", 2.0) * distance_progress
                 + scales.get("alive_bonus", 0.5) * alive_bonus
                 + approach_reward
-                + penalties
-            )
+            ) + penalties
         )
 
         # 记录各奖励分量用于TensorBoard可视化
