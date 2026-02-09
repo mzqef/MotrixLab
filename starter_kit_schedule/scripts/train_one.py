@@ -9,6 +9,7 @@ Usage:
 """
 
 import argparse
+import datetime
 import json
 import os
 import sys
@@ -87,6 +88,11 @@ def main():
     if os.path.exists(runs_dir):
         existing_dirs = set(os.listdir(runs_dir))
 
+    # Record start time — the SKRL agent creates its directory ~seconds after train() starts.
+    # We use this to match the correct directory by its timestamp-based name, avoiding
+    # contamination from concurrently-launched manual training runs.
+    pre_train_dt = datetime.datetime.now()
+
     # Import and run trainer
     from motrix_rl.skrl.torch.train import ppo
 
@@ -99,17 +105,37 @@ def main():
     trainer.train()
     elapsed = time.time() - start_time
 
-    # Find the new run directory created during training
+    # Find the new run directory created during training.
+    # ROBUST: Match by directory name timestamp (YY-MM-DD_HH-MM-SS-FFFFFF_PPO)
+    # to pre_train_dt, avoiding contamination from concurrent manual runs.
     run_dir = None
     if os.path.exists(runs_dir):
         current_dirs = set(os.listdir(runs_dir))
         new_dirs = current_dirs - existing_dirs
         if new_dirs:
-            # Pick the newest by modification time
-            run_dir = os.path.join(
-                runs_dir,
-                max(new_dirs, key=lambda d: os.path.getmtime(os.path.join(runs_dir, d)))
-            )
+            best_dir = None
+            best_diff = float("inf")
+            for d in new_dirs:
+                try:
+                    # Parse timestamp from dir name: "26-02-10_00-37-48-487151_PPO"
+                    ts_str = d.rsplit("_PPO", 1)[0]
+                    dt = datetime.datetime.strptime(ts_str, "%y-%m-%d_%H-%M-%S-%f")
+                    diff = abs((dt - pre_train_dt).total_seconds())
+                    if diff < best_diff:
+                        best_diff = diff
+                        best_dir = d
+                except (ValueError, IndexError):
+                    continue
+            if best_dir and best_diff < 120:
+                run_dir = os.path.join(runs_dir, best_dir)
+                print(f"[Pipeline] Matched run dir by timestamp (delta={best_diff:.1f}s): {best_dir}")
+            elif new_dirs:
+                # Fallback: if no timestamp match, use newest by mtime (legacy behavior)
+                run_dir = os.path.join(
+                    runs_dir,
+                    max(new_dirs, key=lambda d: os.path.getmtime(os.path.join(runs_dir, d)))
+                )
+                print(f"[Pipeline] WARNING: Timestamp match failed, using mtime fallback: {os.path.basename(run_dir)}")
 
     # Save experiment metadata
     if run_dir:

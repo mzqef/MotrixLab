@@ -76,22 +76,22 @@ class HPConfig:
 
 @dataclass
 class RewardConfig:
-    """Reward weights configuration — aligned with VBotSection001EnvCfg.RewardConfig (Phase5/6)."""
+    """Reward weights configuration — aligned with VBotSection001EnvCfg.RewardConfig (Round6)."""
     # Navigation core rewards
     position_tracking: float = 1.5
-    fine_position_tracking: float = 8.0   # Phase5: 5→8
-    heading_tracking: float = 1.0          # Phase5: 0.8→1.0
-    forward_velocity: float = 0.8          # Phase5: 1.5→0.8 (speed cap 0.6m/s)
-    distance_progress: float = 1.5         # Phase5: 2.0→1.5
-    alive_bonus: float = 0.15              # Phase5: 0.5→0.15 (anti-lazy)
+    fine_position_tracking: float = 8.0
+    heading_tracking: float = 0.8          # Round6: 1.0→0.8 (减少被动奖励)
+    forward_velocity: float = 1.5          # Round6: 0.8→1.5 (恢复原始值, Phase5减半导致行走不如站立)
+    distance_progress: float = 1.5
+    alive_bonus: float = 0.15
     # Navigation-specific rewards (approach/arrival/stop)
-    approach_scale: float = 5.0            # Phase5: 8→5
-    arrival_bonus: float = 100.0           # Phase5: 50→100
-    inner_fence_bonus: float = 40.0        # Phase5 新增: 进入内围栏一次性奖励
-    stop_scale: float = 5.0                # Phase5: 2→5 (竞赛精确停止)
-    zero_ang_bonus: float = 10.0           # Phase5: 6→10
-    near_target_speed: float = -0.5        # Phase5 新增: 近目标高速惩罚 (0.5m内激活)
-    boundary_penalty: float = -3.0         # Phase5 新增: 边界惩罚 (防掉落)
+    approach_scale: float = 30.0           # Round6: 5→30 (step-delta需要更高scale)
+    arrival_bonus: float = 100.0
+    inner_fence_bonus: float = 40.0
+    stop_scale: float = 5.0
+    zero_ang_bonus: float = 10.0
+    near_target_speed: float = -2.0        # Round5: 距离-速度耦合 quadratic penalty
+    boundary_penalty: float = -3.0
     # Stability penalties
     orientation: float = -0.05
     lin_vel_z: float = -0.3
@@ -101,7 +101,7 @@ class RewardConfig:
     dof_acc: float = -2.5e-7
     action_rate: float = -0.01
     # Termination
-    termination: float = -200.0            # Phase6: -100→-200 (sprint-crash unprofitable)
+    termination: float = -100.0            # Round6: -200→-100 (恢复原始值, -200过重)
 
 
 @dataclass
@@ -129,7 +129,7 @@ class EvalMetrics:
             0.60 * self.success_rate +                              # reaching = competition score
             0.25 * (1.0 - self.termination_rate) +                  # no falls = critical
             0.10 * min(self.episode_reward_mean / 10.0, 1.0) +     # reward as proxy
-            0.05 * (1.0 - min(self.episode_length_mean / 4000.0, 1.0))  # speed tiebreaker
+            0.05 * (1.0 - min(self.episode_length_mean / 1000.0, 1.0))  # Round6: max_steps=1000
         )
         return score
 
@@ -212,39 +212,39 @@ class AutoMLState:
 # =============================================================================
 
 HP_SEARCH_SPACE = {
-    "learning_rate": {"type": "loguniform", "low": 1e-5, "high": 1e-3},
-    "entropy_loss_scale": {"type": "loguniform", "low": 1e-4, "high": 1e-2},
+    "learning_rate": {"type": "loguniform", "low": 2e-4, "high": 8e-4},  # Round6: narrowed around proven 5e-4
+    "entropy_loss_scale": {"type": "loguniform", "low": 5e-3, "high": 2e-2},  # Round6: narrowed
     "policy_hidden_layer_sizes": {
         "type": "categorical",
-        "choices": [[128, 64], [256, 128, 64], [512, 256, 128], [256, 256, 256]],
+        "choices": [[256, 128, 64], [256, 256, 256], [512, 256, 128]],  # Round6: removed [128,64] (too small)
     },
-    "rollouts": {"type": "choice", "values": [16, 24, 32, 48]},
-    "learning_epochs": {"type": "choice", "values": [4, 5, 6, 8]},
-    "mini_batches": {"type": "choice", "values": [16, 32, 64]},
+    "rollouts": {"type": "choice", "values": [24, 32, 48]},  # Round6: removed 16 (too few)
+    "learning_epochs": {"type": "choice", "values": [4, 5, 6]},
+    "mini_batches": {"type": "choice", "values": [16, 32]},
 }
 
 REWARD_SEARCH_SPACE = {
     # === Navigation core (positive incentives) ===
-    "position_tracking": {"type": "uniform", "low": 0.5, "high": 5.0},
-    "fine_position_tracking": {"type": "uniform", "low": 4.0, "high": 15.0},
-    "heading_tracking": {"type": "uniform", "low": 0.1, "high": 2.0},
-    "forward_velocity": {"type": "uniform", "low": 0.3, "high": 1.2},   # Phase5: narrowed, speed-capped
+    "position_tracking": {"type": "uniform", "low": 0.5, "high": 3.0},
+    "fine_position_tracking": {"type": "uniform", "low": 4.0, "high": 12.0},
+    "heading_tracking": {"type": "uniform", "low": 0.3, "high": 1.2},
+    "forward_velocity": {"type": "uniform", "low": 1.0, "high": 2.5},    # Round6: raised to match restored baseline
     "distance_progress": {"type": "uniform", "low": 0.5, "high": 3.0},
-    "alive_bonus": {"type": "uniform", "low": 0.05, "high": 0.5},       # Phase5: anti-lazy range
+    "alive_bonus": {"type": "uniform", "low": 0.05, "high": 0.3},
     # === Approach / arrival / stop ===
-    "approach_scale": {"type": "uniform", "low": 2.0, "high": 10.0},
-    "arrival_bonus": {"type": "uniform", "low": 50.0, "high": 200.0},    # Phase5: increased
-    "inner_fence_bonus": {"type": "uniform", "low": 10.0, "high": 80.0}, # Phase5 新增
-    "stop_scale": {"type": "uniform", "low": 2.0, "high": 12.0},        # Phase5: higher
+    "approach_scale": {"type": "uniform", "low": 15.0, "high": 50.0},    # Round6: step-delta needs high scale
+    "arrival_bonus": {"type": "uniform", "low": 50.0, "high": 200.0},
+    "inner_fence_bonus": {"type": "uniform", "low": 10.0, "high": 80.0},
+    "stop_scale": {"type": "uniform", "low": 2.0, "high": 10.0},
     "zero_ang_bonus": {"type": "uniform", "low": 4.0, "high": 16.0},
-    "near_target_speed": {"type": "uniform", "low": -3.0, "high": -0.1}, # Phase5 新增
-    "boundary_penalty": {"type": "uniform", "low": -10.0, "high": -0.5}, # Phase5 新增
+    "near_target_speed": {"type": "uniform", "low": -4.0, "high": -0.5},
+    "boundary_penalty": {"type": "uniform", "low": -5.0, "high": -0.5},
     # === Stability penalties ===
-    "orientation": {"type": "uniform", "low": -0.3, "high": -0.01},
-    "lin_vel_z": {"type": "uniform", "low": -1.0, "high": -0.05},
-    "action_rate": {"type": "uniform", "low": -0.05, "high": -0.001},
+    "orientation": {"type": "uniform", "low": -0.15, "high": -0.01},
+    "lin_vel_z": {"type": "uniform", "low": -0.6, "high": -0.05},
+    "action_rate": {"type": "uniform", "low": -0.03, "high": -0.001},
     # === Termination ===
-    "termination": {"type": "choice", "values": [-300, -200, -150, -100]}, # Phase6: heavier
+    "termination": {"type": "choice", "values": [-150, -100, -75, -50]},   # Round6: lighter range
 }
 
 

@@ -371,8 +371,8 @@ class VBotSection001EnvCfg(VBotStairsEnvCfg):
     训练时随机生成起始位置和目标位置，覆盖全方向、多距离。
     """
     model_file: str = os.path.dirname(__file__) + "/xmls/scene_section001.xml"
-    max_episode_seconds: float = 40.0  # 拉长一倍：从20秒增加到40秒
-    max_episode_steps: int = 4000  # 拉长一倍：从2000步增加到4000步
+    max_episode_seconds: float = 10.0  # Round6: 恢复10s — 4000步(40s)导致站立总奖励(4185)远超行走(2031)
+    max_episode_steps: int = 1000  # Round6: 恢复1000步 — 短episode让抵达(2031)优于站立(1046)
     @dataclass
     class InitState:
         # 起始位置：平台中心，高度0.5m（圆柱体顶面Z=0）
@@ -435,18 +435,18 @@ class VBotSection001EnvCfg(VBotStairsEnvCfg):
                 # ===== 导航任务核心奖励 =====
                 "position_tracking": 1.5,       # exp(-d/5.0) 位置跟踪
                 "fine_position_tracking": 8.0,   # 精细位置跟踪 (sigma=0.5, range<2.5m)
-                "heading_tracking": 1.0,         # 朝向跟踪 (略提升鼓励面向目标)
-                "forward_velocity": 0.8,         # 前进速度 (恢复0.8, 但代码中限速0.6m/s)
+                "heading_tracking": 0.8,         # 朝向跟踪 (Round6: 1.0→0.8, 减少被动站立奖励)
+                "forward_velocity": 1.5,         # 前进速度 (Round6: 0.8→1.5, 恢复原始值—Phase5减半导致行走不如站立)
                 "distance_progress": 1.5,        # 线性距离递减 (1.5, 让approach主导)
-                "alive_bonus": 0.15,             # 存活奖励 (Phase5: 0.5→0.15, 反懒惰)
+                "alive_bonus": 0.15,             # 存活奖励 (始终激活, Round5: 移除ever_reached条件)
 
                 # ===== 导航接近/到达奖励 =====
-                "approach_scale": 5.0,           # 距离递减 (Phase5: 4→5, 平衡stop)
+                "approach_scale": 30.0,          # 距离递减 (Round6: 15→30, step-delta每步信号=30*0.006=0.18/step)
                 "arrival_bonus": 100.0,          # 到达一次性奖励 (Phase5: 50→100)
                 "inner_fence_bonus": 40.0,       # 进入内围栏一次性奖励 (新增)
                 "stop_scale": 5.0,               # 停止奖励 (Phase5: 2→5, 竞赛精确停止)
                 "zero_ang_bonus": 10.0,          # 零角速度奖励 (Phase5: 6→10)
-                "near_target_speed": -0.5,       # 近目标高速惩罚 (减弱, 仅0.5m内激活)
+                "near_target_speed": -2.0,       # 距离-速度耦合惩罚 (Round5: quadratic speed_excess²)
                 "boundary_penalty": -3.0,        # 边界惩罚 (新增, 防掉落)
 
                 # ===== Locomotion稳定性惩罚 =====
@@ -459,7 +459,7 @@ class VBotSection001EnvCfg(VBotStairsEnvCfg):
                 "action_rate": -0.01,
 
                 # ===== 终止惩罚 =====
-                "termination": -200.0,           # Phase6: -150→-200 (sprint=0.8*0.6*391-200=-12, 不划算)
+                "termination": -100.0,           # Round6: -200→-100 (恢复原值, -200过重导致风险规避)
             }
         )
 

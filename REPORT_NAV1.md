@@ -868,3 +868,529 @@ The following parameter combinations were tested manually (should have used Auto
 **Best configuration found**: Exp8's parameters (forward_velocity=0.8, near_target_speed=-0.5 at 0.5m) but with speed cap=0.6 and termination=-200 (from Exp12, untested long-term).
 
 **Open question**: Does the speed cap + termination=-200 combination prevent sprint-crash long-term? This needs a full AutoML run to validate.
+
+---
+
+# Session 4: AutoML Structural Improvements & Round5 Reward Fixes (Feb 9 late evening)
+
+## 27. AutoML Pipeline Updates
+
+### 27a. automl.py Alignment with Current Config
+
+Updated `automl.py` to match the Phase5/6 cfg.py state:
+
+| Component | Old Default | New Default | Rationale |
+|-----------|------------|------------|-----------|
+| `HPConfig.learning_rate` | 3e-4 | 5e-4 | Match rl_cfgs.py |
+| `HPConfig.rollouts` | 48 | 32 | Match rl_cfgs.py |
+| `HPConfig.mini_batches` | 32 | 16 | Match rl_cfgs.py |
+| `HPConfig.entropy_loss_scale` | 0.005 | 0.01 | Match rl_cfgs.py |
+| `RewardConfig.alive_bonus` | 0.5 | 0.15 | Phase5 value |
+| `RewardConfig.arrival_bonus` | 50 | 100 | Phase5 value |
+| `RewardConfig.termination` | -100 | -200 | Phase6 value |
+| `RewardConfig.inner_fence_bonus` | — | 40.0 | NEW field |
+| `RewardConfig.near_target_speed` | — | -2.0 | NEW field (Round5: speed-distance coupling) |
+| `RewardConfig.boundary_penalty` | — | -3.0 | NEW field |
+
+### 27b. compute_score() — Competition-Aligned Scoring
+
+The AutoML scoring function was changed from reward-dominated to competition-aligned:
+
+```python
+# OLD: 40% reward + 30% reached + 20% distance + 10% speed
+# NEW: Competition scoring (binary: reach inner fence +1, reach center +1)
+score = (
+    0.60 * success_rate +           # Did the robot reach? (most important)
+    0.25 * (1 - termination_rate) +  # Didn't fall? (survival)
+    0.10 * min(reward / 50, 1.0) +  # Reward as tiebreaker
+    0.05 * (1 - min(ep_len/1000, 1))  # Speed bonus (minor)
+)
+```
+
+### 27c. REWARD_SEARCH_SPACE — 17 Searchable Parameters
+
+Updated search space with Phase5/6 ranges and 3 new parameters:
+
+| Parameter | Type | Range | Notes |
+|-----------|------|-------|-------|
+| termination | uniform | [-300, -100] | Death penalty |
+| alive_bonus | uniform | [0.05, 0.5] | Per-step survival |
+| arrival_bonus | uniform | [50, 250] | One-time reach bonus |
+| forward_velocity | uniform | [0.3, 1.5] | Navigation drive |
+| approach_scale | uniform | [2.0, 8.0] | Step-delta distance |
+| fine_position_tracking | uniform | [3.0, 12.0] | Close-range magnet |
+| stop_scale | uniform | [2.0, 10.0] | Precision stopping |
+| near_target_speed | uniform | [-5.0, -0.5] | Speed-distance coupling |
+| inner_fence_bonus | uniform | [10, 80] | Waypoint bonus |
+| boundary_penalty | uniform | [-5.0, -0.5] | Edge safety |
+| + 7 HP parameters | various | various | lr, entropy, rollouts, epochs, etc. |
+
+---
+
+## 28. AutoML Run: automl_20260209_204634 (Pre-Round5 Fixes)
+
+**Config**: 15 trials, 8h budget, 10M steps/trial  
+**Duration**: 1 trial completed before kill  
+**Killed reason**: Structural reward bugs needed fixing first
+
+| Trial | Score | Reached% | Reward | Distance | LR | Notes |
+|-------|-------|----------|--------|----------|-----|-------|
+| T0 | 0.3519 | 10.8% | 2.46 | 2.97m | ~3e-4 | Baseline before fixes |
+
+---
+
+## 29. Step-Delta Approach Reward (structural improvement)
+
+Changed approach reward from min-distance tracking to step-by-step delta:
+
+```python
+# BEFORE: only rewarded new distance records (one-time, signal dies after progress stalls)
+distance_improvement = info["min_distance"] - distance_to_target
+info["min_distance"] = np.minimum(info["min_distance"], distance_to_target)
+
+# AFTER: continuous step-delta (positive for approaching, negative for retreating)
+distance_improvement = info["last_distance"] - distance_to_target
+info["last_distance"] = distance_to_target.copy()
+```
+
+**Why better**: The old min-distance approach provided zero signal once the robot reached its closest point — if it overshot and came back, there was no reward for re-approaching. The step-delta provides continuous gradient in both directions.
+
+---
+
+## 30. AutoML Run: automl_20260209_211947 (Post step-delta fix, pre-Round5)
+
+**Config**: 15 trials, 8h budget, 10M steps/trial, step-delta approach, competition-aligned scoring  
+**Duration**: 5 trials completed before kill
+
+| Trial | Score | Reached% | Reward | LR | Termination | alive | arrival | fwd | approach |
+|-------|-------|----------|--------|-----|-------------|-------|---------|-----|----------|
+| **T0** | **0.418** | **16.4%** | 1.93 | 8.8e-5 | -150 | 0.38 | 179 | 0.46 | 9.7 |
+| T1 | 0.315 | 0.0% | 1.51 | 7.1e-5 | **-300** | 0.32 | 152 | 0.81 | 5.6 |
+| T2 | 0.391 | 12.7% | 1.51 | 6.7e-5 | -150 | 0.08 | 108 | 1.08 | 2.7 |
+| T3 | 0.321 | 0.3% | 1.88 | 4.2e-5 | -200 | 0.45 | 119 | 0.73 | 6.4 |
+| T4 | 0.311 | 0.0% | 1.10 | — | — | — | — | — | — |
+
+**Best**: T0 with 16.4% reached (score=0.418). Note T1 with term=-300 got 0% (too harsh, confirmed earlier finding).
+
+**Killed reason**: VLM analysis revealed 4 structural reward bugs requiring code changes.
+
+---
+
+## 31. VLM Policy Analysis (subagent-copilot-cli)
+
+Captured 20 frames of the Exp12 policy (default-architecture checkpoint) using `capture_vlm.py`. A detailed code analysis was performed, identifying:
+
+### 31a. Root Cause: "Peak-Then-Decline" Pattern
+
+Three interacting mechanisms cause reached% to peak early then decline in ALL experiments:
+
+1. **Sprint-Crash Exploit**: The speed cap clips the *reward* at 0.6 m/s but doesn't physically limit the robot. With `approach_scale=5.0`, faster approach = higher reward per step. The policy discovers that fast episodes with many resets earn more reward per unit training time.
+
+2. **"Touch and Die" Cycle**: `alive_bonus=0` after `ever_reached=True` means the robot has **no incentive to stay alive** after touching the target. It learns: sprint → briefly touch center → no survival reward → crash → reset → repeat.
+
+3. **Fly-Through Stop Bonus**: `stop_bonus` triggered by `reached_all` (d<0.5m) regardless of speed. A sprinting robot passing through the zone briefly collects stop reward.
+
+### 31b. Predicted Robot Behavior
+
+Based on code analysis (confirmed by Exp12's 27.7% reached, then decline):
+- **Cautious approach to ~0.5m** followed by hesitation/hovering
+- Too afraid to commit to the final push (termination=-200)
+- Competent at locomotion and heading (stable trot)
+- Failure is **strategic** (approach decision-making), not **mechanical** (gait quality)
+
+---
+
+## 32. Round5 Reward Fixes — 4 Critical Bug Fixes
+
+Applied to `starter_kit/navigation1/vbot/vbot_section001_np.py`:
+
+### Fix 1: `alive_bonus` Always Active (P0 — removes "touch and die")
+
+```python
+# BEFORE: alive_bonus zeroed after reaching target
+ever_reached = info.get("ever_reached", ...)
+alive_bonus = np.where(ever_reached, 0.0, 1.0)
+
+# AFTER: always reward survival — success_truncation handles episode end
+alive_bonus = np.ones(self._num_envs, dtype=np.float32)
+```
+
+### Fix 2: Speed-Distance Coupling (P0 — replaces narrow near_target_speed)
+
+```python
+# BEFORE: penalty only at d < 0.5m
+penalty = where(d < 0.5 and not reached, speed * scale, 0)
+
+# AFTER: smooth distance-proportional speed limit
+desired_speed = np.clip(distance_to_target * 0.5, 0.05, 0.6)
+speed_excess = np.maximum(speed_xy - desired_speed, 0.0)
+penalty = scale * speed_excess ** 2  # Quadratic, smooth gradient
+```
+
+### Fix 3: Speed-Gated `stop_bonus` (P1 — prevents fly-through)
+
+```python
+# BEFORE: stop_bonus for any robot in zone
+stop_bonus = np.where(reached_all, stop_base, 0.0)
+
+# AFTER: only genuinely slow robots get stop_bonus
+genuinely_slow = np.logical_and(reached_all, speed_xy < 0.3)
+stop_bonus = np.where(genuinely_slow, stop_base, 0.0)
+```
+
+### Fix 4: Symmetric Approach Retreat Penalty (P1 — removes free hovering)
+
+```python
+# BEFORE: retreat free below 1.5m
+approach_reward = np.where(d < 1.5, np.maximum(approach_reward, 0.0), approach_reward)
+
+# AFTER: symmetric penalty everywhere
+approach_reward = np.clip(raw_approach, -0.5, 1.0)
+```
+
+### cfg.py Update
+
+```python
+"near_target_speed": -2.0,  # Round5: quadratic speed_excess² coupling (was -0.5 linear)
+"alive_bonus": 0.15,        # Round5: always active (was conditional on !ever_reached)
+```
+
+---
+
+## 33. AutoML Run: automl_20260209_224752 (Round5 Fixes Active)
+
+**Config**: 15 trials, 8h budget, Round5 reward fixes  
+**Status**: **RUNNING** — launched after Round5 fixes verified via smoke test  
+
+Results pending — this is the first AutoML run with all structural fixes in place.
+
+**Expected improvements over previous runs:**
+- No "touch and die" cycle → longer episodes after reaching
+- Smooth deceleration → fewer overshoots and crashes
+- Speed-gated stop_bonus → no fly-through rewards
+- Symmetric approach penalty → no free hovering at 1.5m
+
+---
+
+## 34. Updated Experiment Summary (Full — Sessions 1-4)
+
+| # | Run | Config | Steps | Peak Reached% | Outcome |
+|---|-----|--------|-------|---------------|---------|
+| 1 | `14-17-56` | kl=0.016, spawn=0-11m, original rewards | 15K | **67%** (step 5000) | Collapsed: KL LR instability |
+| 2 | `15-27-13` | Warm-start from Exp1, kl=0.008 | 5K | 27% | Stagnant: poisoned optimizer |
+| 3 | `15-46-07` | kl=0.008, spawn=0-11m, original rewards | 10K | 32% | Plateau at 12%: LR crushed |
+| 4 | `16-30-09` | kl=0.012, spawn=0-11m, original rewards | 5K+ | 50% | Declined to 26%: KL still fails |
+| 5 | `16-58-36` | **linear LR**, spawn=0-11m, original rewards | 12K | **59%** (step 5000) | Sprint-crash exploit |
+| 6 | `17-33-01` | Misconfigured | 0 | — | Killed |
+| 6b | `17-46-29` | Linear LR, original rewards, config drift | 7K | 0.05% | Config drift |
+| 7 | `18-19-43` | Phase5, near_target d<2m | 12K | 19.8% | Deceleration moat |
+| 8 | `18-49-23` | near_target d<0.5m | 19K | **52%** (step 4K) | Sprint-crash at 12K+ |
+| 9 | `19-29-26` | forward_velocity=0.2 | 4K | 0% | Too weak |
+| 10 | `19-40-53` | forward_velocity=0.5 | 6K | 8.6% | Still too weak |
+| 11 | `19-55-01` | speed cap=0.6, term=-250 | 8K | 7% | Term too harsh |
+| 12 | `20-14-47` | speed cap=0.6, term=-200 | — | — | Interrupted |
+| AM1 | automl_204634 | Pre-Round5, 10M steps | 1 trial | 10.8% | Killed for fixes |
+| **AM2** | **automl_211947** | **Step-delta approach, comp scoring** | **5 trials** | **16.4%** (T0) | **Killed for Round5 fixes** |
+| **AM3** | **automl_224752** | **Round5 fixes (all 4)** | **RUNNING** | **TBD** | **Current active run** |
+
+---
+
+## 35. Lessons Learned (Session 4 additions)
+
+16. **VLM visual analysis reveals bugs code reading misses.** The "touch and die" cycle was caused by `alive_bonus=0 after reaching`, which was in the code since Round2. Code review didn't flag it because the logic *looked correct* ("don't reward for just standing after reaching"). Only analyzing the behavioral **incentive structure** revealed it creates a crash-after-touch exploit.
+
+17. **Speed-distance coupling > binary thresholds.** The `near_target_speed` penalty at d<0.5m was too narrow (Fix 2). A smooth quadratic coupling (desired_speed = distance × 0.5) provides continuous deceleration gradient that the policy can learn smoothly, rather than a cliff at 0.5m.
+
+18. **Structural reward bugs compound.** Fixes 1-4 address different failure modes that reinforced each other: the alive_bonus zeroing (Fix 1) encouraged crash-after-touch, while the fly-through stop bonus (Fix 3) rewarded sprinting through the target zone. Together they created the dominant sprint-crash strategy.
+
+19. **AutoML scoring must align with competition metrics.** The original 40% reward weight in `compute_score()` caused AutoML to optimize for high reward (which spray-crash achieves) rather than high success rate (what the competition measures).
+
+20. **Step-delta approach reward > min-distance approach.** The min-distance tracking approach (original) only rewarded new distance records — once the robot reached its closest point, the signal died. Step-delta provides continuous gradient for both approaching and retreating, enabling the policy to learn recovery behavior.
+
+---
+
+## 36. Next Steps (Session 4)
+
+1. **Monitor AutoML AM3** — `automl_20260209_224752` (15 trials, Round5 fixes)
+2. **Analyze AM3 report** — Compare trial configs, identify optimal reward/HP combination
+3. **If AM3 shows >30% reached** — Deploy best config for 50M+ step full training
+4. **If AM3 still shows peak-then-decline** — Consider:
+   - Further increasing termination penalty (-200 → -250 with speed-distance coupling making it safer)
+   - Adding explicit deceleration reward (bonus for reducing speed as distance decreases)
+   - Curriculum staging: spawn=2-5m → 5-8m → 8-11m with warm-starts
+5. **Stage 2 competition prep** — Once nav1 success rate > 80%, begin nav2 section work
+
+---
+
+# Session 5: Round6 — Reward Budget Root Cause Discovery (Feb 10 early morning)
+
+## 37. AutoML AM3 Monitoring & Diagnosis
+
+### 37a. AM3 Results (automl_20260209_224752)
+
+AutoML AM3 ran with Round5 fixes active. Despite fixing 4 structural bugs, results were poor:
+
+| Trial | Score | Reached% | Reward | LR | Term | alive | fwd_vel | approach |
+|-------|-------|----------|--------|-----|------|-------|---------|----------|
+| T0 | 0.318 | **0.57%** | 1.09 | 3.29e-5 | -150 | 0.38 | 0.46 | 9.7 |
+| T1 | 0.302 | 0.00% | 0.54 | 1.55e-5 | -200 | 0.32 | 0.81 | 5.6 |
+| T2 | (contaminated) | — | — | — | — | — | — | — |
+| T3 | (contaminated) | — | — | — | — | — | — | — |
+
+**Key observation**: Both T0 and T1 got near-zero reached%. **LR range [1e-5, 1e-3] was too wide** — both trials sampled LR < 3.5e-5 (far below proven 5e-4).
+
+### 37b. LR Hypothesis (Initially Wrong)
+
+First hypothesis: low LR was the bottleneck. But a manual smoke test with lr=5e-4 and Round5 rewards also got **0.5% reached** — confirming LR was NOT the primary issue.
+
+### 37c. AutoML Contamination Bug
+
+Discovered that **concurrent manual training runs contaminated AM3 results**. When `train_one.py` looks for new run directories (diffing before/after), manually-launched runs create spurious directories that get picked up as trial outputs. AM3 Trials 2 and 3 evaluated the wrong run directories.
+
+**Fix**: Killed AM3 and all AutoML processes.
+
+---
+
+## 38. Reward Budget Analysis — The Definitive Root Cause
+
+### 38a. The Calculation
+
+With Round5 fixes (max_episode_steps=4000, forward_velocity=0.8):
+
+```
+STANDING STILL for 4000 steps (d=3.5m, time_decay≈0.75):
+  position_tracking = exp(-3.5/5.0) × 1.5 = 0.745/step
+  heading_tracking  = cos(err) × 1.0 ≈ 0.50/step
+  alive_bonus       = 0.15/step (always active after Round5 Fix 1)
+  Total per step    = 1.40
+  Episode total     = 1.40 × 4000 × 0.75 = 4,185
+
+WALKING TO TARGET in ~583 steps + 50 stopped:
+  Higher per-step reward but shorter episode
+  + arrival_bonus(100) + inner_fence(40) + stop(~250)
+  Episode total ≈ 2,031
+
+STANDING WINS BY 2,154!
+```
+
+**Root cause**: `max_episode_steps=4000` allowed standing to accumulate 2× more passive reward than walking+reaching. The robot was **rationally choosing to stand still** — no amount of HP tuning can fix a broken incentive structure.
+
+### 38b. The Fix: max_episode_steps = 1000
+
+```
+STANDING at 1000 steps = 1.40 × 1000 × 0.75 = 1,046
+WALKING + REACHING ≈ 2,031
+
+WALKING WINS BY 985!
+```
+
+---
+
+## 39. Round6 Fixes — 4 Changes from Round5
+
+| # | Fix | Before (Round5) | After (Round6) | Rationale |
+|---|-----|-----------------|----------------|-----------|
+| 1 | `max_episode_steps` | 4000 | **1000** | Passive standing reward budget: 4185→1046 |
+| 2 | `forward_velocity` | 0.8 | **1.5** | Phase5 halved movement incentive; active rewards (134/ep) couldn't overcome penalties (-430/ep) |
+| 3 | Approach retreat clip | `(-0.5, 1.0)` | **`(0.0, 1.0)`** | Step-delta retreat penalty punished early random exploration; original min-distance never penalized retreat |
+| 4 | `termination` | -200 | **-100** | -200 too harsh with short episodes; causes risk aversion (Exp11 confirmed) |
+
+### 39a. TensorBoard Component Decomposition (diagnostic technique)
+
+Reading per-component reward breakdown revealed the actual incentive structure:
+
+| Category | Per-Episode Total | Notes |
+|----------|-------------------|-------|
+| **Passive (standing)**: position(494) + heading(327) + alive(139) | **960** | Dominates budget |
+| **Active (walking)**: forward(52) + approach(37) + distance(45) | **134** | Small signal |
+| **Penalties (movement cost)**: stability penalties | **-430** | Cancels walking gains |
+| **Net walking incentive** = active - penalties | **-296** | **NEGATIVE!** |
+
+**Critical finding**: Phase5's `forward_velocity=0.8` (halved from 1.5) made the movement reward (134/ep) insufficient to overcome stability penalties (-430/ep). The robot had a **net negative incentive to walk**. Restoring `forward_velocity=1.5` approximately doubles the active reward signal.
+
+---
+
+## 40. Round6 Iterative Experiments
+
+### Round6 v1: max_episode_steps=1000 only (5M steps)
+
+**Run**: `26-02-09_23-21-10-416446_PPO`  
+**Changes**: max_episode_steps 4000→1000, approach_scale 5→15  
+**Result**: **0.04% reached** — still failing  
+**Diagnosis**: Shortened episode addressed budget but forward_velocity=0.8 still too weak
+
+### Round6 v2: No retreat penalty (5M steps)
+
+**Run**: `26-02-09_23-34-06-373326_PPO`  
+**Changes**: approach clip (-0.5,1.0)→(0.0,1.0), approach_scale 15→30  
+**Result**: **0.02% reached** — still failing  
+**Diagnosis**: Removed retreat penalty helped but still needed higher movement incentive
+
+### Round6 v3: Restore forward_velocity=1.5 (5M steps)
+
+**Run**: `26-02-09_23-56-27-264968_PPO`  
+**Changes**: forward_velocity 0.8→1.5, heading 1.0→0.8  
+**Result**: **0.50% reached** — slight improvement  
+**Diagnosis**: Forward velocity restored but termination=-200 still too harsh for short episodes
+
+### Round6 v4: termination=-100 + longer training (15M steps)
+
+**Run**: `26-02-10_00-05-14-884118_PPO`  
+**Changes**: termination -200→-100  
+**Duration**: 15M steps (completed)
+
+| Step | Reached% | Reward | Total Reward |
+|------|----------|--------|-------------|
+| 1000 | 0.00% | 0.189 | -16.1 |
+| 2000 | 0.58% | 1.165 | 360.0 |
+| 3000 | 12.40% | 2.095 | 1707.4 |
+| 4000 | 20.10% | 2.459 | 2311.3 |
+| 5000 | 25.83% | 2.770 | 2638.4 |
+| **6000** | **27.71%** | **2.962** | **2704.5** |
+| 7000 | 24.71% | 2.998 | 2734.7 |
+
+**SUCCESS!** First positive results since Round5 fixes. Peak **27.71% reached** at step 6000 (~12M env steps).
+
+**Concern**: Slight decline at step 7000 (27.7%→24.7%) — the peak-then-decline pattern may persist at a smaller scale.
+
+---
+
+## 41. Configuration State (Round6 v4 — VERIFIED)
+
+### cfg.py — VBotSection001EnvCfg
+
+```python
+max_episode_seconds: float = 10.0     # Round6: was 40.0
+max_episode_steps: int = 1000          # Round6: was 4000
+spawn_inner_radius: float = 2.0
+spawn_outer_radius: float = 5.0
+```
+
+### RewardConfig.scales (Round6 v4)
+
+```python
+# === Navigation core ===
+position_tracking: 1.5
+fine_position_tracking: 8.0
+heading_tracking: 0.8          # Round6: was 1.0 (reduce passive standing)
+forward_velocity: 1.5          # Round6: was 0.8 (restore from Phase5 halving)
+distance_progress: 1.5
+alive_bonus: 0.15              # Round5: always active
+
+# === Approach/arrival ===
+approach_scale: 30.0           # Round6: was 5.0 (step-delta needs high scale)
+arrival_bonus: 100.0
+inner_fence_bonus: 40.0
+stop_scale: 5.0
+zero_ang_bonus: 10.0
+near_target_speed: -2.0       # Round5: quadratic speed-distance coupling
+boundary_penalty: -3.0
+
+# === Stability (unchanged) ===
+orientation: -0.05, lin_vel_z: -0.3, ang_vel_xy: -0.03
+torques: -1e-5, dof_vel: -5e-5, dof_acc: -2.5e-7, action_rate: -0.01
+
+# === Terminal ===
+termination: -100.0            # Round6: was -200 (restored original, -200 too harsh)
+```
+
+### vbot_section001_np.py (Round6)
+
+```python
+# Approach retreat: no penalty for retreating (was -0.5 clip)
+approach_reward = np.clip(raw_approach, 0.0, 1.0)
+```
+
+---
+
+## 42. AutoML AM4 Launch (Round6 Search Space)
+
+### 42a. Search Space Tightening
+
+Updated `automl.py` to narrow search ranges around the proven Round6 v4 config:
+
+| Parameter | AM3 Range | AM4 Range | Rationale |
+|-----------|-----------|-----------|-----------|
+| learning_rate | [1e-5, 1e-3] | **[2e-4, 8e-4]** | Narrowed around proven 5e-4 |
+| forward_velocity | [0.3, 1.2] | **[1.0, 2.5]** | Must be ≥1.0 for walking |
+| approach_scale | [2, 10] | **[15, 50]** | Step-delta needs high scale |
+| termination | [-300, -100] | **[-150, -50]** | -200 too harsh |
+| networks | incl [128,64] | **removed** | Too small |
+| rollouts | incl 16 | **removed** | Too few |
+| compute_score ep_len divisor | 4000 | **1000** | Match new max_steps |
+
+### 42b. AM4 Status
+
+**Run**: `automl_20260210_002621`  
+**Config**: 15 trials, 8h budget, 10M steps/trial, Round6 search space  
+**Status**: RUNNING — Trial 0 active
+
+**AM4 T0 sampled config**: lr=2.3e-4, forward_velocity=1.34, approach_scale=25.3, termination=-150, alive=0.098
+
+**AM4 T0 progress** (still training at time of writing):
+
+| Step | Reached% | Reward |
+|------|----------|--------|
+| 3000 | **12.76%** | 2.35 |
+| 3510 | 1.60% → **declining** | 2.19 |
+
+**Note**: Peak-then-decline visible even in AM4 T0. The lower lr=2.3e-4 (vs proven 5e-4) and lower forward_velocity=1.34 (vs 1.5) may be contributing to slower learning and earlier collapse.
+
+---
+
+## 43. Updated Experiment Summary (Full — Sessions 1-5)
+
+| # | Run | Config | Steps | Peak Reached% | Outcome |
+|---|-----|--------|-------|---------------|---------|
+| 1 | `14-17-56` | kl=0.016, spawn=0-11m, original rewards | 15K | **67%** (step 5K) | Collapsed: KL LR instability |
+| 2 | `15-27-13` | Warm-start from Exp1, kl=0.008 | 5K | 27% | Stagnant: poisoned optimizer |
+| 3 | `15-46-07` | kl=0.008, spawn=0-11m, original rewards | 10K | 32% | Plateau at 12%: LR crushed |
+| 4 | `16-30-09` | kl=0.012, spawn=0-11m, original rewards | 5K+ | 50% | Declined to 26%: KL still fails |
+| 5 | `16-58-36` | linear LR, spawn=0-11m, original rewards | 12K | **59%** (step 5K) | Sprint-crash exploit |
+| 6 | `17-33-01` | Misconfigured | 0 | — | Killed |
+| 6b | `17-46-29` | Linear LR, original rewards, config drift | 7K | 0.05% | Config drift |
+| 7 | `18-19-43` | Phase5, near_target d<2m | 12K | 19.8% | Deceleration moat |
+| 8 | `18-49-23` | near_target d<0.5m | 19K | **52%** (step 4K) | Sprint-crash at 12K+ |
+| 9 | `19-29-26` | forward_velocity=0.2 | 4K | 0% | Too weak |
+| 10 | `19-40-53` | forward_velocity=0.5 | 6K | 8.6% | Still too weak |
+| 11 | `19-55-01` | speed cap=0.6, term=-250 | 8K | 7% | Term too harsh |
+| 12 | `20-14-47` | speed cap=0.6, term=-200 | — | — | Interrupted |
+| AM1 | automl_204634 | Pre-Round5, 10M steps | 1 trial | 10.8% | Killed for fixes |
+| AM2 | automl_211947 | Step-delta approach, comp scoring | 5 trials | 16.4% (T0) | Killed for Round5 |
+| AM3 | automl_224752 | Round5 fixes, wide search space | 2 trials | 0.57% (T0) | Contaminated, killed |
+| R6v1 | `23-21-10` | Round6: max_steps=1000, approach=15 | 5M | 0.04% | fwd_vel still 0.8 |
+| R6v2 | `23-34-06` | Round6: no retreat, approach=30 | 5M | 0.02% | Still missing fwd_vel |
+| R6v3 | `23-56-27` | Round6: fwd_vel=1.5, heading=0.8 | 5M | 0.50% | term=-200 too harsh |
+| **R6v4** | **`00-05-14`** | **Round6 full: term=-100, fwd=1.5, max=1000** | **15M** | **27.71%** (step 6K) | **Best since Exp1 (67%)** |
+| **AM4** | **automl_002621** | **Round6 search space, tightened** | **10M×15** | **12.76% (T0)** | **RUNNING** |
+
+---
+
+## 44. Lessons Learned (Session 5 additions)
+
+21. **Reward budget analysis is the most powerful diagnostic tool.** Calculating total reward for desired vs degenerate behavior over the full episode immediately revealed why standing dominated (4185 > 2031). Always audit BEFORE tuning hyperparameters.
+
+22. **max_episode_steps interacts with reward balance.** Longer episodes amplify passive rewards (alive, position tracking) relative to one-time bonuses (arrival, inner fence). The ratio `passive_per_step × max_steps` vs `one_time_bonuses + active_per_step × steps_to_reach` must favor the desired behavior.
+
+23. **forward_velocity scale interacts with stability penalties.** When `forward_velocity=0.8`, the active reward signal (134/episode) was completely cancelled by stability penalties (-430/episode), giving a **net negative walking incentive**. Restoring to 1.5 doubled the signal above the penalty budget.
+
+24. **Step-delta approach needs an asymmetric clip.** The step-delta approach changes sign every step (positive when approaching, negative when retreating). With clip(-0.5, 1.0), retreat was penalized — punishing the random early exploration that PPO needs. Changing to clip(0.0, 1.0) removed retreat penalty while keeping approach reward.
+
+25. **Round6 fixes are cumulative and non-separable.** Each of the 4 fixes was necessary but not sufficient: max_steps=1000 alone failed (v1, 0.04%), adding no-retreat failed (v2, 0.02%), restoring fwd_vel failed (v3, 0.50%), but all 4 together succeeded (v4, 27.71%).
+
+26. **AutoML contamination is a real risk.** Concurrent manual training creates run directories that `train_one.py` falsely detects as trial outputs. Always stop all manual training before launching AutoML.
+
+27. **Search space width matters.** AM3's LR range [1e-5, 1e-3] wasted trials on lr=1.5e-5 and 3.3e-5 — 50× below the proven 5e-4. Tightening to [2e-4, 8e-4] ensures all trials get reasonable LR.
+
+---
+
+## 45. Next Steps (Session 5)
+
+1. **Monitor AM4** — 15 trials with Round6 search space (running)
+2. **Investigate peak-then-decline** — R6v4 showed 27.71%→24.71% at steps 6K→7K. If pattern persists, consider:
+   - Longer training horizon (100M steps) to see if it recovers
+   - Curriculum staging: spawn 2-3m first, then expand
+   - Additional anti-sprint mechanism
+3. **Gap analysis: Round6 (27.7%) vs Exp1 (67%)** — Exp1 used original rewards with max_steps=3000, no Round5 speed-distance coupling, no step-delta approach. The 40% gap suggests Round5 additions (speed-distance coupling, speed-gated stop) may be over-constraining.
+4. **Fix train_one.py contamination bug** — Need unique run tagging to prevent concurrent run detection errors
+5. **Full-length training** — Deploy best AM4 config for 100M steps once identified

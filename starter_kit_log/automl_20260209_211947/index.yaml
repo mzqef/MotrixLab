@@ -23,3 +23,9 @@ experiments:
   final_reward: 1.884357288479805
   status: completed
   success_rate: 0.0029992275676704594
+- completed_at: '2026-02-09T22:31:52.052076Z'
+  environment: vbot_navigation_section001
+  experiment_id: automl_20260209_211947_vbot_navigation_section001_i4_1770646547
+  final_reward: 1.0966684768597286
+  status: completed
+  success_rate: 8.494059238728369e-05

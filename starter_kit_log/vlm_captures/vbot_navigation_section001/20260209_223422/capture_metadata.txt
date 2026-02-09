@@ -1,0 +1,31 @@
+Environment: vbot_navigation_section001
+Policy: runs/vbot_navigation_section001/26-02-09_20-14-47-101961_PPO/checkpoints/best_agent.pt
+Backend: torch
+Num envs: 1
+Capture every: 15 steps
+Warmup steps: 30
+Total frames: 20
+Total steps: 330
+Timestamp: 20260209_223422
+
+Frames:
+  starter_kit_log\vlm_captures\vbot_navigation_section001\20260209_223422\frame_00045.png
+  starter_kit_log\vlm_captures\vbot_navigation_section001\20260209_223422\frame_00060.png
+  starter_kit_log\vlm_captures\vbot_navigation_section001\20260209_223422\frame_00075.png
+  starter_kit_log\vlm_captures\vbot_navigation_section001\20260209_223422\frame_00090.png
+  starter_kit_log\vlm_captures\vbot_navigation_section001\20260209_223422\frame_00105.png
+  starter_kit_log\vlm_captures\vbot_navigation_section001\20260209_223422\frame_00120.png
+  starter_kit_log\vlm_captures\vbot_navigation_section001\20260209_223422\frame_00135.png
+  starter_kit_log\vlm_captures\vbot_navigation_section001\20260209_223422\frame_00150.png
+  starter_kit_log\vlm_captures\vbot_navigation_section001\20260209_223422\frame_00165.png
+  starter_kit_log\vlm_captures\vbot_navigation_section001\20260209_223422\frame_00180.png
+  starter_kit_log\vlm_captures\vbot_navigation_section001\20260209_223422\frame_00195.png
+  starter_kit_log\vlm_captures\vbot_navigation_section001\20260209_223422\frame_00210.png
+  starter_kit_log\vlm_captures\vbot_navigation_section001\20260209_223422\frame_00225.png
+  starter_kit_log\vlm_captures\vbot_navigation_section001\20260209_223422\frame_00240.png
+  starter_kit_log\vlm_captures\vbot_navigation_section001\20260209_223422\frame_00255.png
+  starter_kit_log\vlm_captures\vbot_navigation_section001\20260209_223422\frame_00270.png
+  starter_kit_log\vlm_captures\vbot_navigation_section001\20260209_223422\frame_00285.png
+  starter_kit_log\vlm_captures\vbot_navigation_section001\20260209_223422\frame_00300.png
+  starter_kit_log\vlm_captures\vbot_navigation_section001\20260209_223422\frame_00315.png
+  starter_kit_log\vlm_captures\vbot_navigation_section001\20260209_223422\frame_00330.png

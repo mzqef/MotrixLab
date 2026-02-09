@@ -23,6 +23,8 @@ Usage:
     uv run scripts/capture_vlm.py --env vbot_navigation_section001 --vlm-model gpt-4.1
 """
 
+import ctypes
+import ctypes.wintypes
 import logging
 import os
 import subprocess
@@ -73,6 +75,7 @@ _MAX_FRAMES = flags.DEFINE_integer("max-frames", 20, "Maximum number of frames t
 _WARMUP_STEPS = flags.DEFINE_integer("warmup-steps", 30, "Steps before starting capture (let robot initialize)")
 _OUTPUT_DIR = flags.DEFINE_string("output-dir", None, "Output directory for frames (auto-generated if omitted)")
 _CAPTURE_DELAY = flags.DEFINE_float("capture-delay", 0.15, "Delay in seconds after render before capturing frame")
+_WINDOW_SIZE = flags.DEFINE_string("window-size", "1920x1080", "Render window size WxH (e.g. 1920x1080, 2560x1440, max)")
 
 # VLM settings
 _NO_VLM = flags.DEFINE_bool("no-vlm", False, "Skip VLM analysis, only capture frames")
@@ -114,10 +117,101 @@ def find_best_policy(env_name: str) -> str:
     return str(max(checkpoint_files, key=extract_ts))
 
 
+# ── Win32 DPI awareness (must be set early) ────────────────────────────────
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(2)  # PROCESS_PER_MONITOR_DPI_AWARE
+except Exception:
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()  # fallback
+    except Exception:
+        pass
+
+# ── Win32 window management ────────────────────────────────────────────────
+_MOTRIX_WINDOW_TITLE = "MotrixRender"
+_render_hwnd: int = 0  # cached handle
+
+
+def _find_motrix_window(max_retries: int = 10, retry_delay: float = 0.5) -> int:
+    """Find the MotrixRender window handle, waiting for it to appear."""
+    global _render_hwnd
+    if _render_hwnd and ctypes.windll.user32.IsWindow(_render_hwnd):
+        return _render_hwnd
+
+    user32 = ctypes.windll.user32
+    for attempt in range(max_retries):
+        hwnd = user32.FindWindowW(None, _MOTRIX_WINDOW_TITLE)
+        if hwnd:
+            _render_hwnd = hwnd
+            return hwnd
+        time.sleep(retry_delay)
+    return 0
+
+
+def _close_render_window() -> None:
+    """Close the MotrixRender window via Win32 WM_CLOSE message."""
+    global _render_hwnd
+    hwnd = _find_motrix_window(max_retries=1, retry_delay=0)
+    if hwnd:
+        WM_CLOSE = 0x0010
+        ctypes.windll.user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
+        _render_hwnd = 0
+        time.sleep(0.3)
+        logger.info("MotrixRender window closed")
+    else:
+        logger.warning("No MotrixRender window found to close")
+
+
+def setup_render_window(width: int = 1920, height: int = 1080) -> bool:
+    """
+    Find the MotrixRender window, resize it, and bring it to the foreground.
+
+    Call this once after the renderer is created and the first frame is rendered.
+    Returns True if setup succeeded.
+    """
+    hwnd = _find_motrix_window()
+    if not hwnd:
+        logger.warning("Could not find MotrixRender window")
+        return False
+
+    user32 = ctypes.windll.user32
+
+    # Restore if minimized (SW_RESTORE = 9)
+    user32.ShowWindow(hwnd, 9)
+    time.sleep(0.1)
+
+    # Get screen dimensions for centering
+    screen_w = user32.GetSystemMetrics(0)
+    screen_h = user32.GetSystemMetrics(1)
+
+    # Clamp to screen size
+    width = min(width, screen_w)
+    height = min(height, screen_h)
+
+    # Center on screen
+    x = max(0, (screen_w - width) // 2)
+    y = max(0, (screen_h - height) // 2)
+
+    # Resize and position: MoveWindow(hwnd, x, y, width, height, repaint)
+    user32.MoveWindow(hwnd, x, y, width, height, True)
+
+    # Bring to foreground
+    user32.SetForegroundWindow(hwnd)
+    time.sleep(0.3)  # Wait for repaint
+
+    # Verify
+    rect = ctypes.wintypes.RECT()
+    user32.GetWindowRect(hwnd, ctypes.byref(rect))
+    actual_w = rect.right - rect.left
+    actual_h = rect.bottom - rect.top
+    logger.info(f"MotrixRender window resized to {actual_w}x{actual_h} at ({rect.left}, {rect.top})")
+    return True
+
+
 def capture_window_screenshot(output_path: str, delay: float = 0.0) -> bool:
     """
-    Capture the MotrixSim render window using PIL ImageGrab.
+    Capture only the MotrixRender window using PIL ImageGrab.
 
+    Falls back to full-screen grab if the window cannot be found.
     Returns True if capture succeeded.
     """
     if delay > 0:
@@ -126,8 +220,31 @@ def capture_window_screenshot(output_path: str, delay: float = 0.0) -> bool:
     try:
         from PIL import ImageGrab
 
-        # Grab the entire screen (MotrixSim window should be visible)
-        img = ImageGrab.grab()
+        hwnd = _find_motrix_window(max_retries=1, retry_delay=0)
+        if hwnd:
+            user32 = ctypes.windll.user32
+            # Bring to front (non-blocking — avoids stealing focus repeatedly)
+            user32.SetForegroundWindow(hwnd)
+
+            # Get the window client area bounding box
+            rect = ctypes.wintypes.RECT()
+            # Use GetClientRect + ClientToScreen for content area (no title bar / borders)
+            user32.GetClientRect(hwnd, ctypes.byref(rect))
+
+            # Convert client coords to screen coords
+            point = ctypes.wintypes.POINT(rect.left, rect.top)
+            user32.ClientToScreen(hwnd, ctypes.byref(point))
+            left, top = point.x, point.y
+
+            point2 = ctypes.wintypes.POINT(rect.right, rect.bottom)
+            user32.ClientToScreen(hwnd, ctypes.byref(point2))
+            right, bottom = point2.x, point2.y
+
+            img = ImageGrab.grab(bbox=(left, top, right, bottom))
+        else:
+            logger.warning("MotrixRender window not found, falling back to full-screen capture")
+            img = ImageGrab.grab()
+
         img.save(output_path)
         return True
     except Exception as e:
@@ -144,6 +261,9 @@ def run_vlm_analysis(frames_dir: str, env_name: str, model: str, custom_prompt: 
     frames = sorted(Path(frames_dir).glob("frame_*.png"))
     if not frames:
         return "No frames found for analysis."
+
+    # Ensure absolute path for Copilot CLI --add-dir
+    abs_frames_dir = str(Path(frames_dir).resolve())
 
     # Build the analysis prompt
     default_prompt = (
@@ -182,15 +302,15 @@ def run_vlm_analysis(frames_dir: str, env_name: str, model: str, custom_prompt: 
             "copilot",
             "--model", model,
             "--allow-all",
-            "--add-dir", frames_dir,
+            "--add-dir", abs_frames_dir,
         ]
 
-        # Add frame file references to the prompt
+        # Add frame file references to the prompt with absolute paths
         frame_refs = "\n".join(
-            f"- Frame {i + batch_start}: {f.name} (step {f.stem.split('_')[1] if '_' in f.stem else '?'})"
+            f"- Frame {i + batch_start}: {f.resolve()} (step {f.stem.split('_')[1] if '_' in f.stem else '?'})"
             for i, f in enumerate(batch_frames)
         )
-        full_prompt = f"{batch_prompt}\n\nFrames to analyze:\n{frame_refs}\n\nExamine each PNG file in the directory."
+        full_prompt = f"{batch_prompt}\n\nFrames to analyze:\n{frame_refs}\n\nLook at each PNG file listed above and describe what you see."
 
         cmd.extend(["-p", full_prompt, "-s"])
 
@@ -256,12 +376,39 @@ def main(argv):
     print(f"Warmup steps:  {_WARMUP_STEPS.value}")
     print(f"VLM model:     {_VLM_MODEL.value}")
     print(f"VLM analysis:  {'OFF' if _NO_VLM.value else 'ON'}")
+    print(f"Window size:   {_WINDOW_SIZE.value}")
     print(f"{'=' * 60}")
 
     # ── Create environment and renderer ─────────────────────────────────────
     num_envs = _NUM_ENVS.value
     env = env_registry.make(env_name, num_envs=num_envs)
     renderer = NpRenderer(env)
+
+    # Initial render to create the window
+    import numpy as np
+    action_dim = env.action_space.shape[-1]
+    actions = np.zeros((num_envs, action_dim), dtype=np.float32)
+    env.step(actions)
+    renderer.render()
+    time.sleep(0.3)
+
+    # ── Resize render window ────────────────────────────────────────────────
+    win_size_str = _WINDOW_SIZE.value
+    if win_size_str.lower() == "max":
+        user32 = ctypes.windll.user32
+        win_w = user32.GetSystemMetrics(0)
+        win_h = user32.GetSystemMetrics(1)
+    else:
+        try:
+            win_w, win_h = (int(x) for x in win_size_str.lower().split("x"))
+        except ValueError:
+            print(f"WARNING: Invalid --window-size '{win_size_str}', using 1920x1080")
+            win_w, win_h = 1920, 1080
+
+    if setup_render_window(win_w, win_h):
+        print(f"Render window: {win_w}x{win_h}")
+    else:
+        print("WARNING: Could not resize render window; captures may show the robot very small")
 
     # ── Load policy ─────────────────────────────────────────────────────────
     if backend == "torch":
@@ -353,6 +500,11 @@ def main(argv):
                 time.sleep(1.0 / fps - elapsed)
 
     print(f"\nCapture complete: {len(captured_frames)} frames saved to {output_dir}")
+
+    # ── Close the simulation window ─────────────────────────────────────────
+    _close_render_window()
+    del renderer
+    del env
 
     # ── Save metadata ───────────────────────────────────────────────────────
     meta_path = output_dir / "capture_metadata.txt"

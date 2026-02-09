@@ -609,18 +609,21 @@ class VBotSection001Env(NpEnv):
         distance_delta = last_distance - distance_to_target  # 正值 = 靠近
         info["last_distance"] = distance_to_target.copy()
         raw_approach = distance_delta * scales.get("approach_scale", 4.0)
-        # 限制后退惩罚幅度，近目标时禁用惩罚（精细定位接管）
-        approach_reward = np.clip(raw_approach, -0.3, 1.0)
-        approach_reward = np.where(distance_to_target < 1.5, np.maximum(approach_reward, 0.0), approach_reward)
+        # Round5 FIX: 移除近目标处的 retreat 免罚条款
+        # 原来 d<1.5m 时后退无惩罚，导致"hovering"行为
+        # Round6 FIX: 移除retreat惩罚 (clip下界0而非-0.5)
+        # step-delta退后惩罚会惩罚早期探索，原始min_distance方法从未惩罚退后
+        approach_reward = np.clip(raw_approach, 0.0, 1.0)
 
         # 线性距离递减奖励（新增）：提供全局梯度信号
         initial_distance = info.get("initial_distance", distance_to_target)
         distance_progress = np.clip(1.0 - distance_to_target / (initial_distance + 1e-8), -0.5, 1.0)
 
-        # 存活奖励：每步固定小奖励，但已到达后不再给（防止"站着不动"奖励黑客）
-        # Round2: alive_bonus 仅在 NOT ever_reached 时给予，创造到达紧迫感
-        ever_reached = info.get("ever_reached", np.zeros(self._num_envs, dtype=bool))
-        alive_bonus = np.where(ever_reached, 0.0, 1.0)
+        # 存活奖励：每步固定小奖励，始终激活（移除 ever_reached 条件）
+        # Round5 FIX: 原来 alive_bonus=0 after reaching 导致"touch and die"循环
+        # 机器人到达后失去存活激励，会故意摔倒以重置episode获取更多奖励
+        # 现在持续鼓励存活，由 success_truncation（50步停止）控制episode结束
+        alive_bonus = np.ones(self._num_envs, dtype=np.float32)
 
         # ========== 时间压力：随步数递减奖励 ==========
         # 鼓励快速到达：步数越多，每步奖励越少
@@ -637,15 +640,18 @@ class VBotSection001Env(NpEnv):
         arrival_bonus = np.where(first_time_reach, scales.get("arrival_bonus", 15.0), 0.0)
 
         # 停止奖励：到达后鼓励静止
+        # Round5 FIX: 添加速度门控，只有真正在减速（<0.3m/s）才给stop_bonus
+        # 原来飞越0.5m区域也能短暂收集stop_bonus，助长sprint-crash
         speed_xy = np.linalg.norm(base_lin_vel[:, :2], axis=1)
+        genuinely_slow = np.logical_and(reached_all, speed_xy < 0.3)
         stop_base = scales.get("stop_scale", 2.0) * (
             0.8 * np.exp(-(speed_xy / 0.2) ** 2) + 1.2 * np.exp(-(np.abs(gyro[:, 2]) / 0.1) ** 4)
         )
         zero_ang_mask = np.abs(gyro[:, 2]) < 0.05
         zero_ang_bonus = np.where(
-            np.logical_and(reached_all, zero_ang_mask), scales.get("zero_ang_bonus", 6.0), 0.0
+            np.logical_and(genuinely_slow, zero_ang_mask), scales.get("zero_ang_bonus", 6.0), 0.0
         )
-        stop_bonus = np.where(reached_all, stop_base + zero_ang_bonus, 0.0)
+        stop_bonus = np.where(genuinely_slow, stop_base + zero_ang_bonus, 0.0)
 
         # ========== 稳定性惩罚（始终激活） ==========
 
@@ -675,12 +681,12 @@ class VBotSection001Env(NpEnv):
 
         # ========== 新增Phase5奖励/惩罚 ==========
 
-        # 近目标速度惩罚：距离<0.5m时惩罚高速度（防overshoot，不阻碍接近）
-        near_target_speed_penalty = np.where(
-            np.logical_and(distance_to_target < 0.5, ~reached_all),
-            speed_xy * scales.get("near_target_speed", 0.0),
-            0.0
-        )
+        # Round5 FIX: 距离-速度耦合惩罚（替代原来仅d<0.5m的窄范围惩罚）
+        # 期望速度与距离成正比：远处快跑，近处慢行
+        # desired_speed: 0.6m/s at d>=1.2m, 线性递减到 0.05m/s at d=0.1m
+        desired_speed = np.clip(distance_to_target * 0.5, 0.05, 0.6)
+        speed_excess = np.maximum(speed_xy - desired_speed, 0.0)
+        near_target_speed_penalty = scales.get("near_target_speed", -0.5) * speed_excess ** 2
 
         # 内围栏一次性奖励：首次进入距离<0.75m区域
         inner_fence_dist = 0.75

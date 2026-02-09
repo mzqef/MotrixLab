@@ -190,6 +190,116 @@ class RewardConfig:
     })
 ```
 
+### 4.1b Round5 Reward Fixes — Structural Bug Fixes (Feb 9 Session 4)
+
+Four critical structural bugs were identified through VLM visual analysis and code inspection, then fixed in `vbot_section001_np.py`:
+
+#### Fix 1: `alive_bonus` Always Active (removes "touch and die" cycle)
+
+**Bug**: `alive_bonus` was zeroed after `ever_reached=True`, so the robot had no incentive to stay alive after touching the target → learned to crash immediately for faster episode resets.
+
+```python
+# BEFORE (buggy): alive_bonus zeroed after reaching target
+ever_reached = info.get("ever_reached", ...)
+alive_bonus = np.where(ever_reached, 0.0, 1.0)  # 0 after touch → crash incentive
+
+# AFTER (fixed): alive_bonus always active
+alive_bonus = np.ones(self._num_envs, dtype=np.float32)  # Always reward survival
+# success_truncation (50 steps stopped) handles episode termination naturally
+```
+
+#### Fix 2: Speed-Distance Coupling (replaces narrow `near_target_speed`)
+
+**Bug**: `near_target_speed` only activated at d<0.5m — too narrow. Robot could sprint at full speed until the last 0.5m with no penalty.
+
+```python
+# BEFORE: penalty only when d < 0.5m (too narrow)
+penalty = where(d < 0.5 and not reached, speed * scale, 0)
+
+# AFTER: smooth distance-proportional speed limit
+desired_speed = np.clip(distance_to_target * 0.5, 0.05, 0.6)  # 0.6 at d>=1.2m, 0.05 at d=0.1m
+speed_excess = np.maximum(speed_xy - desired_speed, 0.0)
+penalty = scale * speed_excess ** 2  # Quadratic penalty, smooth gradient
+```
+
+| Distance | Desired Speed | Robot at 0.5m/s → Penalty |
+|----------|--------------|---------------------------|
+| 5.0m     | 0.60 m/s     | 0 (free to sprint)        |
+| 1.0m     | 0.50 m/s     | 0 (free to walk)          |
+| 0.5m     | 0.25 m/s     | -0.125                    |
+| 0.2m     | 0.10 m/s     | -0.320                    |
+| 0.1m     | 0.05 m/s     | -0.405                    |
+
+#### Fix 3: Speed-Gated `stop_bonus` (prevents fly-through reward)
+
+**Bug**: `stop_bonus` triggered whenever `reached_all` (d<0.5m), even if robot was sprinting through at 0.6 m/s.
+
+```python
+# BEFORE: stop_bonus for any robot in the zone, regardless of speed
+stop_bonus = np.where(reached_all, stop_base + zero_ang_bonus, 0.0)
+
+# AFTER: only reward genuinely slow robots
+genuinely_slow = np.logical_and(reached_all, speed_xy < 0.3)
+stop_bonus = np.where(genuinely_slow, stop_base + zero_ang_bonus, 0.0)
+```
+
+#### Fix 4: Symmetric Approach Retreat Penalty
+
+**Bug**: Below 1.5m, approach reward was clamped to `max(0)` — no penalty for retreating from target, enabling "hovering" behavior.
+
+```python
+# BEFORE: no retreat penalty below 1.5m
+approach_reward = np.clip(raw_approach, -0.3, 1.0)
+approach_reward = np.where(d < 1.5, np.maximum(approach_reward, 0.0), approach_reward)  # free retreat!
+
+# AFTER: symmetric penalty everywhere
+approach_reward = np.clip(raw_approach, -0.5, 1.0)  # retreat always penalized
+```
+
+### 4.1c Round6 Fixes — Reward Budget Root Cause (Feb 10 Session 5)
+
+After Round5 fixes, `reached%` remained near 0%. A formal **reward budget analysis** revealed the real root cause: the robot was *rationally choosing to stand still* because passive rewards dominated active rewards.
+
+#### The Reward Budget Methodology
+
+**Always compute the total reward for the desired behavior (walking to target) vs the degenerate behavior (standing still) over the full episode.** If the degenerate behavior earns more total reward, the policy will exploit it — no amount of HP tuning can fix a broken incentive structure.
+
+```python
+# Standing still at d=3.5m for max_episode_steps=4000:
+per_step = position_tracking(0.75) + heading(0.50) + alive(0.15)  # = 1.40/step
+standing_total = 1.40 * 4000 * 0.75(time_decay) = 4,185
+
+# Walking to target in ~583 steps + 50 stopped:
+walk_total = approach + forward + arrival + stop ≈ 2,031
+
+# STANDING WINS by 2,154!
+```
+
+**Root cause**: `max_episode_steps=4000` allowed standing to accumulate 4185 passive reward, which dwarfed the 2031 reward for successfully navigating + reaching. With `max_episode_steps=1000`: standing=1046 vs walking=2031 → walking wins by 985.
+
+#### Round6 Four Critical Fixes
+
+| # | Fix | Before → After | Impact |
+|---|-----|----------------|--------|
+| 1 | `max_episode_steps` | 4000 → **1000** | Standing reward budget cut by 75% |
+| 2 | `forward_velocity` | 0.8 → **1.5** | Phase5 halved the movement incentive; restored |
+| 3 | Approach retreat penalty | `clip(-0.5, 1.0)` → **`clip(0.0, 1.0)`** | Step-delta retreat was punishing exploration |
+| 4 | `termination` | -200 → **-100** | Too harsh; caused risk aversion |
+
+**Result**: Round6 v4 achieved **27.7% reached** at 12M steps — up from 0% with Round5.
+
+#### TensorBoard Component Analysis (diagnostic technique)
+
+Breaking down reward by component revealed the actual incentive structure:
+
+| Category | Per-Episode Total | Notes |
+|----------|-------------------|-------|
+| **Passive (standing)**: position + heading + alive | 960 | Dominates |
+| **Active (walking)**: forward + approach + distance | 134 | Small |
+| **Penalties (movement cost)**: stability penalties | -430 | Cancels active |
+
+**Key insight**: When `forward_velocity` was reduced from 1.5 to 0.8 in Phase5, the active reward signal (134/episode) was completely cancelled by movement penalties (-430/episode). The robot had **negative incentive to walk**.
+
 ### 4.2 Curriculum Learning (How Do I Train in Stages?)
 
 Curriculum learning is managed in `starter_kit_schedule/` and via the AutoML pipeline. The idea is to train in stages, starting with easier spawn ranges and progressing to harder ones, using warm-starts and promotion criteria.
@@ -200,6 +310,15 @@ Curriculum learning is managed in `starter_kit_schedule/` and via the AutoML pip
 - Stage C: spawn_inner_radius=9.0, spawn_outer_radius=10.0 (final fine-tuning)
 
 Promotion criteria are based on reached_fraction, inner_fence, and mean distance metrics.
+
+#### Reward Budget Audit Checklist
+
+Before launching any training run, verify:
+1. **Standing reward** = (position_tracking + heading + alive) × max_episode_steps × time_decay
+2. **Walking reward** = standing_reward_partial + approach + forward + arrival + stop bonuses
+3. **Walking > Standing?** If not, shorten episode length or increase movement incentives
+4. **Death cost** = termination / alive_budget — should be 10-50% (too low = reckless, too high = conservative)
+5. **Penalty budget** = sum of stability penalties per episode — must not cancel movement rewards
 
 #### Example: Running Curriculum AutoML
 ```powershell
@@ -235,6 +354,34 @@ uv run starter_kit_schedule/scripts/automl.py --mode stage --budget-hours 12 --h
 
 Results are logged in `starter_kit_log/{automl_id}/` and progress is tracked in `starter_kit_schedule/progress/automl_state.yaml`.
 
+### 5.3 AutoML Scoring Alignment with Competition (Round5/6)
+
+The AutoML `compute_score()` function was updated to align with competition scoring:
+
+```python
+# OLD: reward-dominated (40% reward, 30% reached, 20% distance, 10% speed)
+# NEW: competition-aligned (binary scoring — reach inner fence +1, reach center +1)
+score = (
+    0.60 * success_rate +           # Most important: did it reach?
+    0.25 * (1 - termination_rate) +  # Stay alive (don't fall)
+    0.10 * min(reward / 10, 1.0) +  # Reward as tiebreaker
+    0.05 * (1 - min(ep_len/1000, 1))  # Speed bonus (Round6: /1000 not /4000)
+)
+```
+
+### 5.4 AutoML Search Space Tightening (Round6)
+
+The search spaces were tightened around the proven Round6 v4 config to avoid wasting trials on bad regions:
+
+| Parameter | Old Range | New Range | Rationale |
+|-----------|-----------|-----------|----------|
+| learning_rate | [1e-5, 1e-3] | **[2e-4, 8e-4]** | Narrowed around proven 5e-4 |
+| forward_velocity | [0.3, 1.2] | **[1.0, 2.5]** | Must be ≥1.0 for walking incentive |
+| approach_scale | [2, 10] | **[15, 50]** | Step-delta needs high scale |
+| termination | [-300, -100] | **[-150, -50]** | -200 too harsh, -100 worked |
+| network sizes | incl [128,64] | **removed** | Too small for 54-dim obs |
+| rollouts | incl 16 | **removed** | Too few for stable updates |
+
 ---
 
 ## 6. Competition Rules and Scoring: How Do I Win?
@@ -268,8 +415,25 @@ Results are logged in `starter_kit_log/{automl_id}/` and progress is tracked in 
 - If training is unstable, check reward budget ratios (see reward docs).
 - If reached_fraction collapses, suspect reward hacking (policy prefers staying alive over reaching goal).
 - Use `scripts/view.py` to visualize environment and debug spawn/termination logic.
+- **Use `scripts/capture_vlm.py` for automated VLM visual analysis** — captures frames of the trained policy and sends them to a VLM for behavior diagnosis, gait quality assessment, and reward engineering suggestions:
+  ```powershell
+  uv run scripts/capture_vlm.py --env vbot_navigation_section001 --max-frames 20
+  ```
 - Check logs in `runs/` and AutoML reports in `starter_kit_log/` for experiment history.
 - If you get errors about missing registration, make sure the right `__init__.py` files are importing your env modules!
+
+### 7.3 Known Reward Hacking Patterns
+
+| Pattern | Symptom | Root Cause | Fix |
+|---------|---------|------------|-----|
+| **Lazy Robot** | Reward↑ while reached%↓ | alive_bonus dominates arrival_bonus (90:1 ratio) | Reduce alive_bonus, increase arrival_bonus |
+| **Standing Dominance** | 0% reached despite correct rewards | max_episode_steps too long → passive rewards exceed walking rewards | Shorten episode (4000→1000 steps). **Always audit reward budget!** |
+| **Sprint-Crash** | Episode length collapses, fwd_vel→max | Per-episode rewards favor many short episodes | Speed cap, speed-distance coupling penalty |
+| **Touch and Die** | Robot touches target then crashes | alive_bonus zeroed after reaching → no survival incentive | Keep alive_bonus always active |
+| **Deceleration Moat** | Robot hovers at ~1m, never reaches | near_target_speed penalty zone too wide (2m) | Reduce to 0.5m or use distance-proportional coupling |
+| **Fly-Through** | stop_bonus earned at high speed | No speed gate on stop_bonus | Gate stop_bonus on speed < 0.3 m/s |
+| **Conservative Hovering** | Robot approaches to ~0.5m then stalls | termination too harsh (>-250) | Reduce to -150 with speed-distance coupling |
+| **Negative Walking Incentive** | Robot stands despite movement reward | Stability penalties (-430/ep) cancel movement rewards (+134/ep) | Increase forward_velocity scale to overcome penalty budget |
 
 ---
 

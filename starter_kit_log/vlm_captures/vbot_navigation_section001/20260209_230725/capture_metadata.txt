@@ -1,0 +1,14 @@
+Environment: vbot_navigation_section001
+Policy: runs/vbot_navigation_section001/26-02-09_20-14-47-101961_PPO/checkpoints/best_agent.pt
+Backend: torch
+Num envs: 1
+Capture every: 5 steps
+Warmup steps: 10
+Total frames: 3
+Total steps: 25
+Timestamp: 20260209_230725
+
+Frames:
+  starter_kit_log\vlm_captures\vbot_navigation_section001\20260209_230725\frame_00015.png
+  starter_kit_log\vlm_captures\vbot_navigation_section001\20260209_230725\frame_00020.png
+  starter_kit_log\vlm_captures\vbot_navigation_section001\20260209_230725\frame_00025.png

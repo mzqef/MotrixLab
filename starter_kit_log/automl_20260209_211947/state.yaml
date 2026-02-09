@@ -2,7 +2,7 @@ automl_id: automl_20260209_211947
 best_results: {}
 budget_hours: 8.0
 current_hp_config: {}
-current_iteration: 3
+current_iteration: 4
 current_phase: hp_search
 current_reward_config: {}
 current_stage: stage1_flat
@@ -11,7 +11,7 @@ curriculum_progress:
   stage2a_waves: pending
   stage2b_stairs: pending
   stage2c_obstacles: pending
-elapsed_hours: 0.9332769119444444
+elapsed_hours: 1.2012601897222224
 hp_search_history:
 - hp_config:
     discount_factor: 0.99
@@ -204,6 +204,54 @@ hp_search_history:
     zero_ang_bonus: 4.622338547648086
   score: 0.3206431094254003
   trial: 3
+- hp_config:
+    discount_factor: 0.99
+    entropy_loss_scale: 0.007938620966037065
+    grad_norm_clip: 1.0
+    lambda_param: 0.95
+    learning_epochs: 8
+    learning_rate: 1.066691514633058e-05
+    mini_batches: 64
+    policy_hidden_layer_sizes:
+    - 256
+    - 256
+    - 256
+    ratio_clip: 0.2
+    rollouts: 48
+    value_hidden_layer_sizes:
+    - 512
+    - 256
+    - 128
+  metrics:
+    episode_length_mean: 0.0
+    episode_reward_mean: 1.0966684768597286
+    episode_reward_std: 0.4858669638633728
+    success_rate: 8.494059238728369e-05
+    termination_rate: 0.0
+  reward_config:
+    action_rate: -0.009521380450865681
+    alive_bonus: 0.08011090741681051
+    ang_vel_xy: -0.03
+    approach_scale: 4.540606500145638
+    arrival_bonus: 176.99135182636462
+    boundary_penalty: -2.5680200500921107
+    distance_progress: 1.794384126660104
+    dof_acc: -2.5e-07
+    dof_vel: -5.0e-05
+    fine_position_tracking: 6.660912049491548
+    forward_velocity: 0.746936919768334
+    heading_tracking: 0.4409066104262269
+    inner_fence_bonus: 73.28181070464538
+    lin_vel_z: -0.1154820190672543
+    near_target_speed: -2.9887066479636304
+    orientation: -0.07030396490109797
+    position_tracking: 4.041024332208316
+    stop_scale: 2.4398052042081213
+    termination: -150
+    torques: -1.0e-05
+    zero_ang_bonus: 6.68385955730669
+  score: 0.3110176491240297
+  trial: 4
 mode: stage
 start_time: '2026-02-09T21:19:47.517392'
 status: running
