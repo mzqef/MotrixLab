@@ -52,8 +52,24 @@ def _get_cfg(
     cfg["discount_factor"] = rlcfg.discount_factor
     cfg["lambda"] = rlcfg.lambda_param
     cfg["learning_rate"] = rlcfg.learning_rate
-    cfg["learning_rate_scheduler"] = KLAdaptiveRL
-    cfg["learning_rate_scheduler_kwargs"] = {"kl_threshold": rlcfg.learning_rate_scheduler_kl_threshold}
+    # Select LR scheduler based on config
+    _sched_type = getattr(rlcfg, "lr_scheduler_type", "kl_adaptive")
+    if _sched_type == "kl_adaptive":
+        cfg["learning_rate_scheduler"] = KLAdaptiveRL
+        cfg["learning_rate_scheduler_kwargs"] = {"kl_threshold": rlcfg.learning_rate_scheduler_kl_threshold}
+    elif _sched_type == "linear":
+        # Linear anneal from initial LR to ~0 over training. Uses PyTorch's built-in LambdaLR.
+        # The lambda receives the *epoch* counter which SKRL increments each learning update.
+        import torch.optim.lr_scheduler as _lr_sched
+        _total_updates = int(rlcfg.max_env_steps / (rlcfg.rollouts * rlcfg.num_envs)) * rlcfg.learning_epochs
+        cfg["learning_rate_scheduler"] = _lr_sched.LambdaLR
+        cfg["learning_rate_scheduler_kwargs"] = {
+            "lr_lambda": lambda epoch: max(1.0 - epoch / max(_total_updates, 1), 0.01)
+        }
+    else:
+        # Fixed LR — no scheduler
+        cfg["learning_rate_scheduler"] = None
+        cfg["learning_rate_scheduler_kwargs"] = {}
     cfg["random_timesteps"] = rlcfg.random_timesteps
     cfg["learning_starts"] = rlcfg.learning_starts
     cfg["grad_norm_clip"] = rlcfg.grad_norm_clip
@@ -170,9 +186,13 @@ class Trainer:
         self._sim_backend = sim_backend
         self._enable_render = enable_render
 
-    def train(self) -> None:
+    def train(self, checkpoint: str = None) -> None:
         """
         Start training the agent.
+
+        Args:
+            checkpoint: Optional path to a checkpoint file to warm-start from.
+                        Loads policy/value network weights only (not optimizer state).
         """
         rlcfg = self._rlcfg
         env = env_registry.make(self._env_name, sim_backend=self._sim_backend, num_envs=rlcfg.num_envs)
@@ -181,6 +201,9 @@ class Trainer:
         models = self._make_model(skrl_env, rlcfg)
         ppo_cfg = _get_cfg(rlcfg, skrl_env, log_dir=get_log_dir(self._env_name))
         agent = self._make_agent(models, skrl_env, ppo_cfg)
+        if checkpoint is not None:
+            agent.load(checkpoint)
+            logger.info(f"Warm-started from checkpoint: {checkpoint}")
         cfg_trainer = {
             "timesteps": rlcfg.max_batch_env_steps,
             "headless": not self._enable_render,

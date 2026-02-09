@@ -312,16 +312,16 @@ class VBotSection03EnvCfg(VBotStairsEnvCfg):
 @registry.envcfg("vbot_navigation_long_course")
 @dataclass
 class VBotLongCourseEnvCfg(VBotStairsEnvCfg):
-    """VBot三段地形完整导航配置（比赛任务）- 使用world.xml统一地图"""
-    # 使用scene_world.xml作为完整的三段地形地图（集成了world.xml）
-    model_file: str = os.path.dirname(__file__) + "/xmls/scene_world.xml"
-    max_episode_seconds: float = 60.0  # 优化：减少到60秒，加快训练速度
-    max_episode_steps: int = 6000  # 对应60秒 @ 100Hz
+    """VBot三段地形完整导航配置（比赛任务）- 使用全程合并地图"""
+    # 使用scene_world_full.xml：三段地形碰撞体+视觉体合并
+    model_file: str = os.path.dirname(__file__) + "/xmls/scene_world_full.xml"
+    max_episode_seconds: float = 90.0  # 全程90秒
+    max_episode_steps: int = 9000  # 对应90秒 @ 100Hz
     
     @dataclass
     class InitState:
-        # 起始位置：section01的中心位置
-        pos = [0.0, 0.0, 1.8]  # 高台中心，高度1.8m
+        # 起始位置：section01起始（高台中心）
+        pos = [0.0, -2.4, 0.5]  # 与section01一致
         pos_randomization_range = [-0.5, -0.5, 0.5, 0.5]  # 小范围随机±0.5m
         
         default_joint_angles = {
@@ -341,74 +341,64 @@ class VBotLongCourseEnvCfg(VBotStairsEnvCfg):
     
     @dataclass
     class Commands:
-        # 目标范围：覆盖整个30米路线（section01:0-10m, section02:10-20m, section03:20-30m）
-        pose_command_range = [-3.0, 20.0, -3.14, 3.0, 32.0, 3.14]
+        # 全程范围：航点系统内部管理，此处仅作记录
+        pose_command_range = [-3.0, -3.0, -3.14, 3.0, 34.0, 3.14]
     
-    @dataclass
-    class ControlConfig:
-        action_scale = 0.25  # 与stairs保持一致
-    
-    init_state: InitState = field(default_factory=InitState)
-    commands: Commands = field(default_factory=Commands)
-    control_config: ControlConfig = field(default_factory=ControlConfig)
-
-@registry.envcfg("vbot_navigation_section001")
-#通过 @registry.envcfg("vbot_navigation_section001") 注册
-@dataclass
-class VBotSection001EnvCfg(VBotStairsEnvCfg):
-    """VBot Section01单独训练配置 - 高台楼梯地形"""
-    model_file: str = os.path.dirname(__file__) + "/xmls/scene_section001.xml"
-    max_episode_seconds: float = 40.0  # 拉长一倍：从20秒增加到40秒
-    max_episode_steps: int = 4000  # 拉长一倍：从2000步增加到4000步
-    @dataclass
-    class InitState:
-        # 起始位置：随机化范围内生成
-        pos = [0.0, -2.4, 0.5]  # 中心位置
-        pos_randomization_range = [-0.5, -0.5, 0.5, 0.5]  # X±0.5m, Y±0.5m随机
-
-        default_joint_angles = {
-            "FR_hip_joint": -0.0,
-            "FR_thigh_joint": 0.9,
-            "FR_calf_joint": -1.8,
-            "FL_hip_joint": 0.0,
-            "FL_thigh_joint": 0.9,
-            "FL_calf_joint": -1.8,
-            "RR_hip_joint": -0.0,
-            "RR_thigh_joint": 0.9,
-            "RR_calf_joint": -1.8,
-            "RL_hip_joint": 0.0,
-            "RL_thigh_joint": 0.9,
-            "RL_calf_joint": -1.8,
-        }
-    @dataclass
-    class Commands:
-        # 目标位置：缩短距离，固定目标点
-        # 起始位置Y=-2.4, 目标Y=3.6, 距离=6米（与vbot_np相近）
-        # pose_command_range = [0.0, 3.6, 0.0, 0.0, 3.6, 0.0]
-        # 原始配置（已注释）：
-        # 目标位置：固定在终止角范围远端（完全无随机化）
-        # 固定目标点: X=0, Y=10.2, Z=2 (Z通过XML控制)
-        # 起始位置Y=-2.4, 目标Y=10.2, 距离=12.6米
-        pose_command_range = [0.0, 10.2, 0.0, 0.0, 10.2, 0.0]
     @dataclass
     class ControlConfig:
         action_scale = 0.25
+    
+    @dataclass
+    class RewardConfig:
+        scales: dict = field(default_factory=lambda: {
+            # ===== 导航任务核心奖励 =====
+            "position_tracking": 1.5,
+            "fine_position_tracking": 5.0,
+            "heading_tracking": 0.8,
+            "forward_velocity": 1.5,
+            "distance_progress": 2.0,
+            "alive_bonus": 0.5,
+            "approach_scale": 8.0,
+            # ===== 全程特有 =====
+            "waypoint_bonus": 30.0,      # 每到达一个中间航点的奖励
+            "arrival_bonus": 100.0,      # 到达最终目标的大奖
+            "stop_scale": 2.0,
+            "zero_ang_bonus": 6.0,
+            # ===== 惩罚 =====
+            "orientation": -0.05,
+            "lin_vel_z": -0.3,
+            "ang_vel_xy": -0.03,
+            "torques": -1e-5,
+            "dof_vel": -5e-5,
+            "dof_acc": -2.5e-7,
+            "action_rate": -0.01,
+            "termination": -100.0,
+        })
+    
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)
     control_config: ControlConfig = field(default_factory=ControlConfig)
+    reward_config: RewardConfig = field(default_factory=RewardConfig)
 
 @registry.envcfg("vbot_navigation_section011")
-#通过 @registry.envcfg("vbot_navigation_section011") 注册
 @dataclass
 class VBotSection011EnvCfg(VBotStairsEnvCfg):
-    """VBot Section01单独训练配置 - 高台楼梯地形"""
+    """VBot Section01（高台/坡道）导航配置
+
+    XML地形信息 (0126_C_section01.xml):
+    - 高度场：中心(0, 0, 0)，范围x=±5m, y=±1.5m，高度0~0.277m
+    - 地面平台：z=0
+    - 15°坡道 (Adiban_003)：中心(0, 4.48, 0.41)
+    - 高台 (Adiban_004)：中心(0, 7.83, 1.044)，尺寸(5×2.5×0.25)m，顶面z=1.294
+    - 边界墙顶部 z≈2.45
+    """
     model_file: str = os.path.dirname(__file__) + "/xmls/scene_section011.xml"
-    max_episode_seconds: float = 40.0  # 拉长一倍：从20秒增加到40秒
-    max_episode_steps: int = 4000  # 拉长一倍：从2000步增加到4000步
+    max_episode_seconds: float = 40.0
+    max_episode_steps: int = 4000
     @dataclass
     class InitState:
-        # 起始位置：随机化范围内生成
-        pos = [0.0, -2.4, 0.5]  # 中心位置
+        # 起始位置：section01起点，地面z=0，机器人高度0.5m
+        pos = [0.0, -2.4, 0.5]
         pos_randomization_range = [-0.5, -0.5, 0.5, 0.5]  # X±0.5m, Y±0.5m随机
 
         default_joint_angles = {
@@ -427,34 +417,64 @@ class VBotSection011EnvCfg(VBotStairsEnvCfg):
         }
     @dataclass
     class Commands:
-        # 目标位置：缩短距离，固定目标点
-        # 起始位置Y=-2.4, 目标Y=3.6, 距离=6米（与vbot_np相近）
-        # pose_command_range = [0.0, 3.6, 0.0, 0.0, 3.6, 0.0]
-        # 原始配置（已注释）：
-        # 目标位置：固定在终止角范围远端（完全无随机化）
-        # 固定目标点: X=0, Y=10.2, Z=2 (Z通过XML控制)
-        # 起始位置Y=-2.4, 目标Y=10.2, 距离=12.6米
+        # 固定目标：高台顶部中心
+        # 起始Y=-2.4 + 偏移10.2 → 目标Y=7.8（≈高台中心y=7.83，顶面z=1.294）
         pose_command_range = [0.0, 10.2, 0.0, 0.0, 10.2, 0.0]
     @dataclass
     class ControlConfig:
         action_scale = 0.25
+    @dataclass
+    class RewardConfig:
+        scales: dict = field(default_factory=lambda: {
+            # ===== 导航任务核心奖励 =====
+            "position_tracking": 2.0,
+            "fine_position_tracking": 2.0,
+            "heading_tracking": 1.0,
+            "forward_velocity": 1.5,        # 增强前进激励
+            "distance_progress": 2.0,
+            "alive_bonus": 1.0,              # 强存活激励
+            "approach_scale": 8.0,
+            # ===== 到达奖励 =====
+            "arrival_bonus": 50.0,
+            "stop_scale": 2.0,
+            "zero_ang_bonus": 6.0,
+            # ===== 惩罚 =====
+            "orientation": -0.05,
+            "lin_vel_z": -0.5,
+            "ang_vel_xy": -0.05,
+            "torques": -1e-5,
+            "dof_vel": -5e-5,
+            "dof_acc": -2.5e-7,
+            "action_rate": -0.01,
+            "termination": -50.0,            # 降低终止惩罚，避免梯度崩溃
+        })
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)
     control_config: ControlConfig = field(default_factory=ControlConfig)
+    reward_config: RewardConfig = field(default_factory=RewardConfig)
 
 @registry.envcfg("vbot_navigation_section012")
-#通过 @registry.envcfg("vbot_navigation_section012") 注册
 @dataclass
 class VBotSection012EnvCfg(VBotStairsEnvCfg):
-    """VBot Section01单独训练配置 - 高台楼梯地形"""
+    """VBot Section02（楼梯/桥梁/障碍物）导航配置
+
+    XML地形信息 (0126_C_section02.xml):
+    - 高度场：中心(0, 10.33, 1.294)
+    - 左侧楼梯 (x=-3)：10级，ΔZ≈0.15/级，y=12.43→14.23，z=1.369→2.794
+    - 右侧楼梯 (x=2)：10级，ΔZ≈0.10/级，z=1.319→2.294
+    - 拱桥 (x≈-3)：y=15.31→20.33，z≈2.51→2.86
+    - 5个球形障碍 (R=0.75)：右侧通道
+    - 8个锥形障碍、2个logo障碍
+    - 终点平台：y≈24.33，z≈1.294
+    """
     model_file: str = os.path.dirname(__file__) + "/xmls/scene_section012.xml"
-    max_episode_seconds: float = 40.0  # 拉长一倍：从20秒增加到40秒
-    max_episode_steps: int = 4000  # 拉长一倍：从2000步增加到4000步
+    max_episode_seconds: float = 60.0  # Section02复杂地形，需要更多时间
+    max_episode_steps: int = 6000
     @dataclass
     class InitState:
-        # 起始位置：随机化范围内生成
-        pos = [-2.5, 15.0, 3.3]  # 中心位置
-        pos_randomization_range = [-0., -0., 0., 0.]  # X±0.5m, Y±0.5m随机
+        # 起始位置：section02入口平台（来自section01高台，z≈1.294，机器人0.5m）
+        pos = [0.0, 9.5, 1.8]
+        pos_randomization_range = [-0.3, -0.3, 0.3, 0.3]  # 小范围随机±0.3m
 
         default_joint_angles = {
             "FR_hip_joint": -0.0,
@@ -472,34 +492,64 @@ class VBotSection012EnvCfg(VBotStairsEnvCfg):
         }
     @dataclass
     class Commands:
-        # 目标位置：缩短距离，固定目标点
-        # 起始位置Y=-2.4, 目标Y=3.6, 距离=6米（与vbot_np相近）
-        # pose_command_range = [0.0, 3.6, 0.0, 0.0, 3.6, 0.0]
-        # 原始配置（已注释）：
-        # 目标位置：固定在终止角范围远端（完全无随机化）
-        # 固定目标点: X=0, Y=10.2, Z=2 (Z通过XML控制)
-        # 起始位置Y=-2.4, 目标Y=10.2, 距离=12.6米
-        pose_command_range = [0.0, 10.2, 0.0, 0.0, 10.2, 0.0]
+        # 固定目标：section02出口（终点平台中心）
+        # 起始(0, 9.5) + 偏移(0, 14.5) → 目标(0, 24.0)（≈终点平台y≈24.33，z≈1.294）
+        pose_command_range = [0.0, 14.5, 0.0, 0.0, 14.5, 0.0]
     @dataclass
     class ControlConfig:
         action_scale = 0.25
+    @dataclass
+    class RewardConfig:
+        scales: dict = field(default_factory=lambda: {
+            # ===== 导航任务核心奖励 =====
+            "position_tracking": 1.5,
+            "fine_position_tracking": 5.0,
+            "heading_tracking": 0.8,
+            "forward_velocity": 1.5,
+            "distance_progress": 2.0,
+            "alive_bonus": 0.3,
+            "approach_scale": 8.0,
+            # ===== 到达奖励 =====
+            "arrival_bonus": 80.0,    # Section02值60分，大奖鼓励
+            "stop_scale": 1.5,
+            "zero_ang_bonus": 6.0,
+            # ===== 惩罚 =====
+            "orientation": -0.05,
+            "lin_vel_z": -0.3,
+            "ang_vel_xy": -0.03,
+            "torques": -1e-5,
+            "dof_vel": -5e-5,
+            "dof_acc": -2.5e-7,
+            "action_rate": -0.01,
+            "termination": -200.0,
+        })
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)
     control_config: ControlConfig = field(default_factory=ControlConfig)
+    reward_config: RewardConfig = field(default_factory=RewardConfig)
 
 @registry.envcfg("vbot_navigation_section013")
-#通过 @registry.envcfg("vbot_navigation_section013") 注册
 @dataclass
 class VBotSection013EnvCfg(VBotStairsEnvCfg):
-    """VBot Section01单独训练配置 - 高台楼梯地形"""
+    """VBot Section03（滚球/坡道/最终平台）导航配置
+
+    XML地形信息 (0126_C_section03.xml):
+    - 高度场：中心(0, 29.33, 1.343)
+    - 入口平台：z=1.294
+    - 0.75m高隔离墙 (Cdiban_006)：y=27.58
+    - 21.8°坡道 (Cdiban_002)
+    - 3个金球障碍 (R=0.75)：y=31.23，x=-3/0/3，球心z=0.844
+    - 最终平台 (Cdiban_004)：中心(0, 32.33, 0.994)，顶面z=1.494
+    - 终点墙：y=34.33
+    """
     model_file: str = os.path.dirname(__file__) + "/xmls/scene_section013.xml"
-    max_episode_seconds: float = 40.0  # 拉长一倍：从20秒增加到40秒
-    max_episode_steps: int = 4000  # 拉长一倍：从2000步增加到4000步
+    max_episode_seconds: float = 50.0  # Section03需要较多时间
+    max_episode_steps: int = 5000
     @dataclass
     class InitState:
-        # 起始位置：随机化范围内生成
-        pos = [0.0, 26.0, 3.3]  # 中心位置
-        pos_randomization_range = [-0., -0., 0., 0.]  # X±0.5m, Y±0.5m随机
+        # 起始位置：section03入口，地面z≈1.294，机器人高度0.5m以上
+        pos = [0.0, 26.0, 1.8]
+        pos_randomization_range = [-0.5, -0.5, 0.5, 0.5]  # ±0.5m随机（竞赛会随机起始点）
 
         default_joint_angles = {
             "FR_hip_joint": -0.0,
@@ -517,18 +567,39 @@ class VBotSection013EnvCfg(VBotStairsEnvCfg):
         }
     @dataclass
     class Commands:
-        # 目标位置：缩短距离，固定目标点
-        # 起始位置Y=-2.4, 目标Y=3.6, 距离=6米（与vbot_np相近）
-        # pose_command_range = [0.0, 3.6, 0.0, 0.0, 3.6, 0.0]
-        # 原始配置（已注释）：
-        # 目标位置：固定在终止角范围远端（完全无随机化）
-        # 固定目标点: X=0, Y=10.2, Z=2 (Z通过XML控制)
-        # 起始位置Y=-2.4, 目标Y=10.2, 距离=12.6米
-        pose_command_range = [0.0, 10.2, 0.0, 0.0, 10.2, 0.0]
+        # 固定目标：最终平台中心
+        # 起始(0, 26.0) + 偏移(0, 6.33) → 目标(0, 32.33)（≈最终平台中心，顶面z=1.494）
+        pose_command_range = [0.0, 6.33, 0.0, 0.0, 6.33, 0.0]
     @dataclass
     class ControlConfig:
         action_scale = 0.25
+    @dataclass
+    class RewardConfig:
+        scales: dict = field(default_factory=lambda: {
+            # ===== 导航任务核心奖励 =====
+            "position_tracking": 1.5,
+            "fine_position_tracking": 5.0,
+            "heading_tracking": 0.8,
+            "forward_velocity": 1.5,
+            "distance_progress": 2.0,
+            "alive_bonus": 0.3,
+            "approach_scale": 8.0,
+            # ===== 到达奖励 =====
+            "arrival_bonus": 60.0,
+            "stop_scale": 1.5,
+            "zero_ang_bonus": 6.0,
+            # ===== 惩罚 =====
+            "orientation": -0.05,
+            "lin_vel_z": -0.3,
+            "ang_vel_xy": -0.03,
+            "torques": -1e-5,
+            "dof_vel": -5e-5,
+            "dof_acc": -2.5e-7,
+            "action_rate": -0.01,
+            "termination": -200.0,
+        })
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)
     control_config: ControlConfig = field(default_factory=ControlConfig)
+    reward_config: RewardConfig = field(default_factory=RewardConfig)
 

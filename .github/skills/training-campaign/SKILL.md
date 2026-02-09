@@ -12,7 +12,12 @@ description: Execute and monitor long-running RL training campaigns. Progress tr
 - Structured experiment logging
 - Progress monitoring and alerts
 
-> **IMPORTANT — Operational Guardrails:**
+> **🔴 AutoML-First Policy (MANDATORY):**
+> **NEVER** use `train.py` for parameter search or reward hypothesis testing.
+> **ALWAYS** use `automl.py` for batch search. See `.github/copilot-instructions.md` for the full policy.
+> `train.py` is ONLY for: smoke tests (<500K steps), `--render` visual debug, or final deployment runs.
+>
+> **Operational Guardrails:**
 > - The AutoML pipeline is **tested and working**. Do NOT re-read `automl.py`, `train_one.py`, or `evaluate.py` before launching.
 > - When asked to start/resume training, use the commands below directly.
 > - The pipeline handles import ordering, JSON serialization, and subprocess management internally.
@@ -38,6 +43,24 @@ description: Execute and monitor long-running RL training campaigns. Progress tr
 
 > **ALWAYS** review existing experiments before starting new training. See `training-pipeline` skill → "Step 0: Review Experiment History" for the full checklist.
 
+### Read Experiment Reports First
+
+```powershell
+# MANDATORY: Read experiment reports before ANY training
+Get-ChildItem REPORT_NAV*.md | Select-Object Name, Length, LastWriteTime
+Get-Content REPORT_NAV1.md | Select-Object -Last 80  # Check latest TODO/next steps
+```
+
+**REPORT_NAV*.md** is the canonical record of all experiments. Check:
+- "Next Steps" section → what should be done next
+- "Updated Experiment Summary" → what's already been tried
+- "Current Configuration State" → verified runtime config
+- "Lessons Learned" → pitfalls to avoid
+
+> **After completing any training run**, append results to the report. Never overwrite.
+
+### Quick Review Commands
+
 ```powershell
 # Quick review: what training exists?
 Get-ChildItem starter_kit_log/automl_* -Directory | Select-Object Name
@@ -52,19 +75,19 @@ uv run starter_kit_schedule/scripts/check_training.py
 ### Start Training
 
 ```powershell
-# === PREFERRED: AutoML pipeline (handles everything) ===
+# === PRIMARY: AutoML pipeline (USE THIS for all parameter exploration) ===
 uv run starter_kit_schedule/scripts/automl.py `
     --mode stage `
-    --budget-hours 12 `
-    --hp-trials 8
+    --budget-hours 8 `
+    --hp-trials 15
 
-# === SIMPLE: Single training run ===
-uv run scripts/train.py --env vbot_navigation_section001
+# === SMOKE TEST ONLY (<500K steps, verify code compiles) ===
+uv run scripts/train.py --env vbot_navigation_section001 --train-backend torch --max-env-steps 200000
 
-# === WITH RENDERING (for visual debugging) ===
+# === VISUAL DEBUGGING ONLY ===
 uv run scripts/train.py --env vbot_navigation_section001 --render
 
-# === PYTORCH BACKEND (Windows recommended) ===
+# === FINAL DEPLOYMENT RUN (after AutoML found best config) ===
 uv run scripts/train.py --env vbot_navigation_section001 --train-backend torch
 ```
 

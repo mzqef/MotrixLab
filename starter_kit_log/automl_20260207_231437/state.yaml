@@ -1,0 +1,106 @@
+automl_id: automl_20260207_231437
+best_results: {}
+budget_hours: 6.0
+current_hp_config: {}
+current_iteration: 1
+current_phase: hp_search
+current_reward_config: {}
+current_stage: stage1_flat
+curriculum_progress:
+  stage1_flat: pending
+  stage2a_waves: pending
+  stage2b_stairs: pending
+  stage2c_obstacles: pending
+elapsed_hours: 0.8475576911111111
+hp_search_history:
+- hp_config:
+    discount_factor: 0.99
+    entropy_loss_scale: 0.00015268224766597116
+    grad_norm_clip: 1.0
+    lambda_param: 0.95
+    learning_epochs: 4
+    learning_rate: 1.5041017823307377e-05
+    mini_batches: 32
+    policy_hidden_layer_sizes:
+    - 128
+    - 64
+    ratio_clip: 0.2
+    rollouts: 16
+    value_hidden_layer_sizes:
+    - 256
+    - 256
+    - 256
+  metrics:
+    episode_length_mean: 0.0
+    episode_reward_mean: 0.0
+    episode_reward_std: 0.0
+    success_rate: 0.0
+    termination_rate: 0.0
+  reward_config:
+    action_rate: -0.008454602113893872
+    alive_bonus: 0.5512836593075432
+    ang_vel_xy: -0.03
+    approach_scale: 13.84003755079534
+    arrival_bonus: 90.07978527136558
+    distance_progress: 2.7852401834560343
+    dof_acc: -2.5e-07
+    dof_vel: -5.0e-05
+    fine_position_tracking: 9.930623173250002
+    forward_velocity: 1.5346489395598033
+    heading_tracking: 1.7110685583078966
+    lin_vel_z: -0.4380123353799278
+    orientation: -0.11699541972490168
+    position_tracking: 3.0851723513714715
+    stop_scale: 3.4914722037261186
+    termination: -25
+    torques: -1.0e-05
+    zero_ang_bonus: 6.791451501555299
+  score: 0.30000000000000004
+  trial: 0
+- hp_config:
+    discount_factor: 0.99
+    entropy_loss_scale: 0.0001637200843832054
+    grad_norm_clip: 1.0
+    lambda_param: 0.95
+    learning_epochs: 8
+    learning_rate: 0.0001291537224066113
+    mini_batches: 16
+    policy_hidden_layer_sizes:
+    - 256
+    - 128
+    - 64
+    ratio_clip: 0.2
+    rollouts: 24
+    value_hidden_layer_sizes:
+    - 128
+    - 64
+  metrics:
+    episode_length_mean: 0.0
+    episode_reward_mean: 2.1154234749930247
+    episode_reward_std: 0.15302658081054688
+    success_rate: 0.09067692838254429
+    termination_rate: 0.0
+  reward_config:
+    action_rate: -0.049756818369922975
+    alive_bonus: 0.757001557170253
+    ang_vel_xy: -0.03
+    approach_scale: 12.13218638115866
+    arrival_bonus: 82.79885516755095
+    distance_progress: 3.483990028640389
+    dof_acc: -2.5e-07
+    dof_vel: -5.0e-05
+    fine_position_tracking: 8.248003320649463
+    forward_velocity: 1.7065841360177945
+    heading_tracking: 0.6495216489172926
+    lin_vel_z: -0.33565509155488993
+    orientation: -0.18724393352089472
+    position_tracking: 4.7872583834190205
+    stop_scale: 4.1795388648551635
+    termination: -10
+    torques: -1.0e-05
+    zero_ang_bonus: 7.98333916866581
+  score: 0.3441264663147075
+  trial: 1
+mode: stage
+start_time: '2026-02-07T23:14:37.287229'
+status: running

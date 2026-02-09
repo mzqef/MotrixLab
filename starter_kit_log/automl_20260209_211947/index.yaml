@@ -1,0 +1,25 @@
+experiments:
+- completed_at: '2026-02-09T21:34:25.796846Z'
+  environment: vbot_navigation_section001
+  experiment_id: automl_20260209_211947_vbot_navigation_section001_i0_1770643187
+  final_reward: 1.9334137663245201
+  status: completed
+  success_rate: 0.1643056230386719
+- completed_at: '2026-02-09T21:47:08.594220Z'
+  environment: vbot_navigation_section001
+  experiment_id: automl_20260209_211947_vbot_navigation_section001_i1_1770644065
+  final_reward: 1.5057314485311508
+  status: completed
+  success_rate: 0.00013507780295185512
+- completed_at: '2026-02-09T22:00:03.342697Z'
+  environment: vbot_navigation_section001
+  experiment_id: automl_20260209_211947_vbot_navigation_section001_i2_1770644828
+  final_reward: 1.5101311703523
+  status: completed
+  success_rate: 0.12699839270984134
+- completed_at: '2026-02-09T22:15:47.313181Z'
+  environment: vbot_navigation_section001
+  experiment_id: automl_20260209_211947_vbot_navigation_section001_i3_1770645603
+  final_reward: 1.884357288479805
+  status: completed
+  success_rate: 0.0029992275676704594

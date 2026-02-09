@@ -33,6 +33,24 @@ This skill teaches the **methodology of reward/penalty exploration** — how to 
 
 ---
 
+## 📋 Experiment Reports (MANDATORY check before reward changes)
+
+> **ALWAYS read `REPORT_NAV*.md` files at the workspace root before modifying rewards.**
+
+```powershell
+Get-ChildItem REPORT_NAV*.md | Select-Object Name, Length, LastWriteTime
+Get-Content REPORT_NAV1.md
+```
+
+**What to look for in reports:**
+- Section 17 ("Current Configuration State") — verified reward scale values
+- Section 15 ("Sprint-and-Crash Exploit") — known reward hacking pattern
+- Section 20 ("Lessons Learned") — pitfalls to avoid
+- "Next Steps" section — active TODO items
+- Per-experiment reward component breakdowns (TensorBoard tags)
+
+> **After making any reward change and running an experiment**, append results to the report.
+
 ## When to Use This Skill
 
 | Situation | Use This |
@@ -244,6 +262,37 @@ For new components, start with a weight that produces reward magnitude comparabl
 
 ## Phase 4: Test
 
+### 🔴 AutoML-First Testing (MANDATORY)
+
+> **NEVER** iterate manually with `train.py`, changing one reward weight, running, reading TensorBoard, killing, repeating.
+> This is **manual one-at-a-time search** — slow, error-prone, and wasteful.
+> **ALWAYS** use `automl.py` for batch reward hypothesis testing.
+
+**The correct workflow:**
+1. Add your reward hypothesis as a search range in `REWARD_SEARCH_SPACE` (in `automl.py`)
+2. Run `automl.py --hp-trials 8+` to test multiple configurations in one batch
+3. Read the structured comparison in `starter_kit_log/automl_*/report.md`
+4. Archive results in the reward library
+
+**Example: Testing near_target_speed activation radius**
+```python
+# In automl.py REWARD_SEARCH_SPACE:
+"near_target_speed": {"type": "uniform", "low": -2.0, "high": -0.1},
+"near_target_activation": {"type": "choice", "values": [0.3, 0.5, 1.0, 2.0]},
+```
+Then run: `uv run starter_kit_schedule/scripts/automl.py --mode stage --hp-trials 8`
+
+**Why AutoML is better:**
+- Tests N configurations in parallel with identical conditions
+- Produces structured comparison table (reward, reached%, distance, ep_len)
+- Bayesian suggestion improves with each trial
+- No manual TensorBoard reading or experiment-killing needed
+
+### Exception: `train.py` is acceptable for testing ONLY when:
+- **Smoke test** — `--max-env-steps 200000` to verify new reward code compiles
+- **Visual debugging** — `--render` to watch behavior qualitatively
+- The reward requires NEW CODE in `_compute_reward()` (test compilation first, then use automl)
+
 ### Experiment Protocol
 
 ```yaml
@@ -254,24 +303,29 @@ experiment:
   change: "<what exactly changed>"
   baseline: "<what to compare against>"
   environment: "<env id>"
-  seeds: [42, 123, 456]           # Minimum 3 seeds
-  steps: 2_000_000                # Short exploratory run
+  tool: "automl.py"               # MUST be automl.py, not train.py
+  hp_trials: 8                    # Minimum 8 for meaningful comparison
+  steps_per_trial: 5_000_000      # Each trial
   metrics_to_watch:
     - episode_reward_mean
+    - reached_fraction
     - <behavior-specific metric>
 ```
 
-### Running Quick Tests
+### Running Tests
 
 ```powershell
-# Quick test — single run with rendering to visually verify behavior
-uv run scripts/train.py --env vbot_navigation_section001 --render
-
-# Full AutoML test with HP search
+# CORRECT: Batch search with AutoML (use this!)
 uv run starter_kit_schedule/scripts/automl.py `
     --mode stage `
     --budget-hours 4 `
-    --hp-trials 3
+    --hp-trials 8
+
+# Read results
+Get-Content starter_kit_log/automl_*/report.md
+
+# WRONG: Manual iteration (do NOT do this!)
+# uv run scripts/train.py --env vbot_navigation_section001  # ← NEVER for parameter search
 ```
 
 ### What Counts as "Enough" Testing
@@ -419,6 +473,7 @@ Get-ChildItem starter_kit_schedule/reward_library/rejected/ -Name
 
 | Anti-Pattern | Why It Fails | Instead |
 |--------------|-------------|---------|
+| **Manual train.py iteration** | **Slow one-at-a-time search; no structured comparison** | **Use automl.py --hp-trials 8+ for batch search** |
 | Changing 3+ rewards at once | Cannot attribute outcomes | One variable per cycle |
 | Copying rewards from papers | Context differs | Use as hypothesis, test locally |
 | Only watching reward curves | High reward ≠ good behavior | Always watch policy visually |

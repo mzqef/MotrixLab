@@ -1,0 +1,13 @@
+experiments:
+- completed_at: '2026-02-07T23:50:39.310714Z'
+  environment: vbot_navigation_section001
+  experiment_id: automl_20260207_232444_vbot_navigation_section001_i0_1770477884
+  final_reward: 3.494000540839301
+  status: completed
+  success_rate: 0.021103244067894086
+- completed_at: '2026-02-08T00:12:41.699220Z'
+  environment: vbot_navigation_section001
+  experiment_id: automl_20260207_232444_vbot_navigation_section001_i1_1770479439
+  final_reward: 3.2335772249433727
+  status: completed
+  success_rate: 0.012588161819924911

@@ -21,9 +21,23 @@ from pathlib import Path
 from absl import app, flags
 from skrl import config
 
-# Register VBot navigation environments from starter_kit (must be before motrix_rl imports)
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "starter_kit" / "navigation1"))
-import vbot  # noqa: F401, E402
+# Determine which starter_kit to import based on env name
+# Navigation2-only envs: section011, section012, section013
+_env_name_for_import = None
+for arg_i, arg in enumerate(sys.argv):
+    if arg == "--env" and arg_i + 1 < len(sys.argv):
+        _env_name_for_import = sys.argv[arg_i + 1]
+        break
+
+_NAV2_ENVS = {"vbot_navigation_section011", "vbot_navigation_section012", "vbot_navigation_section013", "vbot_navigation_long_course"}
+if _env_name_for_import in _NAV2_ENVS:
+    # Register Navigation2 environments (section011, section012, section013)
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "starter_kit"))
+    import navigation2  # noqa: F401, E402
+else:
+    # Register Navigation1 environments (default)
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "starter_kit" / "navigation1"))
+    import vbot  # noqa: F401, E402
 
 from motrix_rl import utils  # noqa: E402
 
@@ -42,6 +56,7 @@ _SEED = flags.DEFINE_integer("seed", None, "Random seed for reproducibility")
 _RAND_SEED = flags.DEFINE_bool("rand-seed", False, "Generate random seed")
 _MAX_ENV_STEPS = flags.DEFINE_integer("max-env-steps", None, "Override max environment steps (for quick probes)")
 _CHECK_POINT_INTERVAL = flags.DEFINE_integer("check-point-interval", None, "Override checkpoint save interval")
+_CHECKPOINT = flags.DEFINE_string("checkpoint", None, "Path to checkpoint file for warm-start training")
 
 
 def get_train_backend(supports: utils.DeviceSupports):
@@ -101,7 +116,7 @@ def main(argv):
     else:
         raise Exception(f"Unknown train backend: {train_backend}")
 
-    trainer.train()
+    trainer.train(checkpoint=_CHECKPOINT.value)
 
 
 if __name__ == "__main__":

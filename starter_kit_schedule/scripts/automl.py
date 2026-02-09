@@ -60,14 +60,14 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class HPConfig:
-    """Hyperparameter configuration."""
-    learning_rate: float = 3e-4
-    entropy_loss_scale: float = 1e-3
+    """Hyperparameter configuration — aligned with rl_cfgs.py VBotSection001PPOConfig."""
+    learning_rate: float = 5e-4       # Curriculum: 较高初始LR
+    entropy_loss_scale: float = 0.01  # Phase5: 更多探索
     policy_hidden_layer_sizes: List[int] = field(default_factory=lambda: [256, 128, 64])
     value_hidden_layer_sizes: List[int] = field(default_factory=lambda: [256, 128, 64])
-    rollouts: int = 24
-    learning_epochs: int = 5
-    mini_batches: int = 32
+    rollouts: int = 32                # Phase5: HP-opt sweet spot
+    learning_epochs: int = 5          # Phase5: 减少stale rollout过拟合
+    mini_batches: int = 16            # Phase5: HP-opt best=16
     discount_factor: float = 0.99
     lambda_param: float = 0.95
     ratio_clip: float = 0.2
@@ -76,19 +76,22 @@ class HPConfig:
 
 @dataclass
 class RewardConfig:
-    """Reward weights configuration — matches starter_kit/navigation*/vbot/cfg.py scales."""
+    """Reward weights configuration — aligned with VBotSection001EnvCfg.RewardConfig (Phase5/6)."""
     # Navigation core rewards
     position_tracking: float = 1.5
-    fine_position_tracking: float = 5.0
-    heading_tracking: float = 0.8
-    forward_velocity: float = 1.5
-    distance_progress: float = 2.0
-    alive_bonus: float = 0.5
+    fine_position_tracking: float = 8.0   # Phase5: 5→8
+    heading_tracking: float = 1.0          # Phase5: 0.8→1.0
+    forward_velocity: float = 0.8          # Phase5: 1.5→0.8 (speed cap 0.6m/s)
+    distance_progress: float = 1.5         # Phase5: 2.0→1.5
+    alive_bonus: float = 0.15              # Phase5: 0.5→0.15 (anti-lazy)
     # Navigation-specific rewards (approach/arrival/stop)
-    approach_scale: float = 8.0
-    arrival_bonus: float = 50.0
-    stop_scale: float = 2.0
-    zero_ang_bonus: float = 6.0
+    approach_scale: float = 5.0            # Phase5: 8→5
+    arrival_bonus: float = 100.0           # Phase5: 50→100
+    inner_fence_bonus: float = 40.0        # Phase5 新增: 进入内围栏一次性奖励
+    stop_scale: float = 5.0                # Phase5: 2→5 (竞赛精确停止)
+    zero_ang_bonus: float = 10.0           # Phase5: 6→10
+    near_target_speed: float = -0.5        # Phase5 新增: 近目标高速惩罚 (0.5m内激活)
+    boundary_penalty: float = -3.0         # Phase5 新增: 边界惩罚 (防掉落)
     # Stability penalties
     orientation: float = -0.05
     lin_vel_z: float = -0.3
@@ -98,7 +101,7 @@ class RewardConfig:
     dof_acc: float = -2.5e-7
     action_rate: float = -0.01
     # Termination
-    termination: float = -100.0
+    termination: float = -200.0            # Phase6: -100→-200 (sprint-crash unprofitable)
 
 
 @dataclass
@@ -111,12 +114,22 @@ class EvalMetrics:
     termination_rate: float = 0.0
 
     def compute_score(self) -> float:
-        """Compute weighted AutoML score."""
+        """Compute weighted AutoML score — aligned with nav1 competition rules.
+
+        Competition scoring (nav1):
+          - Binary: reach inner fence (+1) + reach center (+1) per robot
+          - Any fall = 0 points for that robot
+          - 10 robots, max 20 points
+
+        So success_rate (reached_fraction) is THE primary metric,
+        termination_rate is the second (any fall = disqualification),
+        reward and episode length are distant tiebreakers.
+        """
         score = (
-            0.4 * min(self.episode_reward_mean / 50.0, 1.0) +  # Normalize to [0, 1]
-            0.3 * self.success_rate +
-            0.2 * (1.0 - min(self.episode_length_mean / 1000.0, 1.0)) +
-            0.1 * (1.0 - self.termination_rate)
+            0.60 * self.success_rate +                              # reaching = competition score
+            0.25 * (1.0 - self.termination_rate) +                  # no falls = critical
+            0.10 * min(self.episode_reward_mean / 10.0, 1.0) +     # reward as proxy
+            0.05 * (1.0 - min(self.episode_length_mean / 4000.0, 1.0))  # speed tiebreaker
         )
         return score
 
@@ -211,20 +224,27 @@ HP_SEARCH_SPACE = {
 }
 
 REWARD_SEARCH_SPACE = {
+    # === Navigation core (positive incentives) ===
     "position_tracking": {"type": "uniform", "low": 0.5, "high": 5.0},
-    "fine_position_tracking": {"type": "uniform", "low": 2.0, "high": 10.0},
+    "fine_position_tracking": {"type": "uniform", "low": 4.0, "high": 15.0},
     "heading_tracking": {"type": "uniform", "low": 0.1, "high": 2.0},
-    "forward_velocity": {"type": "uniform", "low": 0.5, "high": 3.0},
-    "distance_progress": {"type": "uniform", "low": 0.5, "high": 5.0},
-    "alive_bonus": {"type": "uniform", "low": 0.1, "high": 1.0},
-    "approach_scale": {"type": "uniform", "low": 2.0, "high": 15.0},
-    "arrival_bonus": {"type": "uniform", "low": 20.0, "high": 100.0},
-    "stop_scale": {"type": "uniform", "low": 1.0, "high": 5.0},
-    "zero_ang_bonus": {"type": "uniform", "low": 2.0, "high": 12.0},
+    "forward_velocity": {"type": "uniform", "low": 0.3, "high": 1.2},   # Phase5: narrowed, speed-capped
+    "distance_progress": {"type": "uniform", "low": 0.5, "high": 3.0},
+    "alive_bonus": {"type": "uniform", "low": 0.05, "high": 0.5},       # Phase5: anti-lazy range
+    # === Approach / arrival / stop ===
+    "approach_scale": {"type": "uniform", "low": 2.0, "high": 10.0},
+    "arrival_bonus": {"type": "uniform", "low": 50.0, "high": 200.0},    # Phase5: increased
+    "inner_fence_bonus": {"type": "uniform", "low": 10.0, "high": 80.0}, # Phase5 新增
+    "stop_scale": {"type": "uniform", "low": 2.0, "high": 12.0},        # Phase5: higher
+    "zero_ang_bonus": {"type": "uniform", "low": 4.0, "high": 16.0},
+    "near_target_speed": {"type": "uniform", "low": -3.0, "high": -0.1}, # Phase5 新增
+    "boundary_penalty": {"type": "uniform", "low": -10.0, "high": -0.5}, # Phase5 新增
+    # === Stability penalties ===
     "orientation": {"type": "uniform", "low": -0.3, "high": -0.01},
     "lin_vel_z": {"type": "uniform", "low": -1.0, "high": -0.05},
     "action_rate": {"type": "uniform", "low": -0.05, "high": -0.001},
-    "termination": {"type": "choice", "values": [-200, -100, -50, -25, -10]},
+    # === Termination ===
+    "termination": {"type": "choice", "values": [-300, -200, -150, -100]}, # Phase6: heavier
 }
 
 
@@ -257,6 +277,10 @@ REWARD_COMPONENT_CATEGORIES = {
     "dof_acc": "efficiency",
     "action_rate": "efficiency",
     "action_magnitude": "efficiency",
+    # Approach / arrival / stop (Phase5)
+    "inner_fence_bonus": "navigation",
+    "near_target_speed": "navigation",
+    "boundary_penalty": "stability",
     # Termination
     "termination": "termination",
     # Terrain-specific

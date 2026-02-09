@@ -12,6 +12,10 @@ description: Multi-stage curriculum training for VBot quadruped navigation. Stag
 - Promotion criteria (reward threshold, success rate)
 - Checkpoint transfer between stages
 
+> **🔴 AutoML-First Policy (MANDATORY):**
+> **NEVER** use `train.py` for parameter search. Use `automl.py` for each curriculum stage.
+> See `.github/copilot-instructions.md` for the full policy.
+>
 > **Related Skills:**
 > - `training-pipeline` — Hub with Quick Start commands (start here)
 > - `reward-penalty-engineering` — Exploration methodology for stage rewards
@@ -28,6 +32,26 @@ description: Multi-stage curriculum training for VBot quadruped navigation. Stag
 | Single-stage training | ❌ Use `training-campaign` |
 
 > **Before designing or running any curriculum**, review existing experiment history following `training-pipeline` skill → Step 0.
+
+## 📋 Experiment Reports (MANDATORY check before any work)
+
+> **ALWAYS read `REPORT_NAV*.md` files at the workspace root before starting curriculum work.**
+> These reports track all experiments, discoveries, and current configuration state.
+
+```powershell
+# Check what reports exist and their current state
+Get-ChildItem REPORT_NAV*.md | Select-Object Name, Length, LastWriteTime
+
+# Read the latest nav1 report (flat ground curriculum)
+Get-Content REPORT_NAV1.md | Select-Object -Last 100
+```
+
+**What to look for in reports:**
+- Current curriculum stage (spawn_inner/outer_radius values in cfg.py)
+- Which experiments used which stage config
+- Promotion criteria results (reached%, ep_len stability)
+- Active TODO items in "Next Steps" section
+- Lessons learned that affect curriculum design
 
 ## Registered Environments
 
@@ -156,21 +180,25 @@ promotion_criteria:
 ## Commands
 
 ```powershell
-# === STAGE 1: Train on flat ground with AutoML ===
+# === PRIMARY: AutoML pipeline for EACH stage (USE THIS) ===
 uv run starter_kit_schedule/scripts/automl.py `
     --mode stage `
-    --budget-hours 12 `
-    --hp-trials 8
+    --budget-hours 8 `
+    --hp-trials 15
 
-# === STAGE 2+: Manual warm-start from Stage 1 best checkpoint ===
-uv run scripts/train.py --env vbot_navigation_stairs `
-    --train-backend torch
+# === MONITOR AutoML ===
+Get-Content starter_kit_schedule/progress/automl_state.yaml
+
+# === READ AutoML RESULTS ===
+Get-Content starter_kit_log/automl_*/report.md
+
+# === FINAL DEPLOYMENT (after AutoML found best config for this stage) ===
+uv run scripts/train.py --env vbot_navigation_section001 --train-backend torch
 
 # === EVALUATE a checkpoint ===
 uv run scripts/play.py --env vbot_navigation_section001
 
-# === MONITOR ===
-Get-Content starter_kit_schedule/progress/automl_state.yaml
+# === TENSORBOARD ===
 uv run tensorboard --logdir runs/vbot_navigation_section001
 ```
 

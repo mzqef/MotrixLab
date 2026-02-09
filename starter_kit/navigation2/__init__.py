@@ -13,4 +13,8 @@
 # limitations under the License.
 # ==============================================================================
 
-from . import anymal_c, vbot  # noqa: F401
+try:
+    from . import anymal_c  # noqa: F401
+except (ValueError, ImportError):
+    pass  # anymal_c envs may already be registered by built-in packages
+from . import vbot  # noqa: F401

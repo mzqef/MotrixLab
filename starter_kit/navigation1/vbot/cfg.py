@@ -95,14 +95,14 @@ class RewardConfig:
         default_factory=lambda: {
             # ===== 导航任务核心奖励 =====
             "position_tracking": 1.5,       # exp(-d/sigma) 位置跟踪 (sigma widened in env)
-            "fine_position_tracking": 5.0,   # 精细位置跟踪 (Round2: 2→5, sigma 0.1→0.3)
+            "fine_position_tracking": 8.0,   # 精细位置跟踪 (Round3: 5→8, sigma 0.3→0.5, range 1.5→2.5)
             "heading_tracking": 0.8,         # 朝向跟踪
             "forward_velocity": 1.5,         # 前进速度奖励（提高，鼓励朝目标移动）
             "distance_progress": 2.0,        # 新增：线性距离递减奖励 (1 - d/d_max)
             "alive_bonus": 0.5,              # 存活奖励 (Round2: keep at 0.5, 截断解决懒惰问题)
 
             # ===== 导航接近/到达奖励 =====
-            "approach_scale": 8.0,           # 距离递减奖励 (提高: 4→8)
+            "approach_scale": 4.0,           # 距离递减奖励 (Round3: 8→4, 减少近目标惩罚)
             "arrival_bonus": 50.0,           # 首次到达一次性奖励 (Round2: 15→50, 必须足够大来激励到达)
             "stop_scale": 2.0,               # 到达后停止奖励
             "zero_ang_bonus": 6.0,           # 到达后零角速度奖励
@@ -364,15 +364,22 @@ class VBotLongCourseEnvCfg(VBotStairsEnvCfg):
 #通过 @registry.envcfg("vbot_navigation_section001") 注册
 @dataclass
 class VBotSection001EnvCfg(VBotStairsEnvCfg):
-    """VBot Section01单独训练配置 - 高台楼梯地形"""
+    """VBot Section01单独训练配置 - 圆形平台导航
+    
+    竞赛场景：机器人从圆形平台外围向中心目标导航。
+    平台为半径12.5m的圆柱体，中心在(0,0)。
+    训练时随机生成起始位置和目标位置，覆盖全方向、多距离。
+    """
     model_file: str = os.path.dirname(__file__) + "/xmls/scene_section001.xml"
     max_episode_seconds: float = 40.0  # 拉长一倍：从20秒增加到40秒
     max_episode_steps: int = 4000  # 拉长一倍：从2000步增加到4000步
     @dataclass
     class InitState:
-        # 起始位置：随机化范围内生成
-        pos = [0.0, -2.4, 0.5]  # 中心位置
-        pos_randomization_range = [-0.5, -0.5, 0.5, 0.5]  # X±0.5m, Y±0.5m随机
+        # 起始位置：平台中心，高度0.5m（圆柱体顶面Z=0）
+        pos = [0.0, 0.0, 0.5]
+        # 随机化范围：在平台上大范围随机（圆形裁剪在env中处理）
+        # [x_min, y_min, x_max, y_max] — 实际会被 spawn_radius 裁剪到圆内
+        pos_randomization_range = [-10.0, -10.0, 10.0, 10.0]
 
         default_joint_angles = {
             "FR_hip_joint": -0.0,
@@ -390,13 +397,84 @@ class VBotSection001EnvCfg(VBotStairsEnvCfg):
         }
     @dataclass
     class Commands:
-        # 目标位置：随机化范围，匹配竞赛场景（10 dogs从外围到中心，距离~3-12m）
-        # dx/dy: 相对机器人初始位置的偏移（米）
-        # 使用随机目标训练泛化能力，覆盖短距（3m）到长距（12m）
-        pose_command_range = [-3.0, 3.0, -3.14, 3.0, 12.0, 3.14]
+        # 目标为绝对坐标（不是相对偏移），在平台范围内随机
+        # [x_min, y_min, yaw_min, x_max, y_max, yaw_max]
+        # 使用绝对坐标模式：target_mode = "absolute"
+        # 实际生成时会裁剪到 target_radius 圆内
+        pose_command_range = [-10.0, -10.0, -3.14, 10.0, 10.0, 3.14]
+        target_mode: str = "absolute"  # "absolute" = 绝对坐标, "relative" = 相对偏移（旧模式）
+        min_distance: float = 3.0  # 起始位置与目标最小距离（米），避免初始就在目标上
+        target_radius: float = 3.0  # 目标生成半径（米），目标集中在平台中心附近
     @dataclass
     class ControlConfig:
         action_scale = 0.25
+
+    @dataclass
+    class RewardConfig:
+        """Phase5 奖励配置 — 反懒惰 + 课程学习优化
+
+        关键修改 vs 基类 VBotEnvCfg.RewardConfig:
+        - alive_bonus: 1.5→0.15  (HP-opt best=0.13; 不再主导奖励预算)
+        - arrival_bonus: 50→100   (HP-opt best=87.7; 必须远大于alive累计)
+        - termination: -100→-150  (HP-opt best=-200; 跌倒代价=alive预算33%)
+        - forward_velocity: 1.5→0.8 (减速防overshooting)
+        - fine_position_tracking: 8→8 (HP-opt best=8.83; 保持)
+        - stop_scale: 2→5         (竞赛要求精确停止)
+        - zero_ang_bonus: 6→10    (稳定停止在中心)
+        - 新增: near_target_speed=-1.5 (近目标减速)
+        - 新增: boundary_penalty=-3    (边界安全)
+        - 新增: inner_fence_bonus=40   (进入内围栏一次性奖励)
+
+        奖励预算:
+          alive_bonus × 4000步 = 600 (有效≈450, time_decay)
+          goal = arrival(100) + inner_fence(40) + stop_bonus(~250) = 390
+          death_cost = -150 = 33% alive预算
+        """
+        scales: dict[str, float] = field(
+            default_factory=lambda: {
+                # ===== 导航任务核心奖励 =====
+                "position_tracking": 1.5,       # exp(-d/5.0) 位置跟踪
+                "fine_position_tracking": 8.0,   # 精细位置跟踪 (sigma=0.5, range<2.5m)
+                "heading_tracking": 1.0,         # 朝向跟踪 (略提升鼓励面向目标)
+                "forward_velocity": 0.8,         # 前进速度 (恢复0.8, 但代码中限速0.6m/s)
+                "distance_progress": 1.5,        # 线性距离递减 (1.5, 让approach主导)
+                "alive_bonus": 0.15,             # 存活奖励 (Phase5: 0.5→0.15, 反懒惰)
+
+                # ===== 导航接近/到达奖励 =====
+                "approach_scale": 5.0,           # 距离递减 (Phase5: 4→5, 平衡stop)
+                "arrival_bonus": 100.0,          # 到达一次性奖励 (Phase5: 50→100)
+                "inner_fence_bonus": 40.0,       # 进入内围栏一次性奖励 (新增)
+                "stop_scale": 5.0,               # 停止奖励 (Phase5: 2→5, 竞赛精确停止)
+                "zero_ang_bonus": 10.0,          # 零角速度奖励 (Phase5: 6→10)
+                "near_target_speed": -0.5,       # 近目标高速惩罚 (减弱, 仅0.5m内激活)
+                "boundary_penalty": -3.0,        # 边界惩罚 (新增, 防掉落)
+
+                # ===== Locomotion稳定性惩罚 =====
+                "orientation": -0.05,
+                "lin_vel_z": -0.3,
+                "ang_vel_xy": -0.03,
+                "torques": -1e-5,
+                "dof_vel": -5e-5,
+                "dof_acc": -2.5e-7,
+                "action_rate": -0.01,
+
+                # ===== 终止惩罚 =====
+                "termination": -200.0,           # Phase6: -150→-200 (sprint=0.8*0.6*391-200=-12, 不划算)
+            }
+        )
+
+    # 圆形平台参数
+    platform_radius: float = 11.0  # 安全半径（平台R=12.5, 留1.5m余量防掉落）
+
+    # 课程学习：生成距离控制
+    # 机器人在 [spawn_inner_radius, spawn_outer_radius] 环形区域内生成
+    # Stage 1 (Easy):   inner=2, outer=5   — 近距离学基本功
+    # Stage 2 (Medium): inner=5, outer=8   — 中等距离
+    # Stage 3 (Hard):   inner=8, outer=11  — 竞赛距离
+    spawn_inner_radius: float = 2.0   # 课程 Stage 1: 最近距离
+    spawn_outer_radius: float = 5.0   # 课程 Stage 1: 最远距离
+
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)
     control_config: ControlConfig = field(default_factory=ControlConfig)
+    reward_config: RewardConfig = field(default_factory=RewardConfig)

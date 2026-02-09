@@ -1,0 +1,66 @@
+automl_id: automl_20260209_204634
+best_results: {}
+budget_hours: 8.0
+current_hp_config: {}
+current_iteration: 0
+current_phase: hp_search
+current_reward_config: {}
+current_stage: stage1_flat
+curriculum_progress:
+  stage1_flat: pending
+  stage2a_waves: pending
+  stage2b_stairs: pending
+  stage2c_obstacles: pending
+elapsed_hours: 0.38351478277777773
+hp_search_history:
+- hp_config:
+    discount_factor: 0.99
+    entropy_loss_scale: 0.0026378587001264146
+    grad_norm_clip: 1.0
+    lambda_param: 0.95
+    learning_epochs: 8
+    learning_rate: 0.00019038418763748626
+    mini_batches: 32
+    policy_hidden_layer_sizes:
+    - 256
+    - 128
+    - 64
+    ratio_clip: 0.2
+    rollouts: 32
+    value_hidden_layer_sizes:
+    - 512
+    - 256
+    - 128
+  metrics:
+    episode_length_mean: 0.0
+    episode_reward_mean: 2.457995615899563
+    episode_reward_std: 0.27397918701171875
+    success_rate: 0.10758768790401518
+    termination_rate: 0.0
+  reward_config:
+    action_rate: -0.007836579110699002
+    alive_bonus: 0.1497523925835053
+    ang_vel_xy: -0.03
+    approach_scale: 4.729798864972673
+    arrival_bonus: 185.00195060582595
+    boundary_penalty: -1.0423613044365467
+    distance_progress: 1.2019755568900248
+    dof_acc: -2.5e-07
+    dof_vel: -5.0e-05
+    fine_position_tracking: 12.669128908172373
+    forward_velocity: 1.007347674729608
+    heading_tracking: 0.41948788121417724
+    inner_fence_bonus: 50.49395155246424
+    lin_vel_z: -0.4471227804110458
+    near_target_speed: -1.6441606921817897
+    orientation: -0.16390396044079586
+    position_tracking: 3.024560115903419
+    stop_scale: 3.412516789917685
+    termination: -300
+    torques: -1.0e-05
+    zero_ang_bonus: 11.943364843068967
+  score: 0.3519402712984011
+  trial: 0
+mode: stage
+start_time: '2026-02-09T20:46:34.443664'
+status: running

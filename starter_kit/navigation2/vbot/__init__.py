@@ -14,9 +14,11 @@
 # ==============================================================================
 
 # from . import vbot_np, vbot_stairs_np, vbot_stairs_multi_target_np, vbot_long_course_np, cfg # noqa: F401
-from . import vbot_section001_np ,vbot_section011_np ,vbot_section012_np, vbot_section013_np ,cfg # noqa: F401
+from . import vbot_section001_np ,vbot_section011_np ,vbot_section012_np, vbot_section013_np, vbot_long_course_np, cfg # noqa: F401
+from . import rl_cfgs  # noqa: F401  — Nav2 专用 RL 配置（独立于 motrix_rl/cfgs.py）
 from .vbot_section001_np import VBotSection001Env
 from .vbot_section011_np import VBotSection011Env
 from .vbot_section012_np import VBotSection012Env
 from .vbot_section013_np import VBotSection013Env
-from .cfg import VBotEnvCfg, VBotStairsEnvCfg, VBotSection01EnvCfg, VBotSection02EnvCfg, VBotSection03EnvCfg, VBotLongCourseEnvCfg, VBotSection001EnvCfg, VBotSection011EnvCfg, VBotSection012EnvCfg,VBotSection013EnvCfg  # noqa: F401
+from .vbot_long_course_np import VBotLongCourseEnv
+from .cfg import VBotEnvCfg, VBotStairsEnvCfg, VBotSection01EnvCfg, VBotSection02EnvCfg, VBotSection03EnvCfg, VBotLongCourseEnvCfg, VBotSection001EnvCfg, VBotSection011EnvCfg, VBotSection012EnvCfg, VBotSection013EnvCfg  # noqa: F401

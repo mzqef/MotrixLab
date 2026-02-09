@@ -50,7 +50,9 @@ def _register_rlcfg(env_name: str, rllib: str, backend: str, train_cfg_cls: Type
         train_cfg_cls: Configuration class
     """
     if not env_registry.contains(env_name):
-        raise ValueError(f"Environment '{env_name}' is not registered in env_registry.")
+        logger.warning(f"Environment '{env_name}' is not registered in env_registry. "
+                       f"Skipping RL config registration (env may not be imported yet).")
+        return
 
     logger.info(f"Registering RL config for env '{env_name}', RL framework '{rllib}', and backend '{backend}'")
     if env_name not in _rlcfgs:

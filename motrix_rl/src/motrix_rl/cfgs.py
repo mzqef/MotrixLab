@@ -303,30 +303,5 @@ class navigation:
         policy_hidden_layer_sizes: tuple[int, ...] = (256, 128, 64)
         value_hidden_layer_sizes: tuple[int, ...] = (256, 128, 64)
 
-    @rlcfg("vbot_navigation_section001")
-    @dataclass
-    class VBotSection001PPOConfig(PPOCfg):
-        """VBot Section001 导航 PPO 配置（竞赛地图1）"""
-        seed: int = 42
-        num_envs: int = 2048
-        play_num_envs: int = 16
-        max_env_steps: int = 100_000_000
-        check_point_interval: int = 1000
-
-        # PPO 核心参数
-        learning_rate: float = 3e-4
-        rollouts: int = 24           # 降低: 48→24, 减少CPU数据采集时间, 提高GPU利用率
-        learning_epochs: int = 8     # 提高: 6→8, 增加每批数据的GPU训练次数
-        mini_batches: int = 32
-        discount_factor: float = 0.99
-        lambda_param: float = 0.95
-        grad_norm_clip: float = 1.0
-        entropy_loss_scale: float = 0.005  # 启用entropy鼓励探索 (base=0.0 太低)
-
-        ratio_clip: float = 0.2
-        value_clip: float = 0.2
-        clip_predicted_values: bool = True
-
-        share_policy_value_features: bool = False
-        policy_hidden_layer_sizes: tuple[int, ...] = (256, 128, 64)
-        value_hidden_layer_sizes: tuple[int, ...] = (256, 128, 64)
+    # Nav2 RL configs moved to starter_kit/navigation2/vbot/rl_cfgs.py
+    # (section001, section011, section012, section013, long_course)

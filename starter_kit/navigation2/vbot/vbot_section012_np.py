@@ -40,8 +40,8 @@ def generate_repeating_array(num_period, num_reset, period_counter):
 @registry.env("vbot_navigation_section012", "np")
 class VBotSection012Env(NpEnv):
     """
-    VBot在Section012地形上的导航任务
-    继承自NpEnv，使用VBotSection012EnvCfg配置
+    VBot在Section02（楼梯/桥梁/障碍物）地形上的导航任务
+    地形：左右楼梯 + 拱桥 + 球形/锥形障碍物，范围y≈10.33~24.33
     """
     _cfg: VBotSection012EnvCfg
     
@@ -444,26 +444,42 @@ class VBotSection012Env(NpEnv):
         base_lin_vel_xy = base_lin_vel[:, :2]
         self._update_heading_arrows(data, root_pos, desired_vel_xy, base_lin_vel_xy)
         
-        # 计算奖励
-        reward = self._compute_reward(data, state.info, velocity_commands)
-        
-        # 计算终止条件
-        terminated_state = self._compute_terminated(state)
+        # 计算终止条件（必须在奖励之前）
+        terminated_state = self._compute_terminated(state, projected_gravity, joint_vel)
         terminated = terminated_state.terminated
+        
+        # 计算奖励
+        reward = self._compute_reward(data, state.info, velocity_commands,
+                                       base_lin_vel, gyro, projected_gravity,
+                                       joint_vel, distance_to_target, heading_diff,
+                                       position_error, reached_all, terminated,
+                                       robot_heading)
         
         state.obs = obs
         state.reward = reward
         state.terminated = terminated
         
+        # 达到目标后成功截断
+        speed_xy = np.linalg.norm(base_lin_vel[:, :2], axis=1)
+        reach_and_stopped = np.logical_and(reached_all, speed_xy < 0.15)
+        reach_stop_count = state.info.get("reach_stop_count", np.zeros(self._num_envs, dtype=np.int32))
+        reach_stop_count = np.where(reach_and_stopped, reach_stop_count + 1, 0)
+        state.info["reach_stop_count"] = reach_stop_count
+        self._success_truncate = reach_stop_count >= 50
+        state.info["metrics"] = {
+            "distance_to_target": distance_to_target,
+            "reached_fraction": reached_all.astype(np.float32),
+        }
         return state
     
-    def _compute_terminated(self, state: NpEnvState) -> NpEnvState:
-        """
-        重写终止条件，与locomotion stairs完全一致
-        """
+    def _update_truncate(self):
+        super()._update_truncate()
+        if hasattr(self, '_success_truncate'):
+            self._state.truncated = np.logical_or(self._state.truncated, self._success_truncate)
+    
+    def _compute_terminated(self, state: NpEnvState, projected_gravity: np.ndarray = None, joint_vel: np.ndarray = None) -> NpEnvState:
+        """终止条件检测：基座接触 + 侧翻 + 关节速度异常"""
         data = state.data
-        
-        # 基座接触地面终止（使用传感器）
         try:
             base_contact_value = self._model.get_sensor_value("base_contact", data)
             if base_contact_value.ndim == 0:
@@ -472,27 +488,109 @@ class VBotSection012Env(NpEnv):
                 base_contact = np.full(self._num_envs, base_contact_value.flatten()[0] > 0.01, dtype=bool)
             else:
                 base_contact = (base_contact_value > 0.01).flatten()[:self._num_envs]
-        except Exception as e:
-            print(f"[Warning] 无法读取base_contact传感器: {e}")
+        except Exception:
             base_contact = np.zeros(self._num_envs, dtype=bool)
-        
         terminated = base_contact.copy()
-        
+        if projected_gravity is not None:
+            gxy = np.linalg.norm(projected_gravity[:, :2], axis=1)
+            gz = projected_gravity[:, 2]
+            tilt_angle = np.arctan2(gxy, np.abs(gz))
+            terminated = np.logical_or(terminated, tilt_angle > np.deg2rad(75))
+        if joint_vel is not None:
+            vel_max = np.abs(joint_vel).max(axis=1)
+            vel_overflow = vel_max > self._cfg.max_dof_vel
+            vel_extreme = np.isnan(joint_vel).any(axis=1) | np.isinf(joint_vel).any(axis=1)
+            terminated = np.logical_or(terminated, vel_overflow | vel_extreme)
         return state.replace(terminated=terminated)
     
-    def _compute_reward(self, data: mtx.SceneData, info: dict, velocity_commands: np.ndarray) -> np.ndarray:
-        """
-        导航任务奖励计算
-        """
-        cfg = self._cfg
-        
-        # 计算总奖励
-        reward = np.array([0])
-        
+    def _compute_reward(self, data: mtx.SceneData, info: dict, velocity_commands: np.ndarray,
+                         base_lin_vel: np.ndarray, gyro: np.ndarray, projected_gravity: np.ndarray,
+                         joint_vel: np.ndarray, distance_to_target: np.ndarray, heading_diff: np.ndarray,
+                         position_error: np.ndarray, reached_all: np.ndarray,
+                         terminated: np.ndarray, robot_heading: np.ndarray = None) -> np.ndarray:
+        """导航任务奖励计算（楼梯/桥梁/障碍物地形）"""
+        scales = self._cfg.reward_config.scales
+        term_scale = scales.get("termination", -100.0)
+        termination_penalty = np.where(terminated, term_scale, 0.0)
+        position_tracking = np.exp(-distance_to_target / 5.0)
+        fine_position_tracking = np.where(distance_to_target < 1.5, np.exp(-distance_to_target / 0.3), 0.0)
+        target_bearing = np.arctan2(position_error[:, 1], position_error[:, 0])
+        facing_error = target_bearing - robot_heading
+        facing_error = np.where(facing_error > np.pi, facing_error - 2 * np.pi, facing_error)
+        facing_error = np.where(facing_error < -np.pi, facing_error + 2 * np.pi, facing_error)
+        heading_tracking = np.where(reached_all, 1.0, np.exp(-np.abs(facing_error) / 0.5))
+        direction_to_target = position_error / (np.linalg.norm(position_error, axis=1, keepdims=True) + 1e-8)
+        forward_velocity = np.clip(np.sum(base_lin_vel[:, :2] * direction_to_target, axis=1), -1.0, 2.0)
+        if "min_distance" not in info:
+            info["min_distance"] = distance_to_target.copy()
+        distance_improvement = info["min_distance"] - distance_to_target
+        info["min_distance"] = np.minimum(info["min_distance"], distance_to_target)
+        approach_reward = np.clip(distance_improvement * scales.get("approach_scale", 8.0), -1.0, 1.0)
+        initial_distance = info.get("initial_distance", distance_to_target)
+        distance_progress = np.clip(1.0 - distance_to_target / (initial_distance + 1e-8), -0.5, 1.0)
+        ever_reached = info.get("ever_reached", np.zeros(self._num_envs, dtype=bool))
+        alive_bonus = np.where(ever_reached, 0.0, 1.0)
+        steps = info.get("steps", np.zeros(self._num_envs, dtype=np.float32)).astype(np.float32)
+        max_steps = float(self._cfg.max_episode_steps)
+        time_decay = np.clip(1.0 - 0.5 * steps / max_steps, 0.5, 1.0)
+        info["ever_reached"] = info.get("ever_reached", np.zeros(self._num_envs, dtype=bool))
+        first_time_reach = np.logical_and(reached_all, ~info["ever_reached"])
+        info["ever_reached"] = np.logical_or(info["ever_reached"], reached_all)
+        arrival_bonus = np.where(first_time_reach, scales.get("arrival_bonus", 50.0), 0.0)
+        speed_xy = np.linalg.norm(base_lin_vel[:, :2], axis=1)
+        stop_base = scales.get("stop_scale", 2.0) * (
+            0.8 * np.exp(-(speed_xy / 0.2) ** 2) + 1.2 * np.exp(-(np.abs(gyro[:, 2]) / 0.1) ** 4)
+        )
+        zero_ang_mask = np.abs(gyro[:, 2]) < 0.05
+        zero_ang_bonus = np.where(np.logical_and(reached_all, zero_ang_mask), scales.get("zero_ang_bonus", 6.0), 0.0)
+        stop_bonus = np.where(reached_all, stop_base + zero_ang_bonus, 0.0)
+        orientation_penalty = np.square(projected_gravity[:, 0]) + np.square(projected_gravity[:, 1])
+        lin_vel_z_penalty = np.square(base_lin_vel[:, 2])
+        ang_vel_xy_penalty = np.sum(np.square(gyro[:, :2]), axis=1)
+        torque_penalty = np.sum(np.square(data.actuator_ctrls), axis=1)
+        dof_vel_penalty = np.sum(np.square(joint_vel), axis=1)
+        last_dof_vel = info.get("last_dof_vel", np.zeros_like(joint_vel))
+        dof_acc = joint_vel - last_dof_vel
+        dof_acc_penalty = np.sum(np.square(dof_acc), axis=1)
+        action_diff = info["current_actions"] - info["last_actions"]
+        action_rate_penalty = np.sum(np.square(action_diff), axis=1)
+        penalties = (
+            scales.get("orientation", -0.05) * orientation_penalty
+            + scales.get("lin_vel_z", -0.3) * lin_vel_z_penalty
+            + scales.get("ang_vel_xy", -0.03) * ang_vel_xy_penalty
+            + scales.get("torques", -1e-5) * torque_penalty
+            + scales.get("dof_vel", -5e-5) * dof_vel_penalty
+            + scales.get("dof_acc", -2.5e-7) * dof_acc_penalty
+            + scales.get("action_rate", -0.01) * action_rate_penalty
+            + termination_penalty
+        )
+        reward = np.where(
+            reached_all,
+            stop_bonus + arrival_bonus + penalties,
+            time_decay * (
+                scales.get("position_tracking", 1.5) * position_tracking
+                + scales.get("fine_position_tracking", 5.0) * fine_position_tracking
+                + scales.get("heading_tracking", 0.8) * heading_tracking
+                + scales.get("forward_velocity", 1.5) * forward_velocity
+                + scales.get("distance_progress", 2.0) * distance_progress
+                + scales.get("alive_bonus", 0.5) * alive_bonus
+                + approach_reward
+            ) + penalties
+        )
+        info["Reward"] = {
+            "position_tracking": scales.get("position_tracking", 1.5) * position_tracking,
+            "heading_tracking": scales.get("heading_tracking", 0.8) * heading_tracking,
+            "forward_velocity": scales.get("forward_velocity", 1.5) * forward_velocity,
+            "approach_reward": approach_reward,
+            "arrival_bonus": arrival_bonus,
+            "stop_bonus": stop_bonus,
+            "penalties": penalties,
+            "termination": termination_penalty,
+        }
         return reward
 
     def reset(self, data: mtx.SceneData, done: np.ndarray = None) -> tuple[np.ndarray, dict]:
-        cfg: VBotSection01EnvCfg = self._cfg
+        cfg: VBotSection012EnvCfg = self._cfg
         num_envs = data.shape[0]
         
         # 在高台中央小范围内随机生成位置
@@ -669,7 +767,8 @@ class VBotSection012Env(NpEnv):
             "current_actions": np.zeros((num_envs, self._num_action), dtype=np.float32),
             "filtered_actions": np.zeros((num_envs, self._num_action), dtype=np.float32),
             "ever_reached": np.zeros(num_envs, dtype=bool),
-            "min_distance": distance_to_target.copy(),  # 统一使用min_distance机制
+            "min_distance": distance_to_target.copy(),
+            "initial_distance": distance_to_target.copy(),
             # 新增：与locomotion一致的字段
             "last_dof_vel": np.zeros((num_envs, self._num_action), dtype=np.float32),  # 上一步关节速度
             "contacts": np.zeros((num_envs, self.num_foot_check), dtype=np.bool_),  # 足部接触状态

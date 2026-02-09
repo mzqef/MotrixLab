@@ -51,6 +51,8 @@ class PPOCfg(BaseRLCfg):
     # Learning rate settings
     learning_rate: float = 1e-3
     learning_rate_scheduler_kl_threshold: float = 0.008
+    # Scheduler type: "kl_adaptive" (SKRL default), "linear" (anneal to 0), or None (fixed LR)
+    lr_scheduler_type: str | None = "kl_adaptive"
 
     # Training settings
     random_timesteps: int = 0

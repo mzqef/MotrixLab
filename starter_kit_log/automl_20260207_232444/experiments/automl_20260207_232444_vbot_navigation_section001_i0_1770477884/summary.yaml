@@ -1,0 +1,97 @@
+campaign_id: automl_20260207_232444
+config:
+  algorithm: PPO
+  environment: vbot_navigation_section001
+  hyperparameters:
+    check_point_interval: 40
+    discount_factor: 0.99
+    entropy_loss_scale: 0.0005906155228264279
+    learning_epochs: 4
+    learning_rate: 0.00015664270920344252
+    max_env_steps: 10000000
+    mini_batches: 32
+    policy_hidden_layer_sizes:
+    - 256
+    - 128
+    - 64
+    rollouts: 24
+    seed: 42
+    value_hidden_layer_sizes:
+    - 256
+    - 128
+    - 64
+config_id: automl_20260207_232444_vbot_navigation_section001_i0_1770477884
+execution:
+  completed_at: '2026-02-07T23:50:39.301906Z'
+  duration_hours: 0.43156989607546065
+  started_at: '2026-02-07T23:24:44.047921Z'
+  status: completed
+experiment_id: automl_20260207_232444_vbot_navigation_section001_i0_1770477884
+results:
+  final_metrics:
+    episode_reward_mean: 3.494000540839301
+    success_rate: 0.021103244067894086
+  reward_components:
+    active_components:
+    - position_tracking
+    - fine_position_tracking
+    - heading_tracking
+    - forward_velocity
+    - distance_progress
+    - alive_bonus
+    - approach_scale
+    - arrival_bonus
+    - stop_scale
+    - zero_ang_bonus
+    - orientation
+    - lin_vel_z
+    - ang_vel_xy
+    - torques
+    - dof_vel
+    - dof_acc
+    - action_rate
+    - termination
+    active_count: 18
+    efficiency:
+      action_rate: -0.040018703117690305
+      dof_acc: -2.5e-07
+      dof_vel: -5.0e-05
+      torques: -1.0e-05
+    navigation:
+      alive_bonus: 0.10547640413978535
+      approach_scale: 10.342178424424656
+      arrival_bonus: 43.57531251121564
+      distance_progress: 1.4697128442350853
+      fine_position_tracking: 7.927761178575371
+      forward_velocity: 2.6302127457033873
+      heading_tracking: 0.507623110615213
+      position_tracking: 1.0688168527771702
+      stop_scale: 1.9886976065218747
+      zero_ang_bonus: 7.045776346326342
+    stability:
+      ang_vel_xy: -0.03
+      lin_vel_z: -0.3513206598274664
+      orientation: -0.1763128832690646
+    termination:
+      termination: -25
+  reward_scales:
+    action_rate: -0.040018703117690305
+    alive_bonus: 0.10547640413978535
+    ang_vel_xy: -0.03
+    approach_scale: 10.342178424424656
+    arrival_bonus: 43.57531251121564
+    distance_progress: 1.4697128442350853
+    dof_acc: -2.5e-07
+    dof_vel: -5.0e-05
+    fine_position_tracking: 7.927761178575371
+    forward_velocity: 2.6302127457033873
+    heading_tracking: 0.507623110615213
+    lin_vel_z: -0.3513206598274664
+    orientation: -0.1763128832690646
+    position_tracking: 1.0688168527771702
+    stop_scale: 1.9886976065218747
+    termination: -25
+    torques: -1.0e-05
+    zero_ang_bonus: 7.045776346326342
+  run_dir: runs\vbot_navigation_section001\26-02-07_23-40-54-116039_PPO
+trial_index: 0

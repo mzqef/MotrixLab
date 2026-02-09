@@ -132,21 +132,24 @@ torque = kp * (target - current_pos) - kv * current_vel
 
 ### Commands
 
+> **🔴 AutoML-First Policy:** NEVER use `train.py` for parameter search.
+> See `.github/copilot-instructions.md` for the full policy.
+
 ```powershell
-# === PREFERRED: AutoML pipeline (handles HP search automatically) ===
+# === PRIMARY: AutoML pipeline (USE THIS for all parameter exploration) ===
 uv run starter_kit_schedule/scripts/automl.py `
     --mode stage `
-    --budget-hours 12 `
-    --hp-trials 8
+    --budget-hours 8 `
+    --hp-trials 15
 
-# Basic training (2048 parallel envs)
-uv run scripts/train.py --env vbot_navigation_section001
+# === SMOKE TEST ONLY (<500K steps) ===
+uv run scripts/train.py --env vbot_navigation_section001 --train-backend torch --max-env-steps 200000
 
-# With rendering (slower but visual feedback)
+# === VISUAL DEBUGGING ONLY ===
 uv run scripts/train.py --env vbot_navigation_section001 --render
 
-# PyTorch backend (Windows recommended)
-uv run scripts/train.py --env vbot_navigation_stairs --train-backend torch
+# === FINAL DEPLOYMENT (after AutoML found best config) ===
+uv run scripts/train.py --env vbot_navigation_section001 --train-backend torch
 
 # View trained policy
 uv run scripts/play.py --env vbot_navigation_section001

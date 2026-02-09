@@ -97,7 +97,18 @@ class VBotSection001Env(NpEnv):
 
         # 初始位置生成参数
         self.spawn_center = np.array(cfg.init_state.pos, dtype=np.float32)
-        self.spawn_range = 0.1  # 随机生成范围：±0.1m
+        # 从配置读取随机化范围（不再硬编码0.1m）
+        pos_range = cfg.init_state.pos_randomization_range
+        self.spawn_range_low = np.array(pos_range[:2], dtype=np.float32)
+        self.spawn_range_high = np.array(pos_range[2:], dtype=np.float32)
+        # 圆形平台安全半径（超出则裁剪到圆内）
+        self.platform_radius = getattr(cfg, 'platform_radius', 11.0)
+        # 目标生成半径（目标集中在平台中心附近）
+        self.target_radius = getattr(cfg.commands, 'target_radius', 3.0)
+
+        # 课程学习：生成距离控制
+        self.spawn_inner_radius = getattr(cfg, 'spawn_inner_radius', 0.0)
+        self.spawn_outer_radius = getattr(cfg, 'spawn_outer_radius', self.platform_radius)
 
         # 导航统计计数器
         self.navigation_stats_step = 0
@@ -378,9 +389,12 @@ class VBotSection001Env(NpEnv):
         heading_diff = np.where(heading_diff > np.pi, heading_diff - 2 * np.pi, heading_diff)
         heading_diff = np.where(heading_diff < -np.pi, heading_diff + 2 * np.pi, heading_diff)
 
-        # 达到判定
-        position_threshold = 0.3
+        # 达到判定 (Round4: 0.3→0.5m — wider zone gives more arrival_bonus signals during training)
+        position_threshold = 0.5
         reached_all = distance_to_target < position_threshold
+
+        # 存储robot_xy供奖励函数使用（边界惩罚需要）
+        state.info["robot_xy"] = robot_position
 
         # 计算期望速度命令（P控制器）
         desired_vel_xy = np.clip(position_error * 1.0, -1.0, 1.0)
@@ -459,7 +473,8 @@ class VBotSection001Env(NpEnv):
         reward = self._compute_reward(data, state.info, velocity_commands,
                                        base_lin_vel, gyro, projected_gravity,
                                        joint_vel, distance_to_target, heading_diff,
-                                       position_error, reached_all, terminated)
+                                       position_error, reached_all, terminated,
+                                       robot_heading)
 
         state.obs = obs
         state.reward = reward
@@ -540,7 +555,7 @@ class VBotSection001Env(NpEnv):
                          base_lin_vel: np.ndarray, gyro: np.ndarray, projected_gravity: np.ndarray,
                          joint_vel: np.ndarray, distance_to_target: np.ndarray, heading_diff: np.ndarray,
                          position_error: np.ndarray, reached_all: np.ndarray,
-                         terminated: np.ndarray) -> np.ndarray:
+                         terminated: np.ndarray, robot_heading: np.ndarray = None) -> np.ndarray:
         """
         导航任务奖励计算，使用 RewardConfig.scales 配置权重
 
@@ -562,28 +577,41 @@ class VBotSection001Env(NpEnv):
         # 位置跟踪：exp(-distance / sigma) — sigma=5.0 解决远距离梯度死区
         position_tracking = np.exp(-distance_to_target / 5.0)
 
-        # 精细位置跟踪：仅在距离 < 1.5m 时激活, sigma=0.3
-        # Round2: sigma从0.1→0.3, 阈值1.0→1.5, 提供0.3m-1.5m范围的有效梯度
+        # 精细位置跟踪：在距离 < 2.5m 时激活, sigma=0.5
+        # Round3: 扩大范围 1.5→2.5m, sigma 0.3→0.5, 消除1.5-2.5m的梯度死区
+        # 在 1.75m (当前平均距离) 处提供实质性奖励:
+        #   exp(-1.75/0.5)*8 = 0.24/step, 而非之前 = 0.0
         fine_position_tracking = np.where(
-            distance_to_target < 1.5,
-            np.exp(-distance_to_target / 0.3),
+            distance_to_target < 2.5,
+            np.exp(-distance_to_target / 0.5),
             0.0
         )
 
-        # 朝向跟踪：exp(-|heading_error| / 0.5)
-        heading_tracking = np.exp(-np.abs(heading_diff) / 0.5)
+        # 朝向跟踪：奖励机器人面朝目标方向（而非随机target_heading）
+        # 使用 facing_error = target_bearing - robot_heading（面向目标位置）
+        target_bearing = np.arctan2(position_error[:, 1], position_error[:, 0])
+        facing_error = target_bearing - robot_heading
+        # 归一化到 [-pi, pi]
+        facing_error = np.where(facing_error > np.pi, facing_error - 2 * np.pi, facing_error)
+        facing_error = np.where(facing_error < -np.pi, facing_error + 2 * np.pi, facing_error)
+        # 到达后不需要面向目标（已经停在那里了）
+        heading_tracking = np.where(reached_all, 1.0, np.exp(-np.abs(facing_error) / 0.5))
 
         # 前进速度奖励：速度在朝目标方向的投影
         direction_to_target = position_error / (np.linalg.norm(position_error, axis=1, keepdims=True) + 1e-8)
         forward_velocity = np.sum(base_lin_vel[:, :2] * direction_to_target, axis=1)
-        forward_velocity = np.clip(forward_velocity, -1.0, 2.0)
+        forward_velocity = np.clip(forward_velocity, -1.0, 0.6)  # 限速0.6m/s，超速无额外奖励
 
         # 距离接近奖励：激励靠近目标
-        if "min_distance" not in info:
-            info["min_distance"] = distance_to_target.copy()
-        distance_improvement = info["min_distance"] - distance_to_target
-        info["min_distance"] = np.minimum(info["min_distance"], distance_to_target)
-        approach_reward = np.clip(distance_improvement * scales.get("approach_scale", 8.0), -1.0, 1.0)
+        # Round4: 改用逐步距离变化（连续梯度），替代 min_distance 一次性记录
+        # 原 min_distance 方法的问题：进度停滞后信号消失，策略失去接近激励
+        last_distance = info.get("last_distance", distance_to_target.copy())
+        distance_delta = last_distance - distance_to_target  # 正值 = 靠近
+        info["last_distance"] = distance_to_target.copy()
+        raw_approach = distance_delta * scales.get("approach_scale", 4.0)
+        # 限制后退惩罚幅度，近目标时禁用惩罚（精细定位接管）
+        approach_reward = np.clip(raw_approach, -0.3, 1.0)
+        approach_reward = np.where(distance_to_target < 1.5, np.maximum(approach_reward, 0.0), approach_reward)
 
         # 线性距离递减奖励（新增）：提供全局梯度信号
         initial_distance = info.get("initial_distance", distance_to_target)
@@ -645,6 +673,30 @@ class VBotSection001Env(NpEnv):
         action_diff = info["current_actions"] - info["last_actions"]
         action_rate_penalty = np.sum(np.square(action_diff), axis=1)
 
+        # ========== 新增Phase5奖励/惩罚 ==========
+
+        # 近目标速度惩罚：距离<0.5m时惩罚高速度（防overshoot，不阻碍接近）
+        near_target_speed_penalty = np.where(
+            np.logical_and(distance_to_target < 0.5, ~reached_all),
+            speed_xy * scales.get("near_target_speed", 0.0),
+            0.0
+        )
+
+        # 内围栏一次性奖励：首次进入距离<0.75m区域
+        inner_fence_dist = 0.75
+        in_inner_fence = distance_to_target < inner_fence_dist
+        info["ever_inner_fence"] = info.get("ever_inner_fence", np.zeros(self._num_envs, dtype=bool))
+        first_inner_fence = np.logical_and(in_inner_fence, ~info["ever_inner_fence"])
+        info["ever_inner_fence"] = np.logical_or(info["ever_inner_fence"], in_inner_fence)
+        inner_fence_bonus = np.where(first_inner_fence, scales.get("inner_fence_bonus", 0.0), 0.0)
+
+        # 边界惩罚：距平台边缘<1m时惩罚（防掉落）
+        robot_xy = info.get("robot_xy", np.zeros((self._num_envs, 2), dtype=np.float32))
+        dist_from_center = np.linalg.norm(robot_xy, axis=1)
+        boundary_margin = 1.0  # 距边缘1m内开始惩罚
+        boundary_violation = np.maximum(dist_from_center - (self.platform_radius - boundary_margin), 0.0)
+        boundary_penalty = scales.get("boundary_penalty", 0.0) * boundary_violation
+
         # ========== 综合奖励（到达前/后分支） ==========
         # 惩罚项公共部分（到达前后都生效）
         penalties = (
@@ -656,15 +708,15 @@ class VBotSection001Env(NpEnv):
             + scales.get("dof_acc", -2.5e-7) * dof_acc_penalty
             + scales.get("action_rate", -0.01) * action_rate_penalty
             + termination_penalty
+            + near_target_speed_penalty
+            + boundary_penalty
         )
 
         reward = np.where(
             reached_all,
-            # 到达后：停止奖励 + 到达奖励 + 惩罚（alive_bonus=0 after reach）
-            stop_bonus + arrival_bonus + penalties,
-            # 未到达：导航跟踪 × time_decay + 前进 + 接近 + 距离递减 + 存活 + 惩罚
-            # time_decay 让"站着不动"策略的累积奖励随时间降低，创造紧迫感
-            # 注意：penalties 不受 time_decay 影响，确保终止/稳定性惩罚始终有效
+            # 到达后：停止奖励 + 到达奖励 + 内围栏奖励 + 惩罚（alive_bonus=0 after reach）
+            stop_bonus + arrival_bonus + inner_fence_bonus + penalties,
+            # 未到达：导航跟踪 × time_decay + 前进 + 接近 + 距离递减 + 存活 + 内围栏 + 惩罚
             time_decay * (
                 scales.get("position_tracking", 1.5) * position_tracking
                 + scales.get("fine_position_tracking", 2.0) * fine_position_tracking
@@ -673,7 +725,7 @@ class VBotSection001Env(NpEnv):
                 + scales.get("distance_progress", 2.0) * distance_progress
                 + scales.get("alive_bonus", 0.5) * alive_bonus
                 + approach_reward
-            ) + penalties
+            ) + inner_fence_bonus + penalties
         )
 
         # 记录各奖励分量用于TensorBoard可视化
@@ -686,24 +738,59 @@ class VBotSection001Env(NpEnv):
             "distance_progress": scales.get("distance_progress", 2.0) * distance_progress,
             "alive_bonus": scales.get("alive_bonus", 0.5) * alive_bonus,
             "arrival_bonus": arrival_bonus,
+            "inner_fence_bonus": inner_fence_bonus,
             "stop_bonus": stop_bonus,
+            "near_target_speed": near_target_speed_penalty,
+            "boundary_penalty": boundary_penalty,
             "penalties": penalties,
             "termination": termination_penalty,
         }
 
         return reward
 
+    def _random_point_in_circle(self, n: int, radius: float) -> np.ndarray:
+        """在半径radius的圆内均匀采样n个点 (返回 [n, 2])"""
+        # 均匀分布在圆内：r = sqrt(U) * R, theta = U * 2pi
+        r = np.sqrt(np.random.uniform(0, 1, size=n)) * radius
+        theta = np.random.uniform(0, 2 * np.pi, size=n)
+        x = r * np.cos(theta)
+        y = r * np.sin(theta)
+        return np.stack([x, y], axis=1).astype(np.float32)
+
+    def _random_point_in_annulus(self, n: int, inner_r: float, outer_r: float) -> np.ndarray:
+        """在环形区域 [inner_r, outer_r] 内均匀采样n个点 (返回 [n, 2])
+
+        用于课程学习：控制机器人生成距离。
+        - Stage 1 (Easy):   inner=2, outer=5
+        - Stage 2 (Medium): inner=5, outer=8
+        - Stage 3 (Hard):   inner=8, outer=11
+        """
+        if inner_r <= 0:
+            return self._random_point_in_circle(n, outer_r)
+        # 环形均匀采样：r = sqrt(U * (R2^2 - R1^2) + R1^2)
+        u = np.random.uniform(0, 1, size=n)
+        r = np.sqrt(u * (outer_r**2 - inner_r**2) + inner_r**2)
+        theta = np.random.uniform(0, 2 * np.pi, size=n)
+        x = r * np.cos(theta)
+        y = r * np.sin(theta)
+        return np.stack([x, y], axis=1).astype(np.float32)
+
+    def _clip_to_circle(self, xy: np.ndarray, radius: float) -> np.ndarray:
+        """将xy坐标裁剪到半径radius的圆内"""
+        dist = np.linalg.norm(xy, axis=1, keepdims=True)
+        scale = np.where(dist > radius, radius / (dist + 1e-8), 1.0)
+        return xy * scale
+
     def reset(self, data: mtx.SceneData, done: np.ndarray = None) -> tuple[np.ndarray, dict]:
         cfg: VBotSection001EnvCfg = self._cfg
         num_envs = data.shape[0]
 
-        # 在spawn_center周围 ±spawn_range 范围内随机
-        random_xy = np.random.uniform(
-            low=-self.spawn_range,
-            high=self.spawn_range,
-            size=(num_envs, 2)
+        # 在环形区域内随机生成起始位置（课程学习控制距离）
+        robot_init_xy = self._random_point_in_annulus(
+            num_envs, self.spawn_inner_radius, self.spawn_outer_radius
         )
-        robot_init_xy = self.spawn_center[:2] + random_xy
+        # 加上平台中心偏移（通常为0,0）
+        robot_init_xy += self.spawn_center[:2]
         terrain_heights = np.full(num_envs, self.spawn_center[2], dtype=np.float32)
 
         robot_init_pos = robot_init_xy
@@ -715,12 +802,40 @@ class VBotSection001Env(NpEnv):
         # 设置 base 的 XYZ位置（DOF 3-5）
         dof_pos[:, 3:6] = robot_init_xyz
 
-        target_offset = np.random.uniform(
-            low=cfg.commands.pose_command_range[:2],
-            high=cfg.commands.pose_command_range[3:5],
-            size=(num_envs, 2)
-        )
-        target_positions = robot_init_pos + target_offset
+        # 随机初始朝向（全方向，不总是面向+Y）
+        random_yaw = np.random.uniform(-np.pi, np.pi, size=num_envs)
+        for i in range(num_envs):
+            quat = self._euler_to_quat(0, 0, random_yaw[i])
+            dof_pos[i, self._base_quat_start:self._base_quat_end] = quat / (np.linalg.norm(quat) + 1e-8)
+
+        # 目标位置生成
+        target_mode = getattr(cfg.commands, 'target_mode', 'relative')
+        min_dist = getattr(cfg.commands, 'min_distance', 3.0)
+
+        if target_mode == "absolute":
+            # 绝对坐标模式：目标在平台中心附近小圆内随机（竞赛目标区域）
+            target_positions = self._random_point_in_circle(num_envs, self.target_radius)
+            target_positions += self.spawn_center[:2]
+            # 保证起始与目标之间的最小距离
+            for i in range(num_envs):
+                attempts = 0
+                while np.linalg.norm(target_positions[i] - robot_init_pos[i]) < min_dist and attempts < 20:
+                    tp = self._random_point_in_circle(1, self.platform_radius)[0]
+                    tp += self.spawn_center[:2]
+                    target_positions[i] = tp
+                    attempts += 1
+        else:
+            # 旧模式：相对偏移
+            target_offset = np.random.uniform(
+                low=cfg.commands.pose_command_range[:2],
+                high=cfg.commands.pose_command_range[3:5],
+                size=(num_envs, 2)
+            )
+            target_positions = robot_init_pos + target_offset
+            # 裁剪到平台内
+            target_positions = self._clip_to_circle(
+                target_positions - self.spawn_center[:2], self.platform_radius
+            ) + self.spawn_center[:2]
 
         target_headings = np.random.uniform(
             low=cfg.commands.pose_command_range[2],
@@ -730,19 +845,8 @@ class VBotSection001Env(NpEnv):
 
         pose_commands = np.concatenate([target_positions, target_headings], axis=1)
 
-        # 归一化base的四元数（DOF 6-9）
+        # 归一化箭头的四元数（base四元数已在上面随机yaw时设置）
         for env_idx in range(num_envs):
-            bq_s = self._base_quat_start
-            bq_e = self._base_quat_end
-            quat = dof_pos[env_idx, bq_s:bq_e]
-            quat_norm = np.linalg.norm(quat)
-            if quat_norm > 1e-6:
-                dof_pos[env_idx, bq_s:bq_e] = quat / quat_norm
-            else:
-                dof_pos[env_idx, bq_s:bq_e] = np.array(
-                    [0.0, 0.0, 0.0, 1.0], dtype=np.float32
-                )
-
             # 归一化箭头的四元数
             if self._robot_arrow_body is not None:
                 ra_s = self._robot_arrow_dof_start + 3
@@ -793,7 +897,7 @@ class VBotSection001Env(NpEnv):
         position_error = target_position - robot_position
         distance_to_target = np.linalg.norm(position_error, axis=1)
 
-        position_threshold = 0.3
+        position_threshold = 0.5  # Round4: aligned with update_state
         reached_all = distance_to_target < position_threshold
 
         # 计算期望速度
@@ -874,7 +978,7 @@ class VBotSection001Env(NpEnv):
             "current_actions": np.zeros((num_envs, self._num_action), dtype=np.float32),
             "filtered_actions": np.zeros((num_envs, self._num_action), dtype=np.float32),
             "ever_reached": np.zeros(num_envs, dtype=bool),
-            "min_distance": distance_to_target.copy(),
+            "last_distance": distance_to_target.copy(),  # Round4: step-delta approach_reward
             "initial_distance": distance_to_target.copy(),  # 用于distance_progress归一化
             "last_dof_vel": np.zeros((num_envs, self._num_action), dtype=np.float32),
             "contacts": np.zeros((num_envs, self.num_foot_check), dtype=np.bool_),

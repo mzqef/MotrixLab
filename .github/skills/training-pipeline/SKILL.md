@@ -11,6 +11,28 @@ description: Index skill for VBot quadruped RL training. Routes to specialized s
 
 > **Before running ANY training, AutoML, or reward experiment**, review existing results to avoid repeating work and to build on prior discoveries.
 
+### 0a. Read Experiment Reports (ALWAYS DO THIS FIRST)
+
+```powershell
+# Check which REPORT files exist
+Get-ChildItem REPORT_NAV*.md | Select-Object Name, Length, LastWriteTime
+
+# Read the nav1 report — contains ALL experiment history, config state, and TODO items
+Get-Content REPORT_NAV1.md
+```
+
+**REPORT_NAV*.md files are the canonical experiment record.** They contain:
+- Complete experiment history with per-step metrics tables
+- Current VERIFIED configuration state (reward scales, spawn radii, LR scheduler)
+- Diagnosed failure modes and their fixes
+- Active TODO items and next steps
+- Curriculum plan with stage definitions
+- Lessons learned across all sessions
+
+> **After completing any experiment or making significant changes**, append results to the relevant REPORT_NAV*.md file. Never overwrite existing content — the history is a chronological record.
+
+### 0b. Check AutoML and Run Directories
+
 ```powershell
 # 1. List all AutoML runs and their outcomes
 Get-ChildItem starter_kit_log/automl_* -Directory | ForEach-Object {
@@ -46,19 +68,12 @@ if (Test-Path starter_kit_schedule/progress/WAKE_UP.md) {
 
 ## Quick Start — Just Run Training
 
+> **🔴 AutoML-First Policy (MANDATORY):** See `.github/copilot-instructions.md` for the full policy.
+> **NEVER** use `train.py` for parameter exploration — use `automl.py` batch search.
+> `train.py` is ONLY for: smoke tests (<500K steps), `--render` visual debug, or final deployment runs with known-good config.
+
 ```powershell
-# === FAST PROBE RUN (benchmark hardware + validate changes) ===
-# 200K steps: ~16s. Good for smoke testing reward changes.
-uv run scripts/train.py --env vbot_navigation_section001 --train-backend torch --max-env-steps 200000 --check-point-interval 50
-
-# === 2M PROBE (see actual learning trends) ===
-# ~4 min. Enough to confirm reward gradient is alive.
-uv run scripts/train.py --env vbot_navigation_section001 --train-backend torch --max-env-steps 2000000 --check-point-interval 100
-
-# === SINGLE TRAINING RUN (full) ===
-uv run scripts/train.py --env vbot_navigation_section001 --train-backend torch
-
-# === AUTOML / HP + REWARD SEARCH (recommended for optimization) ===
+# === PRIMARY: AUTOML PIPELINE (USE THIS for all parameter exploration) ===
 uv run starter_kit_schedule/scripts/automl.py `
     --mode stage `
     --budget-hours 8 `
@@ -67,12 +82,17 @@ uv run starter_kit_schedule/scripts/automl.py `
 # === MONITOR AUTOML STATE ===
 Get-Content starter_kit_schedule/progress/automl_state.yaml
 
-# === PROGRESS WATCHER (generates WAKE_UP.md for agent context) ===
-uv run starter_kit_schedule/scripts/progress_watcher.py --snapshot
-uv run starter_kit_schedule/scripts/progress_watcher.py --watch --interval 120
+# === READ AUTOML RESULTS ===
+Get-Content starter_kit_log/automl_*/report.md
 
-# === MANUAL TRAINING WITH RENDERING ===
+# === SMOKE TEST ONLY (<500K steps, verify code compiles) ===
+uv run scripts/train.py --env vbot_navigation_section001 --train-backend torch --max-env-steps 200000 --check-point-interval 50
+
+# === VISUAL DEBUGGING ONLY ===
 uv run scripts/train.py --env vbot_navigation_section001 --train-backend torch --render
+
+# === FINAL DEPLOYMENT RUN (after AutoML found best config) ===
+uv run scripts/train.py --env vbot_navigation_section001 --train-backend torch
 
 # === EVALUATE A CHECKPOINT ===
 uv run scripts/play.py --env vbot_navigation_section001
@@ -120,23 +140,31 @@ At 50M steps, the robot discovered it could maximize reward by **standing still*
 
 **Detection signal:** Robot distance goes UP during training (1.0m → 1.6m), episode length near max (3800/4000), reached% drops to ~0.3%. Reward still looks "good" because alive_bonus accumulates.
 
-### Current Reward Configuration (Round 2)
+### Current Reward Configuration (Phase5 — Session 2 verified)
+
+> **IMPORTANT**: Always verify current values by reading `REPORT_NAV1.md` → Section 17.
+> The values below may be outdated if changed after this skill was last updated.
 
 ```python
-# cfg.py RewardConfig.scales — current values
+# cfg.py VBotSection001EnvCfg.RewardConfig.scales — Phase5/6 values
+# (override in subclass, NOT inherited from base — learned lesson!)
 position_tracking: 1.5       # exp(-d/5.0)
-fine_position_tracking: 5.0   # exp(-d/0.3) when d < 1.5m
-heading_tracking: 0.8
-forward_velocity: 1.5
-distance_progress: 2.0       # linear: 1 - d/initial_distance
-alive_bonus: 0.5              # CONDITIONAL — only when NOT ever_reached
-approach_scale: 8.0
-arrival_bonus: 50.0           # Large enough to beat alive_bonus accumulation
-stop_scale: 2.0
-zero_ang_bonus: 6.0
-termination: -100.0
+fine_position_tracking: 8.0  # sigma=0.5, range<2.5m
+heading_tracking: 1.0
+forward_velocity: 0.8        # Down from 1.5 — prevents sprint-crash exploit
+distance_progress: 1.5       # Down from 2.0
+alive_bonus: 0.15            # Down from 0.5 — CONDITIONAL on NOT ever_reached
+approach_scale: 5.0           # Up from 4.0
+arrival_bonus: 100.0          # Up from 50 — must dominate alive budget
+inner_fence_bonus: 40.0       # One-time at d<0.75m
+stop_scale: 5.0               # Up from 2.0 — sustained stopping
+zero_ang_bonus: 10.0          # Up from 6.0
+near_target_speed: -0.5       # Penalize speed when d<0.5m (activation 0.5m, not 2.0m!)
+boundary_penalty: -3.0        # Penalize near platform edge
+termination: -200.0           # Session 3 value (was -150, tested -250 too harsh)
 lin_vel_z: -0.3
 ang_vel_xy: -0.03
+# Speed cap: forward_velocity clipped to 0.6 m/s in vbot_section001_np.py
 ```
 
 ## Skill Routing
@@ -199,22 +227,40 @@ These issues have been resolved. Do NOT re-investigate or re-fix them:
 
 ## Experiment History Summary
 
-### Round 1 AutoML (15 trials at 5M steps each)
-- Best: reward=6.75, reached=6.45%, composite=0.3733
-- Best HP: lr=2.42e-04, entropy=1.33e-03, rollouts=32, termination=-200
-- **Outcome:** Full 50M training → lazy robot (killed at 30min)
+> **For complete experiment history**, see `REPORT_NAV1.md` at workspace root.
+> The summary below may be outdated. Always check the report first.
 
-### Round 2 AutoML (anti-laziness, 10 trials at 10M steps each)
-- Trial 1: reward=1.90, reached=0.33%, composite=0.316
-- Late learning surge detected (reward jumped at step 4819)
-- **Status:** Search still in progress — needs more trials and longer training
+### Session 1: KL-Adaptive LR Experiments (Exp1-4)
+- Exp1: kl=0.016, peaked 67% reached at step 5000, collapsed to 18% by step 15K (KL LR instability)
+- Exp2: Warm-start from Exp1, stagnant (poisoned optimizer)
+- Exp3: kl=0.008, peaked 32%, LR crushed to 0.000167
+- Exp4: kl=0.012, peaked 50%, still declined — **no KL threshold works for this task**
+
+### Session 2: Config Drift Discovery & Fixes (Exp5-6b)
+- **Critical finding**: Phase5 reward changes were NEVER persisted in VBotSection001EnvCfg
+- Exp5: Linear LR scheduler, peaked 59%, sprint-crash exploit discovered
+- Exp6b: Config drift confirmed, killed at 7K steps (0% reached)
+- **Fixes applied**: RewardConfig override in subclass, annular spawning, 3 new reward terms, linear LR scheduler
+
+### Session 3: Manual Reward Tuning via train.py (Exp7-12) — LESSON LEARNED
+- **Mistake**: Used `train.py` for one-at-a-time reward parameter search instead of `automl.py`.
+- 6 experiments run manually, each killed after a few K steps, changing one variable at a time.
+- Exp7: near_target_speed at d<2.0m → "deceleration moat" at 1m (19.8% peaked)
+- Exp8: near_target_speed at d<0.5m → **52% reached at step 4K** (best ever!) but sprint-crash returned at 12K+
+- Exp9: forward_velocity=0.2 → 0% (too weak, robot lazy)
+- Exp10: forward_velocity=0.5 → 8.6% (still too weak)
+- Exp11: speed cap + termination=-250 → 7% (penalty too harsh)
+- Exp12: termination=-200, speed cap=0.6 → interrupted before results
+
+**Key lesson**: This manual iteration wasted time. All 6 experiments should have been a single `automl.py --hp-trials 8` batch search with `REWARD_SEARCH_SPACE` covering forward_velocity, near_target_speed, termination. The AutoML pipeline would have found the best combination automatically with structured comparison.
 
 ### Key Findings
-1. Learning rate ~2e-4 works well; very low (<5e-5) too slow
-2. Rollouts 16-32 all viable; 32 slightly better
-3. Termination -100 to -200 range is correct; -10/-25 too lenient
-4. arrival_bonus must be >> alive_bonus × max_episode_steps / 2
+1. KL-adaptive LR scheduler is fundamentally unstable for this task — use linear anneal
+2. Sprint-crash exploit: forward_velocity≥0.8 causes sprint→crash→reset cycle after ~12K steps
+3. "Deceleration moat": near_target_speed at d<2.0m blocks approach. Use d<0.5m
+4. Config persistence across sessions is fragile — always verify runtime config
 5. Anti-laziness mechanisms are ESSENTIAL for >10M step training
+6. **NEVER use train.py for parameter search — ALWAYS use automl.py batch search**
 
 ## Managed Directories
 

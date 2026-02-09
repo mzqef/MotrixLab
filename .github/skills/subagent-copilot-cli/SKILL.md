@@ -1,18 +1,19 @@
 ---
 name: subagent-copilot-cli
-description: Delegate analysis tasks to GitHub Copilot CLI as a parallel subagent for MotrixLab RL project. Handles screenshot analysis, image file inspection, simulation frame interpretation, reward curve analysis, and general research conversations.
+description: Delegate analysis tasks to GitHub Copilot CLI as a parallel subagent for MotrixLab RL project. Handles automated policy playback frame capture, VLM-based visual behavior analysis, screenshot analysis, image file inspection, simulation frame interpretation, reward curve analysis, and general research conversations.
 ---
 
 ## Purpose
 
 Use the Copilot CLI subagent for **analysis** tasks in MotrixLab RL workflows:
 
-- **Screenshot analysis** - Capture and analyze simulation renders, environment states
-- **Image file inspection** - Read training plots, reward curves, TensorBoard exports
-- **PDF document reading** - Parse navigation1.pdf/navigation2.pdf instructions
-- **Parallel research agent** - Offload complex analysis while you coordinate
-- **Code inspection** - Analyze reward structures, environment configs, policy architectures
-- **Visual debugging** - Interpret failure modes from rendered frames
+- **Automated VLM Policy Analysis** — Play a trained policy, auto-capture frames, send to VLM for behavior diagnosis
+- **Screenshot analysis** — Capture and analyze simulation renders, environment states
+- **Image file inspection** — Read training plots, reward curves, TensorBoard exports
+- **PDF document reading** — Parse navigation1.pdf/navigation2.pdf instructions
+- **Parallel research agent** — Offload complex analysis while you coordinate
+- **Code inspection** — Analyze reward structures, environment configs, policy architectures
+- **Visual debugging** — Interpret failure modes from rendered frames
 
 > **NOT for:** Training execution, `train.py`/`view.py`/`play.py` commands, or TensorBoard launching.  
 > Use this skill for **understanding and analysis**, not execution.
@@ -29,6 +30,133 @@ copilot --model gpt-4.1 ...
 |-------|------|----------|
 | `gpt-4.1` | Free | **Always use this** |
 | `gpt-5`, `claude-opus-4.5` | Premium | Avoid unless explicitly requested |
+
+---
+
+## 🔴 Automated VLM Policy Analysis Pipeline (PRIMARY WORKFLOW)
+
+The `capture_vlm.py` script automates the full pipeline: **play policy → capture frames → send to VLM → get visual analysis report**.
+
+### Quick Start
+
+```powershell
+# Play best policy, capture 20 frames, analyze with gpt-4.1
+uv run scripts/capture_vlm.py --env vbot_navigation_section001
+```
+
+### Full Options
+
+```powershell
+# Specify policy, capture settings, and custom VLM focus
+uv run scripts/capture_vlm.py --env vbot_navigation_section001 \
+    --policy runs/vbot_navigation_section001/.../best_agent.pt \
+    --capture-every 30 --max-frames 30 \
+    --vlm-prompt "Focus on leg coordination and whether the robot reaches the target"
+
+# Capture only (no VLM), analyze later manually
+uv run scripts/capture_vlm.py --env vbot_navigation_section001 --no-vlm
+
+# Use a different VLM model
+uv run scripts/capture_vlm.py --env vbot_navigation_section001 --vlm-model gpt-4.1
+```
+
+### Script Parameters
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--env` | `vbot_navigation_section001` | Environment name |
+| `--policy` | auto-discover | Policy checkpoint path |
+| `--train-backend` | `torch` | Inference backend (torch/jax) |
+| `--num-envs` | `1` | Parallel envs for playback |
+| `--capture-every` | `15` | Capture frame every N sim steps |
+| `--max-frames` | `20` | Total frames to capture |
+| `--warmup-steps` | `30` | Steps before capture starts |
+| `--capture-delay` | `0.15` | Seconds delay before screenshot |
+| `--no-vlm` | `false` | Skip VLM, only save frames |
+| `--vlm-model` | `gpt-4.1` | Copilot CLI model |
+| `--vlm-prompt` | (default) | Custom analysis focus |
+| `--vlm-batch-size` | `10` | Frames per VLM call |
+| `--output-dir` | auto | Frame output directory |
+
+### What the Pipeline Does
+
+1. **Loads the trained policy** (auto-discovers best checkpoint or uses `--policy`)
+2. **Runs the policy** in the simulation with rendering enabled
+3. **Captures screenshots** at regular intervals using PIL ImageGrab
+4. **Saves frames** to `starter_kit_log/vlm_captures/{env}/{timestamp}/`
+5. **Sends frames** to GitHub Copilot CLI (`gpt-4.1`) with a structured analysis prompt
+6. **Generates a report** at `vlm_analysis.md` covering:
+   - Robot pose & stability
+   - Gait quality & leg coordination
+   - Navigation progress toward target
+   - Detected failure modes & bugs
+   - Reward engineering suggestions
+   - Training recommendations
+
+### Output Structure
+
+```
+starter_kit_log/vlm_captures/vbot_navigation_section001/20260209_142000/
+├── frame_00045.png          # Captured simulation frames
+├── frame_00060.png
+├── frame_00075.png
+├── ...
+├── capture_metadata.txt     # Run configuration
+└── vlm_analysis.md          # VLM analysis report
+```
+
+### Usage Patterns
+
+#### After Training — Quick Visual Check
+
+```powershell
+# Train, then immediately check visual quality
+uv run scripts/train.py --env vbot_navigation_section001 --train-backend torch
+uv run scripts/capture_vlm.py --env vbot_navigation_section001 --max-frames 15
+```
+
+#### Comparing Two Policies
+
+```powershell
+# Capture frames from policy A
+uv run scripts/capture_vlm.py --env vbot_navigation_section001 \
+    --policy runs/.../checkpoint_A.pt --output-dir analysis/policy_a
+
+# Capture frames from policy B
+uv run scripts/capture_vlm.py --env vbot_navigation_section001 \
+    --policy runs/.../checkpoint_B.pt --output-dir analysis/policy_b
+
+# Compare with VLM
+copilot --model gpt-4.1 --allow-all \
+    --add-dir analysis/policy_a --add-dir analysis/policy_b \
+    -p "Compare robot behavior between policy_a/ and policy_b/ frames. Which policy has better gait, navigation, and stability?" -s
+```
+
+#### Capture Only + Manual VLM Later
+
+```powershell
+# Just capture
+uv run scripts/capture_vlm.py --env vbot_navigation_section001 --no-vlm
+
+# Analyze specific frames later
+copilot --model gpt-4.1 --allow-all \
+    --add-dir starter_kit_log/vlm_captures/vbot_navigation_section001/latest \
+    -p "Examine frame_00060.png and frame_00075.png — the robot seems to stumble. What's happening?" -s
+```
+
+#### Focus on Specific Bugs
+
+```powershell
+# VLM focus on leg issues
+uv run scripts/capture_vlm.py --env vbot_navigation_section001 \
+    --vlm-prompt "The robot's rear legs seem to drag. Focus on rear leg joint angles and contact patterns."
+
+# VLM focus on navigation failures
+uv run scripts/capture_vlm.py --env vbot_navigation_section001 \
+    --vlm-prompt "The robot circles instead of going straight to target. Analyze heading and path curvature."
+```
+
+---
 
 ## Core Invocation Pattern
 
@@ -77,6 +205,14 @@ $analysis = copilot --model gpt-4.1 --allow-all -p "Look at d:\MotrixLab\screens
 ```powershell
 # Analyze multiple frames from a training run
 $frames = copilot --model gpt-4.1 --allow-all --add-dir d:\MotrixLab\renders\episode_001 -p "Examine all PNG frames in this directory. Create a timeline of robot behavior: stance changes, terrain traversal progress, any falls or recovery attempts." -s
+```
+
+### Analyze VLM Capture Output (from capture_vlm.py)
+
+```powershell
+# Re-analyze previously captured frames with a new prompt
+$captureDir = "starter_kit_log/vlm_captures/vbot_navigation_section001/20260209_142000"
+copilot --model gpt-4.1 --allow-all --add-dir $captureDir -p "Re-examine these policy evaluation frames. This time focus specifically on: 1) Whether the robot reaches the target platform 2) Any reward hacking behavior 3) Energy efficiency of the gait" -s
 ```
 
 ### Compare Before/After States
@@ -215,6 +351,18 @@ copilot --model gpt-4.1 --allow-all -p "Analyze d:\MotrixLab\starter_kit\navigat
 
 ## Visual Debugging Workflows
 
+### Automated Visual Debug (Preferred)
+
+```powershell
+# One-command visual debugging: play policy, capture frames, get VLM diagnosis
+uv run scripts/capture_vlm.py --env vbot_navigation_section001 \
+    --max-frames 25 --capture-every 10 \
+    --vlm-prompt "This policy was trained for 5M steps but the robot seems to fall. Diagnose the issue."
+
+# Read the analysis report
+Get-Content starter_kit_log/vlm_captures/vbot_navigation_section001/*/vlm_analysis.md
+```
+
 ### Episode Failure Investigation
 
 ```powershell
@@ -251,6 +399,7 @@ $gait = copilot --model gpt-4.1 --allow-all --add-dir d:\MotrixLab\renders\locom
 
 | File | Analysis Purpose |
 |------|------------------|
+| `scripts/capture_vlm.py` | **VLM frame capture + analysis pipeline** |
 | `starter_kit/navigation1/vbot/cfg.py` | Reward structure, env params |
 | `starter_kit/navigation1/vbot/vbot_section001_np.py` | Reward function implementation |
 | `starter_kit/navigation2/vbot/cfg.py` | Navigation2 env params |
@@ -258,6 +407,7 @@ $gait = copilot --model gpt-4.1 --allow-all --add-dir d:\MotrixLab\renders\locom
 | `starter_kit/navigation2/vbot/xmls/*.xml` | Obstacle course scenes |
 | `motrix_rl/src/motrix_rl/cfgs.py` | PPO hyperparameters |
 | `runs/*/checkpoints/` | Trained policy analysis |
+| `starter_kit_log/vlm_captures/` | VLM capture outputs + analysis reports |
 
 ### VBot Navigation Environments
 
@@ -272,13 +422,16 @@ $gait = copilot --model gpt-4.1 --allow-all --add-dir d:\MotrixLab\renders\locom
 
 ## Best Practices
 
-1. **One analysis per invocation** - Keep prompts focused for reliable results
-2. **Provide full paths** - Always use absolute paths to files
-3. **Capture to variables** - Store analysis output with `$result = copilot ...`
-4. **Use `-s` flag** - Silent mode gives clean output for parsing
-5. **Add context directories** - Use `--add-dir` when subagent needs multiple files
-6. **Chain small tasks** - Multiple focused analyses beat one complex prompt
-7. **Save reports** - Redirect output to markdown files for persistence
+1. **Use `capture_vlm.py` first** — For policy visual analysis, always prefer the automated pipeline over manual screenshots
+2. **One analysis per invocation** — Keep prompts focused for reliable results
+3. **Provide full paths** — Always use absolute paths to files
+4. **Capture to variables** — Store analysis output with `$result = copilot ...`
+5. **Use `-s` flag** — Silent mode gives clean output for parsing
+6. **Add context directories** — Use `--add-dir` when subagent needs multiple files
+7. **Chain small tasks** — Multiple focused analyses beat one complex prompt
+8. **Save reports** — Redirect output to markdown files for persistence
+9. **Batch size for VLM** — Keep `--vlm-batch-size` ≤ 10 to avoid context overflow
+10. **Custom prompts** — Use `--vlm-prompt` to focus VLM on specific suspected bugs
 
 ## Limitations
 
@@ -289,5 +442,8 @@ $gait = copilot --model gpt-4.1 --allow-all --add-dir d:\MotrixLab\renders\locom
 | Large images slow | Crop or resize before analysis |
 | PDF parsing imperfect | Ask specific questions, verify key details |
 | Model constrained | Must use `gpt-4.1` for free tier |
+| Screenshot captures full screen | Position MotrixSim window prominently before capture |
+| No in-engine camera capture | Scene XMLs lack `<camera>` definitions; uses PIL ImageGrab instead |
+| VLM batch size limit | Keep ≤ 10 frames per batch to avoid token limits |
 
 ````

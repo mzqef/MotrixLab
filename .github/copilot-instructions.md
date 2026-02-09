@@ -22,26 +22,124 @@ Competition work lives in `starter_kit/navigation1/` (flat) and `starter_kit/nav
 > - Zero reward function → fully implemented in `vbot_section001_np.py`
 > - Dual environment confusion → only `vbot_navigation_section001` registered for nav1
 
+## 🔴 AutoML-First Policy (MANDATORY)
+
+> **NEVER use `train.py` for parameter exploration or reward hypothesis testing as long as `automl.py` works.**
+> The AutoML pipeline (`automl.py`) exists precisely for this purpose and MUST be used.
+
+## 🔴 VLM-First Visual Analysis Policy (MANDATORY)
+
+> **ALWAYS use `capture_vlm.py` + Copilot CLI subagent for visual debugging, behavior analysis, and reward/penalty design feedback.**
+> Before hand-tuning reward scales or diagnosing policy bugs by reading code alone, **capture frames and send them to the VLM**. Visual evidence beats guesswork.
+
+### When to use the Copilot CLI subagent (skill: `subagent-copilot-cli`)
+
+| Task | Command | Rationale |
+|------|---------|-----------|
+| **Policy behavior diagnosis** | `capture_vlm.py` | Automated frame capture + VLM analysis identifies gait bugs, falls, circling |
+| **Reward/penalty design feedback** | `capture_vlm.py --vlm-prompt "..."` | VLM sees *actual robot behavior* and suggests reward fixes |
+| **Before/after reward change comparison** | Capture before & after, send both to VLM | Visual diff of policy behavior after reward modification |
+| **Failure mode analysis** | `capture_vlm.py --vlm-prompt "Focus on why robot falls"` | VLM reads leg poses, body tilt, terrain interaction |
+| **Gait quality assessment** | `capture_vlm.py --vlm-prompt "Analyze gait symmetry"` | Quadruped-specific visual analysis |
+| **Scene/terrain understanding** | `copilot --model gpt-4.1 ... -p "Read XML scene"` | Analyze MJCF scene files for obstacle layout |
+| **Reward structure code review** | `copilot --model gpt-4.1 ... -p "Analyze cfg.py"` | Deep-dive reward function design |
+| **Training curve interpretation** | `copilot --model gpt-4.1 ... -p "Read plot"` | Analyze TensorBoard export images |
+
+### Mandatory VLM checkpoints
+
+1. **After every reward/penalty change** → Run `capture_vlm.py` to verify the visual effect
+2. **When policy shows unexpected behavior** → Run `capture_vlm.py` before editing reward code
+3. **Before declaring a training run successful** → Run `capture_vlm.py` to confirm visual quality
+4. **When designing new reward components** → Use VLM analysis of current behavior to identify gaps
+
+### When to use each tool
+
+| Task | Tool | Rationale |
+|------|------|-----------|
+| **Reward weight search** | `automl.py` | Batch comparison with structured reports |
+| **HP tuning (lr, entropy, etc.)** | `automl.py` | Joint HP+reward search, Bayesian optimization |
+| **Reward hypothesis testing** | `automl.py` | Run N trials in parallel, compare side-by-side |
+| **Curriculum stage promotion** | `automl.py` | Run full stage with best HP from previous stage |
+| **Smoke test (<500K steps)** | `train.py` | Quick sanity check that code runs without errors |
+| **Visual debugging (--render)** | `train.py` | Watch the robot's behavior in real-time |
+| **Policy evaluation / playback** | `play.py` | Evaluate a trained checkpoint |
+| **VLM visual analysis** | `capture_vlm.py` | Play policy, capture frames, send to gpt-4.1 for bug detection |
+| **Reward design feedback** | `capture_vlm.py` | VLM sees behavior, suggests reward/penalty changes |
+| **Code/config analysis** | Copilot CLI subagent | Deep analysis of reward structure, HP config, scene XML |
+
+### What NOT to do
+
+❌ **Do NOT** iterate manually with `train.py`, changing one reward weight, running, reading TensorBoard, killing, changing another weight, running again. This is **manual one-at-a-time search** — slow, error-prone, and wasteful.
+
+❌ **Do NOT** run `train.py` with `--max-env-steps 5000000` multiple times to "compare". Use `automl.py --hp-trials N` instead.
+
+❌ **Do NOT** hand-tune reward scales by repeatedly editing `cfg.py` and running `train.py`. Update `REWARD_SEARCH_SPACE` in `automl.py` and let the search find the best values.
+
+❌ **Do NOT** diagnose policy behavior bugs by reading code alone. Run `capture_vlm.py` to get visual evidence first.
+
+❌ **Do NOT** design new reward/penalty components without first running `capture_vlm.py` on the current policy to see what behavior needs fixing.
+
+### What TO do
+
+✅ When testing a new reward component: Add it to `REWARD_SEARCH_SPACE` in `automl.py`, run batch search.
+
+✅ When comparing reward weight variants: Define the search range in `automl.py`, run `--hp-trials 8+`.
+
+✅ When results come back: Read the AutoML report in `starter_kit_log/automl_*/report.md` for structured comparison.
+
+✅ **After any training run**: Run `capture_vlm.py` to get VLM visual feedback on the learned behavior.
+
+✅ **Before designing new rewards**: Run `capture_vlm.py` on current best policy to see what behavior to fix.
+
+✅ **For reward/penalty engineering**: Use `capture_vlm.py --vlm-prompt "Suggest reward changes"` to get data-driven suggestions from visual evidence.
+
+### AutoML command (use this, not train.py)
+
+```powershell
+# Standard batch search (HP + reward weights)
+uv run starter_kit_schedule/scripts/automl.py --mode stage --budget-hours 8 --hp-trials 15
+
+# Monitor
+Get-Content starter_kit_schedule/progress/automl_state.yaml
+
+# Results
+Get-Content starter_kit_log/automl_*/report.md
+```
+
+### Exception: `train.py` is acceptable ONLY for:
+
+1. **Smoke tests** — `--max-env-steps 200000` to verify code changes compile and run
+2. **Visual debugging** — `--render` to watch robot behavior in real-time
+3. **Final deployment runs** — After AutoML has found the best config, train the winning config to full steps
+4. **Warm-start curriculum promotion** — Loading a checkpoint and running to completion with known-good config
+
 ## Essential Commands
 
 ```powershell
 # Install (Python 3.10 required, uses UV)
 uv sync --all-packages --all-extras
 
-# Train (single run)
-uv run scripts/train.py --env <env-name>                 # auto-selects JAX/Torch
-uv run scripts/train.py --env <env-name> --render         # with live visualization
-uv run scripts/train.py --env <env-name> --train-backend torch
-
-# AutoML / HP Search (preferred for optimization)
-uv run starter_kit_schedule/scripts/automl.py --mode stage --budget-hours 12 --hp-trials 8
+# === PRIMARY: AutoML Pipeline (USE THIS for all parameter exploration) ===
+uv run starter_kit_schedule/scripts/automl.py --mode stage --budget-hours 8 --hp-trials 15
 
 # Monitor AutoML state
 Get-Content starter_kit_schedule/progress/automl_state.yaml
 
+# Read AutoML results
+Get-Content starter_kit_log/automl_*/report.md
+
+# === SECONDARY: Single run (smoke tests, visual debug, final deployment ONLY) ===
+uv run scripts/train.py --env <env-name>                 # auto-selects JAX/Torch
+uv run scripts/train.py --env <env-name> --render         # with live visualization
+uv run scripts/train.py --env <env-name> --train-backend torch
+
 # Evaluate / Play (auto-finds latest best checkpoint)
 uv run scripts/play.py --env <env-name>
 uv run scripts/play.py --env <env-name> --policy runs/<env>/.../<checkpoint>.pickle
+
+# VLM Visual Analysis (play policy, capture frames, analyze with gpt-4.1)
+uv run scripts/capture_vlm.py --env <env-name>
+uv run scripts/capture_vlm.py --env <env-name> --max-frames 25 --vlm-prompt "Focus on gait bugs"
 
 # View environment (no training)
 uv run scripts/view.py --env <env-name>
@@ -96,14 +194,19 @@ Key state object: `NpEnvState(data, obs, reward, terminated, truncated, info)` w
 - **Python 3.10 only** (`==3.10.*`). UV workspace with two member packages.
 - **Ruff**: line length 120, `I/E/F/W` rules, `F401/F403` suppressed in `__init__.py`.
 - **Dataclass configs** — all configuration uses `@dataclass`, not YAML/JSON. Nested dataclasses for sub-configs (`NoiseConfig`, `ControlConfig`, `RewardConfig`, etc.).
-- **No test suite** currently exists. Validate changes by running `uv run scripts/train.py --env <env> --render` for a few hundred steps.
+- **No test suite** currently exists. Validate changes by running `uv run scripts/train.py --env <env> --render` for a few hundred steps, then verify with `uv run scripts/capture_vlm.py --env <env>` for VLM-based visual analysis.
+- **Visual debugging**: Always use `capture_vlm.py` + Copilot CLI subagent (`subagent-copilot-cli` skill) for behavior analysis, failure diagnosis, and reward/penalty design feedback. See the skill file at `.github/skills/subagent-copilot-cli/SKILL.md`.
 - Comments are frequently in **Chinese** (Simplified). Maintain the existing language when editing comments.
+
+## TUTORIAL, REPORT and LOG REQUIREMENTS
+
+- Keep periodic tutorial `TUTORIAL.md`, report files `REPORT_NAV*.` and log files up to date with the latest pipeline and code structure.
 
 ## Key Directories
 
 | Path | Purpose |
 |------|---------|
-| `scripts/` | Entry points: `train.py`, `play.py`, `view.py` |
+| `scripts/` | Entry points: `train.py`, `play.py`, `view.py`, `capture_vlm.py` |
 | `motrix_envs/src/motrix_envs/np/env.py` | `NpEnv` base class — core simulation loop |
 | `motrix_envs/src/motrix_envs/registry.py` | Environment registry (`make`, `envcfg`, `env`) |
 | `motrix_rl/src/motrix_rl/cfgs.py` | All RL training configs (PPO hyperparameters) |
@@ -118,4 +221,6 @@ Key state object: `NpEnvState(data, obs, reward, terminated, truncated, info)` w
 | `starter_kit_log/{automl_id}/` | Self-contained automl run: configs/, experiments/, index.yaml, report.md |
 | `starter_kit_docs/` | Competition guides and scoring rules |
 | `runs/` | Training outputs (checkpoints, TensorBoard logs) |
+| `starter_kit_log/vlm_captures/` | VLM frame captures and analysis reports |
 | `.github/skills/` | AI agent skill files for specialized tasks |
+| `.github/skills/subagent-copilot-cli/` | **Copilot CLI subagent skill — visual debugging, reward design, analysis** |
