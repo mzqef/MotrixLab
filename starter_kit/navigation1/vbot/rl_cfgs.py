@@ -1,6 +1,6 @@
 # Navigation1 专用 RL 配置文件
 """
-Nav1 专用 RL 配置 —— 竞赛 Stage 1 (圆形平台导航)
+Navigation1 专用 RL 配置 —— 竞赛 Stage 1 (圆形平台导航)
 """
 
 from dataclasses import dataclass
@@ -9,7 +9,7 @@ from motrix_rl.registry import rlcfg
 from motrix_rl.skrl.cfg import PPOCfg
 
 
-class nav1:
+class navigation1:
     """Navigation1 专用 RL 配置"""
 
     @rlcfg("vbot_navigation_section001")

@@ -18,113 +18,26 @@ Guide competitors to **top rankings** in MotrixArena S1 quadruped navigation cha
 
 ### Two-Phase Structure
 
-| Phase | Terrain | Max Points | Time Limit |
-|-------|---------|------------|------------|
-| **Stage 1 (navigation1)** | Flat ground | 20 pts | Per-dog limit |
-| **Stage 2 (navigation2)** | Obstacle course | 105 pts | Episode limits |
+| Phase | Terrain | Description |
+|-------|---------|-------------|
+| **Stage 1 (navigation1)** | Flat ground | Basic navigation — simpler terrain, lower points |
+| **Stage 2 (navigation2)** | Obstacle course | Complex terrain — slopes, stairs, balls, higher points |
 
-### Scoring Summary
-
-```
-Stage 1 (20 pts total):
-└── 10 navigation dogs × 2 pts each
-
-Stage 2 Section 1 (20 pts):
-├── Base traverse: ~5 pts
-├── Smiley circles: 2×2 + 2×4 = 12 pts
-├── Red packets: 3×2 = 6 pts
-└── Celebration dance: 2 pts
-
-Stage 2 Section 2 (60 pts):
-├── Wave terrain: 8-12 pts
-├── Stairs: 15-20 pts
-├── Bridge/Riverbed: 10-15 pts
-└── Red packets: 6-12 pts (scattered)
-
-Stage 2 Section 3 (25 pts):
-├── Rolling balls: 10-15 pts (dynamic avoidance)
-├── Random terrain: 5 pts
-└── Final celebration: 5 pts
-```
-
-### Competition Environment IDs
-
-| Environment ID | Terrain | Training Focus |
-|----------------|---------|----------------|
-| `vbot_navigation_section001` | Flat ground | Basic locomotion, Stage 1 (navigation1) |
-| `vbot_navigation_section01` | Section 1 challenges | Bonus collection (navigation2) |
-| `vbot_navigation_section02` | Section 2 terrain | Terrain traversal (navigation2) |
-| `vbot_navigation_section03` | Section 3 | Rolling balls, finale (navigation2) |
-| `vbot_navigation_stairs` | Stairs + platforms | Stair climbing (navigation2) |
-| `vbot_navigation_long_course` | Full 30m course | End-to-end training (navigation2) |
+> **Detailed scoring breakdown, environment IDs, and point allocations** are in:
+> - `starter_kit_docs/navigation1/Task_Reference.md` → "Competition Scoring" section
+> - `starter_kit_docs/navigation2/Task_Reference.md` → "Competition Scoring" section
 
 ## VBot Robot Architecture
 
-### 12-DOF Quadruped Structure
+> **Full VBot architecture** (12-DOF kinematic tree, joint configurations, actuator parameters, observation/action spaces, default standing pose) is documented in:
+> `starter_kit_docs/navigation1/Task_Reference.md` → "VBot Robot Architecture" section.
 
-```
-VBot Kinematic Tree:
-base (floating, 6 DOF via freejoint)
-├── FR_hip → FR_thigh → FR_calf (3 DOF)
-├── FL_hip → FL_thigh → FL_calf (3 DOF)
-├── RR_hip → RR_thigh → RR_calf (3 DOF)
-└── RL_hip → RL_thigh → RL_calf (3 DOF)
-```
+### Quick Reference
 
-### Joint Configuration
-
-| Joint Group | Name Pattern | Range (rad) | Function |
-|-------------|--------------|-------------|----------|
-| Hip Abduction/Adduction | `*_hip_joint` | ±0.6 ~ ±1.0 | Lateral stability |
-| Hip Flexion/Extension | `*_thigh_joint` | 0.5 ~ 1.2 | Forward stride |
-| Knee Flexion | `*_calf_joint` | -2.5 ~ -1.2 | Ground clearance |
-
-**Default Standing Pose (radians):**
-```python
-default_joint_angles = {
-    "FR_hip_joint": 0.0,   "FR_thigh_joint": 0.9,   "FR_calf_joint": -1.8,
-    "FL_hip_joint": 0.0,   "FL_thigh_joint": 0.9,   "FL_calf_joint": -1.8,
-    "RR_hip_joint": 0.0,   "RR_thigh_joint": 0.9,   "RR_calf_joint": -1.8,
-    "RL_hip_joint": 0.0,   "RL_thigh_joint": 0.9,   "RL_calf_joint": -1.8,
-}
-```
-
-### Actuator Configuration
-
-| Parameter | Value | Purpose |
-|-----------|-------|---------|
-| Control Mode | Position Servo (PD) | Stable joint tracking |
-| kp (stiffness) | 80.0 N·m/rad | Position gain |
-| kv (damping) | 6.0 N·m·s/rad | Velocity damping |
-| action_scale | 0.25 | Scale [-1,1] actions to radians |
-| Torque Limits | Hip/Thigh: ±17 N·m, Calf: ±34 N·m | From XML forcerange |
-
-### Observation Space (54 dimensions)
-
-```python
-obs = [
-    base_linear_velocity,      # 3D, normalized by 2.0
-    base_angular_velocity,     # 3D (gyro), normalized by 0.25
-    projected_gravity,         # 3D, gravity in body frame
-    joint_positions_relative,  # 12D, normalized by 1.0
-    joint_velocities,          # 12D, normalized by 0.05
-    last_actions,              # 12D
-    velocity_commands,         # 3D (vx, vy, yaw_rate)
-    position_error,            # 2D (to target)
-    heading_error,             # 1D
-    distance_normalized,       # 1D
-    reached_flag,              # 1D
-    stop_ready_flag,           # 1D
-]
-```
-
-### Action Space (12 dimensions)
-
-Output: 12 joint position offsets in range [-1, 1], scaled by `action_scale`:
-```python
-target_position = default_angles + action * action_scale
-torque = kp * (target - current_pos) - kv * current_vel
-```
+- **12 DOF**: 4 legs × 3 joints (hip, thigh, calf)
+- **Control**: Position servo (PD) with `action_scale=0.25`
+- **Observation**: 54D vector (velocities, gravity, joints, commands, errors)
+- **Action**: 12D joint position offsets in [-1, 1]
 
 ## Training Infrastructure
 
@@ -143,43 +56,22 @@ uv run starter_kit_schedule/scripts/automl.py `
     --hp-trials 15
 
 # === SMOKE TEST ONLY (<500K steps) ===
-uv run scripts/train.py --env vbot_navigation_section001 --train-backend torch --max-env-steps 200000
+uv run scripts/train.py --env <env-name> --train-backend torch --max-env-steps 200000
 
 # === VISUAL DEBUGGING ONLY ===
-uv run scripts/train.py --env vbot_navigation_section001 --render
+uv run scripts/train.py --env <env-name> --render
 
 # === FINAL DEPLOYMENT (after AutoML found best config) ===
-uv run scripts/train.py --env vbot_navigation_section001 --train-backend torch
+uv run scripts/train.py --env <env-name> --train-backend torch
 
 # View trained policy
-uv run scripts/play.py --env vbot_navigation_section001
+uv run scripts/play.py --env <env-name>
 ```
 
-### PPO Hyperparameters (VBotSection001PPOConfig)
+### PPO Hyperparameters
 
-> **Tuning and search:** See `hyperparameter-optimization` skill.
-
-```python
-@dataclass
-class VBotSection001PPOConfig(PPOCfg):
-    policy_hidden_layer_sizes: tuple = (256, 128, 64)
-    value_hidden_layer_sizes: tuple = (256, 128, 64)
-    
-    rollouts: int = 24              # Steps before update
-    learning_epochs: int = 8        # PPO epochs per update
-    mini_batches: int = 4           # Batches per epoch
-    discount_factor: float = 0.99   # Gamma
-    lambda_param: float = 0.95      # GAE lambda
-    
-    learning_rate: float = 3e-4
-    learning_rate_scheduler_kl_threshold: float = 0.008
-    
-    ratio_clip: float = 0.2         # PPO clip
-    value_clip: float = 0.2
-    entropy_loss_scale: float = 0.005  # Exploration bonus (was 0.0 — fixed)
-    value_loss_scale: float = 2.0
-    grad_norm_clip: float = 1.0
-```
+> **PPO configuration and tuning:** See `hyperparameter-optimization` skill.
+> **Task-specific PPO config values:** See `starter_kit_docs/{task-name}/Task_Reference.md` → "PPO Hyperparameters" section.
 
 ### Training Timeline Expectations
 
@@ -360,176 +252,44 @@ def orientation_safety(roll, pitch, limit_deg=60):
 
 ## Terrain Traversal Strategies
 
-### Wave Terrain (Section 2A)
+> **Detailed terrain descriptions, obstacle coordinates, and task-specific traversal strategies** are in:
+> `starter_kit_docs/{task-name}/Task_Reference.md` → "Terrain Description" and "Traversal Strategies" sections.
 
-**Challenges:** Undulating surface, momentum maintenance, foot placement timing
+### Abstract Terrain Strategy Patterns
 
-**Strategies:**
-1. **Initial stabilization** - Train standing on waves before walking
-2. **Adaptive stride length** - Shorter steps on downslopes, longer on upslopes
-3. **COM (Center of Mass) control** - Keep body low during transitions
-4. **Velocity modulation** - Slow down approaching wave peaks
+These patterns apply to any terrain type:
 
-**Reward additions:**
-```python
-# Height variance penalty (encourage smooth traversal)
-height_variance = np.var(foot_heights)
-reward -= 0.1 * height_variance
-
-# Forward progress bonus on waves
-if terrain_type == "wave" and forward_vel > 0.3:
-    reward += 0.5
-```
-
-### Stairs (Section 2B)
-
-**Challenges:** Step height clearance, balance during ascent/descent, edge detection
-
-**Strategies:**
-1. **Slope adaptation** - Detect inclination, adjust body pitch
-2. **Foot edge distance** - Train to avoid step edges (slip risk)
-3. **Dynamics compensation** - Higher knee lift during ascent
-4. **Slower velocity** - Prioritize stability over speed
-
-**Reward additions:**
-```python
-# Knee lift bonus during stair ascent
-if terrain_gradient > 0.1:  # Ascending
-    knee_lift = -joint_pos['calf']  # More negative = more bent
-    reward += 0.2 * max(0, knee_lift - 1.5)
-
-# Penalize foot slip (large tangential forces on steps)
-if stair_contact and tangential_force > threshold:
-    reward -= 0.5
-```
-
-### Rolling Balls (Section 3)
-
-**Challenges:** Dynamic obstacles, trajectory prediction, reactive avoidance
-
-**Strategies:**
-1. **Peripheral awareness** - Include ball positions in observation
-2. **Conservative paths** - Prefer edges over center
-3. **Pause & proceed** - Wait for safe window if needed
-4. **Recovery training** - Train to recover from ball impacts
-
-**Observation addition:**
-```python
-# Add ball observations (if visible)
-ball_positions = get_ball_positions()  # [N, 3] relative positions
-ball_velocities = get_ball_velocities()  # [N, 3]
-obs = np.concatenate([obs, ball_positions.flatten(), ball_velocities.flatten()])
-```
-
-### Celebration Zones
-
-**Bonus points for:**
-- Smiley circles: Stand still inside for 1-2 seconds
-- Red packets: Touch/pass through
-- Final dance: Execute specific motion pattern
-
-**Celebration reward:**
-```python
-def celebration_reward(robot_pos, celebration_zones, gyro):
-    """
-    +2 to +5 pts for successful celebrations
-    """
-    for zone_pos, zone_radius, zone_type in celebration_zones:
-        if np.linalg.norm(robot_pos[:2] - zone_pos) < zone_radius:
-            if zone_type == "smiley":
-                # Need to be stable (low rotation rate)
-                if np.linalg.norm(gyro) < 0.5:
-                    return 2.0 if small_smiley else 4.0
-            elif zone_type == "red_packet":
-                return 2.0  # Instant bonus
-    return 0.0
-```
+| Terrain Type | Key Challenge | Strategy Pattern |
+|-------------|---------------|------------------|
+| **Undulating surface** | Momentum, foot placement | Lower COM, shorter strides on downslopes |
+| **Stairs** | Step clearance, balance | Higher knee lift, slower velocity, slope detection |
+| **Dynamic obstacles** | Reactive avoidance | Include obstacle positions in observation space |
+| **Narrow passages** | Precision navigation | Reduce stride width, add boundary penalty |
+| **Bonus zones** | Stop & stay | Explicit stop reward + stability check |
 
 ### Curriculum Strategy
 
 > **Full curriculum plans, warm-start strategies, and promotion criteria:** See `curriculum-learning` skill.
 > **Reward exploration methodology:** See `reward-penalty-engineering` skill.
 
-### Stage Overview
-
-```
-Stage 1: Flat Ground → Stage 2A: Waves → Stage 2B: Stairs → Stage 2C: Balls → Full Course
-     (500K)              (2M)              (3M)              (2M)           (5M)
-```
-
-Each stage warm-starts from the previous best checkpoint with reduced LR (0.3-0.5×).
-
-### Checkpoint Loading
-
-```python
-# Load pretrained policy for curriculum
-trainer = ppo.Trainer(
-    env_name="vbot_navigation_stairs",
-    sim_backend=None,
-    cfg_override={
-        "num_envs": 2048,
-        "checkpoint_path": "runs/vbot_navigation_section001/checkpoints/agent.pt"
-    }
-)
-trainer.train()
-```
+General principle: Train on the simplest terrain first, then progressively add difficulty. Each stage warm-starts from the previous best checkpoint with reduced LR (0.3-0.5×).
 
 ## Scoring Optimization Tactics
 
-### Stage 1: Flat Ground (20 pts)
+> **Detailed scoring breakdowns** with point allocations per section, stage, and element type:
+> - `starter_kit_docs/navigation1/Task_Reference.md` → "Competition Scoring" section
+> - `starter_kit_docs/navigation2/Task_Reference.md` → "Competition Scoring" section
 
-**Target:** 10/10 dogs, 2 pts each = 20 pts
+### Abstract Scoring Optimization Principles
 
-> **⚠️ CRITICAL:** Each dog navigates to inner fence (+1pt) then center (+1pt). If the dog **falls at ANY point**, it loses ALL its points (both +1s). A single fall costs 2 points. Therefore:
-> - A policy that gets 10/10 dogs to center slowly = **20 pts**
-> - A policy that gets 9/10 dogs fast but 1 falls = **18 pts**
-> - Stability > Speed for competition scoring
-
-**Key metrics:**
-- Success rate (100% target → must be near-perfect)
-- Zero falls (termination penalty must be effective)
-- Time to reach (secondary — tiebreaker only)
-
-**Optimization:**
-1. Train to 100% success rate on flat with randomized targets
-2. Keep stability penalties active — never sacrifice stability for speed
-3. Use `vbot_navigation_section001` with position tolerance 0.3m
-4. Position_threshold for truncation ensures robot actually stops at goal
-
-### Stage 2: Section 1 (20 pts)
-
-**Break down:**
-| Element | Points | Strategy |
-|---------|--------|----------|
-| Base traverse | 5 | Just walk forward |
-| Small smileys (×2) | 4 | Stop in circle, stay stable 1s |
-| Large smileys (×2) | 8 | Stop in circle, stay stable 1s |
-| Red packets (×3) | 6 | Slight detour, touch each |
-
-**Observation:** Smileys require **stopping**, not just passing through!
-
-### Stage 2: Section 2 (60 pts)
-
-**Checkpoint strategy:**
-1. Place checkpoints every 2-3m along route
-2. Assign increasing rewards (5→8 pts progression)
-3. Track reached checkpoints in episode info
-
-**Time management:**
-- Section 2 has 60 second episode limit
-- Average speed needed: 0.5 m/s for 30m course
-- Budget extra time for stairs (slowest segment)
-
-### Stage 2: Section 3 (25 pts)
-
-**Dynamic obstacles:**
-- Ball positions change each episode
-- Need reactive policy, not memorized path
-- Include ball observations in training
-
-**Final celebration (5 pts):**
-- Must execute specific motion at end zone
-- Train celebration as separate skill, then combine
+| Principle | Rationale |
+|-----------|----------|
+| **Stability > Speed** | Falls lose ALL points for that attempt; slow-and-steady wins |
+| **Easy points first** | Master the simplest stage before attempting harder ones |
+| **100% success rate** | Near-perfect success rate is more valuable than speed |
+| **Bonus zone collection** | Plan paths to pass through bonus zones when feasible |
+| **Time management** | Budget extra time for difficult segments |
+| **Position tolerance** | Ensure robot actually stops at goal (not just passes through) |
 
 ## Common Failure Modes & Fixes
 
@@ -572,10 +332,10 @@ trainer.train()
 
 ```powershell
 # Test on evaluation environment
-uv run scripts/play.py --env vbot_navigation_section001
+uv run scripts/play.py --env <env-name>
 
-# Play long course
-uv run scripts/play.py --env vbot_navigation_long_course
+# Play long course (if applicable)
+uv run scripts/play.py --env <full-course-env>
 ```
 
 ### Final Checks
@@ -591,7 +351,7 @@ uv run scripts/play.py --env vbot_navigation_long_course
 ### Modify Reward Scales
 
 ```python
-# In starter_kit/navigation1/vbot/cfg.py → RewardConfig class
+# In starter_kit/{task}/vbot/cfg.py → RewardConfig class
 @dataclass
 class RewardConfig:
     scales: dict[str, float] = field(
@@ -606,7 +366,7 @@ class RewardConfig:
 ### Add New Reward Terms
 
 ```python
-# In starter_kit/navigation1/vbot/vbot_section001_np.py → _compute_reward()
+# In starter_kit/{task}/vbot/vbot_*_np.py → _compute_reward()
 def _compute_reward(self, data, info, velocity_commands):
     reward = np.zeros(self._num_envs)
     
@@ -623,7 +383,7 @@ def _compute_reward(self, data, info, velocity_commands):
 ### Extend Observation Space
 
 ```python
-# In vbot_section001_np.py
+# In vbot_*_np.py
 def __init__(self, cfg, num_envs=1):
     # Change observation space size
     self._observation_space = gym.spaces.Box(

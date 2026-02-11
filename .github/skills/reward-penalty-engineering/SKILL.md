@@ -15,9 +15,9 @@ This skill teaches the **methodology of reward/penalty exploration** — how to 
 > **IMPORTANT:**
 > - The reward function lives in `starter_kit/navigation*/vbot/vbot_*_np.py` → `_compute_reward()`.
 > - Reward weights are in `starter_kit/navigation*/vbot/cfg.py` → `RewardConfig.scales` dict.
-> - The reward function IS fully implemented with: position tracking (sigma=5.0), fine position tracking (sigma=0.3, threshold=1.5m), heading, forward velocity, distance_progress (linear), approach, arrival bonus (50), stop bonus, alive_bonus (conditional on NOT reached), time_decay, stability penalties, and termination (-100).
+> - Current reward component details, default values, and search ranges are documented in `starter_kit_docs/{task-name}/Task_Reference.md`.
 > - Anti-laziness mechanisms (conditional alive_bonus, time_decay, successful truncation) are active. Do NOT remove them.
-> - Do NOT re-implement the reward function from scratch. Modify weights or add new terms incrementally.
+> - Do NOT re-implement the reward function from scratch. Always check the existing implementation and documentation before making changes. Modify weights or add new terms incrementally with clear hypotheses, testing, and evaluation and archiving.
 
 > This skill does NOT contain reward component examples or scale tables.
 > Those live in their respective locations:
@@ -31,25 +31,8 @@ This skill teaches the **methodology of reward/penalty exploration** — how to 
 > | Reward weight search spaces | `hyperparameter-optimization` skill |
 > | Visual reward debugging | `subagent-copilot-cli` skill |
 
+
 ---
-
-## 📋 Experiment Reports (MANDATORY check before reward changes)
-
-> **ALWAYS read `REPORT_NAV*.md` files at the workspace root before modifying rewards.**
-
-```powershell
-Get-ChildItem REPORT_NAV*.md | Select-Object Name, Length, LastWriteTime
-Get-Content REPORT_NAV1.md
-```
-
-**What to look for in reports:**
-- Section 17 ("Current Configuration State") — verified reward scale values
-- Section 15 ("Sprint-and-Crash Exploit") — known reward hacking pattern
-- Section 20 ("Lessons Learned") — pitfalls to avoid
-- "Next Steps" section — active TODO items
-- Per-experiment reward component breakdowns (TensorBoard tags)
-
-> **After making any reward change and running an experiment**, append results to the report.
 
 ## When to Use This Skill
 
@@ -127,13 +110,13 @@ Before touching rewards, identify **what behavior** is wrong. Not "the reward is
 
 ```powershell
 # 1. Watch the policy — ALWAYS start here before looking at numbers
-uv run scripts/play.py --env vbot_navigation_section001
+uv run scripts/play.py --env <env-name>
 
 # 2. Train with rendering to see behavior in real time
-uv run scripts/train.py --env vbot_navigation_section001 --render
+uv run scripts/train.py --env <env-name> --render
 
 # 3. TensorBoard for reward curves
-uv run tensorboard --logdir runs/vbot_navigation_section001
+uv run tensorboard --logdir runs/<env-name>
 ```
 
 ### Visual Diagnosis
@@ -244,8 +227,8 @@ Get-Content starter_kit_schedule/reward_library/components/<name>.yaml
 
 | Change Type | Location |
 |-------------|----------|
-| Adjust existing weight | `starter_kit/navigation1/vbot/cfg.py` → `RewardConfig.scales` dict |
-| Add new reward term | `starter_kit/navigation1/vbot/vbot_section001_np.py` → `_compute_reward()` |
+| Adjust existing weight | `starter_kit/{task}/vbot/cfg.py` → `RewardConfig.scales` dict |
+| Add new reward term | `starter_kit/{task}/vbot/vbot_*_np.py` → `_compute_reward()` |
 | Configure component | `starter_kit_schedule/templates/reward_config_template.yaml` |
 
 ### Change Magnitude Guidelines
@@ -487,16 +470,22 @@ Get-ChildItem starter_kit_schedule/reward_library/rejected/ -Name
 
 ---
 
+## Optimal Reward Calculation Principle
+
+For each reward/penalty design, first read the workspace `REPORT_NAV*.md` files to locate or add representative test cases (for example: robot standing still, robot randomly walking, robot sprinting to the target and staying there safely). For each test case estimate the expected cumulative reward magnitudes (order-of-magnitude) before running long experiments — this helps set sensible search ranges and avoids reward hacking and reward-budget imbalances that lead to exploits.
+
+---
+
 ## 🔴 Case Study: The Lazy Robot (Reward Hacking)
 
-This case study documents a critical reward hacking failure discovered during Round 1 full training, and the three-pronged fix.
+This case study documents a critical reward hacking failure discovered during long training, and the three-pronged fix. The specific numbers below are illustrative — see `starter_kit_docs/{task-name}/Task_Reference.md` for exact values.
 
 ### Timeline
 
-1. **Round 1 AutoML** (15 trials, 5M steps): Best trial achieved reward=6.75, reached=6.45%. Looked promising.
-2. **50M full training**: Early metrics excellent — distance 7.6→0.65m, arrival_total=18.76 (~90% reach rate).
-3. **At step 24320 (~30min)**: Robot became lazy. Distance went UP (0.65→1.65m), reached% dropped (2.93→0.30%), episode length near max (3777/4000).
-4. **Root cause**: `alive_bonus(0.5) × ~3800 steps ≈ 1900` dwarfed `arrival_bonus = 15`. The robot discovered standing still in a safe spot was the optimal strategy.
+1. **Short AutoML trials**: Best trial achieved good reward, moderate reached%. Looked promising.
+2. **Long full training**: Early metrics excellent — distance decreasing, high reach rate.
+3. **At ~30 min mark**: Robot became lazy. Distance went UP, reached% dropped, episode length near max.
+4. **Root cause**: `alive_bonus × ~max_steps` dwarfed `arrival_bonus`. The robot discovered standing still in a safe spot was the optimal strategy.
 
 ### Detection Signals
 
@@ -504,7 +493,7 @@ This case study documents a critical reward hacking failure discovered during Ro
 |--------|---------|------------|
 | Distance to target | Decreasing → 0 | Decreasing then **increasing** |
 | Reached % | Increasing | Increasing then **dropping to ~0** |
-| Episode length | Moderate (500-2000) | **Near max_steps (3800+)** |
+| Episode length | Moderate (500-2000) | **Near max_steps** |
 | Reward | Increasing | **Still looks good** (alive_bonus accumulates!) |
 | Arrival bonus (TensorBoard) | Increasing | **Dropping toward 0** |
 
@@ -532,67 +521,14 @@ time_decay = np.clip(1.0 - 0.5 * env_steps / max_episode_steps, 0.5, 1.0)
 
 #### 3. Massive arrival_bonus
 ```python
-# BEFORE: arrival_bonus = 15 (trivially beaten by alive_bonus accumulation)
-# AFTER: arrival_bonus = 50 (searched in range [20, 100])
+# BEFORE: arrival_bonus too small (trivially beaten by alive_bonus accumulation)
+# AFTER: arrival_bonus large enough to dominate
 # Rule of thumb: arrival_bonus > alive_bonus × max_steps / 4
 ```
 
 ### Lesson
 
 **Always audit the reward budget.** Compute: what is the maximum reward achievable by the desired behavior vs. by the degenerate behavior? If they're close, the agent WILL find the exploit given enough training time.
-
----
-
-## Integration with Other Skills
-
-This skill (methodology) connects to other skills (execution) as follows:
-
-```
-                    ┌─────────────────────────────┐
-                    │  reward-penalty-engineering  │
-                    │     (THIS SKILL)             │
-                    │  HOW to explore rewards      │
-                    └──────────┬──────────────────┘
-                               │
-            ┌──────────────────┼──────────────────────┐
-            ▼                  ▼                       ▼
-  ┌─────────────────┐ ┌──────────────────┐ ┌─────────────────────┐
-  │ quadruped-      │ │ curriculum-      │ │ hyperparameter-     │
-  │ competition-    │ │ learning         │ │ optimization        │
-  │ tutor           │ │                  │ │                     │
-  │                 │ │ Stage-specific   │ │ Automated reward    │
-  │ Reward code     │ │ reward overrides │ │ weight search       │
-  │ examples,       │ │ and progression  │ │ (grid/bayesian)     │
-  │ competition     │ │                  │ │                     │
-  │ score rules     │ └────────┬─────────┘ └──────────┬──────────┘
-  └────────┬────────┘          │                       │
-           │            ┌──────▼───────────────────────▼─────┐
-           │            │         training-campaign          │
-           │            │  Execute experiments, log results  │
-           └────────────┤                                    │
-                        └──────────────┬─────────────────────┘
-                                       │
-                        ┌──────────────▼─────────────────────┐
-                        │      subagent-copilot-cli          │
-                        │  Visual diagnosis of reward effects│
-                        └────────────────────────────────────┘
-
-  Archive storage: starter_kit_schedule/reward_library/
-  Component reference: starter_kit_schedule/templates/reward_config_template.yaml
-```
-
-### Delegation Guide
-
-| "I need to..." | Delegate to |
-|-----------------|-------------|
-| See what reward components exist and their scale ranges | Read `reward_config_template.yaml` |
-| Find reward code for specific terrain challenges | Read `quadruped-competition-tutor` skill |
-| Set up reward overrides per curriculum stage | Read `curriculum-learning` skill |
-| Run automated reward weight search | Read `hyperparameter-optimization` skill |
-| Execute and monitor a reward experiment | Read `training-campaign` skill |
-| Visually inspect what a reward change did | Read `subagent-copilot-cli` skill |
-| Understand competition scoring to align rewards | Read `quadruped-competition-tutor` skill |
-| Modify the VBot MJCF model | Read `mjcf-xml-reasoning` skill |
 
 ---
 

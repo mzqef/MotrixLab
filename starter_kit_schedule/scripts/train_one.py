@@ -102,7 +102,10 @@ def main():
 
     start_time = time.time()
     trainer = ppo.Trainer(env_name, cfg_override=rl_overrides)
-    trainer.train()
+
+    # Warm-start from checkpoint if specified (loads policy/value weights only, not optimizer state)
+    checkpoint_path = config.get("checkpoint")
+    trainer.train(checkpoint=checkpoint_path)
     elapsed = time.time() - start_time
 
     # Find the new run directory created during training.

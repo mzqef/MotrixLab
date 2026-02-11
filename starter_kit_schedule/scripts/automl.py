@@ -114,9 +114,9 @@ class EvalMetrics:
     termination_rate: float = 0.0
 
     def compute_score(self) -> float:
-        """Compute weighted AutoML score — aligned with nav1 competition rules.
+        """Compute weighted AutoML score — aligned with navigation1 competition rules.
 
-        Competition scoring (nav1):
+        Competition scoring (navigation1):
           - Binary: reach inner fence (+1) + reach center (+1) per robot
           - Any fall = 0 points for that robot
           - 10 robots, max 20 points
@@ -238,6 +238,7 @@ REWARD_SEARCH_SPACE = {
     "stop_scale": {"type": "uniform", "low": 2.0, "high": 10.0},
     "zero_ang_bonus": {"type": "uniform", "low": 4.0, "high": 16.0},
     "near_target_speed": {"type": "uniform", "low": -4.0, "high": -0.5},
+    "departure_penalty": {"type": "uniform", "low": -15.0, "high": -1.0},  # Round8: penalize leaving center zone
     "boundary_penalty": {"type": "uniform", "low": -5.0, "high": -0.5},
     # === Stability penalties ===
     "orientation": {"type": "uniform", "low": -0.15, "high": -0.01},
@@ -280,6 +281,7 @@ REWARD_COMPONENT_CATEGORIES = {
     # Approach / arrival / stop (Phase5)
     "inner_fence_bonus": "navigation",
     "near_target_speed": "navigation",
+    "departure_penalty": "navigation",
     "boundary_penalty": "stability",
     # Termination
     "termination": "termination",

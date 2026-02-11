@@ -36,7 +36,7 @@ from pathlib import Path
 from absl import app, flags
 
 # ── Environment registration (same pattern as play.py) ─────────────────────
-_NAV2_ENVS = {
+_NAVIGATION2_ENVS = {
     "vbot_navigation_section011",
     "vbot_navigation_section012",
     "vbot_navigation_section013",
@@ -48,8 +48,8 @@ for _i, _arg in enumerate(sys.argv):
         _env_name_for_import = sys.argv[_i + 1]
         break
 
-if _env_name_for_import in _NAV2_ENVS:
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "starter_kit"))
+if _env_name_for_import in _NAVIGATION2_ENVS:
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "starter_kit" / "navigation2"))
     import navigation2  # noqa: F401
 else:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "starter_kit" / "navigation1"))

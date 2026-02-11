@@ -21,6 +21,8 @@ import logging
 import sys
 from pathlib import Path
 import numpy as np
+import json
+import ast
 
 from absl import app, flags
 from skrl import config
@@ -40,6 +42,17 @@ _TARGET_X = flags.DEFINE_float("target-x", 0.0, "Target X position (center of ci
 _TARGET_Y = flags.DEFINE_float("target-y", 0.0, "Target Y position (center of circular platform)")
 _TARGET_YAW = flags.DEFINE_float("target-yaw", 0.0, "Target heading (radians)")
 _SPAWN_RADIUS = flags.DEFINE_float("spawn-radius", 8.0, "Radius of circle to spread robots around target")
+_SPAWN_INNER_RADIUS = flags.DEFINE_float(
+    "spawn-inner-radius",
+    0.0,
+    "Inner radius for annulus spawn (use with --spawn-outer-radius)",
+)
+_SPAWN_OUTER_RADIUS = flags.DEFINE_float(
+    "spawn-outer-radius",
+    0.0,
+    "Outer radius for annulus spawn (0 to disable; uses --spawn-radius circle)",
+)
+_MAX_EPISODE_STEPS = flags.DEFINE_integer("max-episode-steps", 1000, "Max steps per episode")
 
 
 def find_best_policy(env_name: str) -> str:
@@ -99,7 +112,8 @@ def get_inference_backend(policy_path: str):
 def play_with_single_target(env_name: str, policy_path: str, backend: str, 
                             num_envs: int, seed: int, target_x: float, 
                             target_y: float, target_yaw: float,
-                            spawn_radius: float, enable_render: bool):
+                            spawn_radius: float, spawn_inner_radius: float,
+                            spawn_outer_radius: float, enable_render: bool):
     """Custom play function that creates environment with single target override.
     
     All robots are placed in a circle around the shared target and navigate
@@ -116,24 +130,47 @@ def play_with_single_target(env_name: str, policy_path: str, backend: str,
     # Get RL config
     rlcfg = rl_registry.default_rl_cfg(env_name, "skrl", backend="torch")
     rlcfg = rlcfg.replace(play_num_envs=num_envs, seed=seed)
+
+    # Load model sizes from the training run metadata when available.
+    try:
+        policy_path_obj = Path(policy_path)
+        run_dir = policy_path_obj.parent.parent
+        meta_path = run_dir / "experiment_meta.json"
+        if meta_path.exists():
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            overrides = meta.get("rl_overrides", {})
+            policy_sizes = overrides.get("policy_hidden_layer_sizes")
+            value_sizes = overrides.get("value_hidden_layer_sizes")
+            if policy_sizes:
+                rlcfg = rlcfg.replace(policy_hidden_layer_sizes=ast.literal_eval(policy_sizes))
+            if value_sizes:
+                rlcfg = rlcfg.replace(value_hidden_layer_sizes=ast.literal_eval(value_sizes))
+    except Exception as exc:
+        logger.warning("Failed to read model sizes from metadata: %s", exc)
     
     # Create environment
     env = env_registry.make(env_name, sim_backend=None, num_envs=num_envs)
+    env._cfg.max_episode_steps = _MAX_EPISODE_STEPS.value
     set_seed(seed)
     
     # ===== FIX 1: Collapse all envs into same visual space =====
     env._render_spacing = 0.0
     
-    # Pre-compute circle spawn positions around the target
+    # Pre-compute spawn positions around the target
     shared_target = np.array([target_x, target_y, target_yaw], dtype=np.float32)
     
-    def _make_circle_positions(n, radius):
-        """Generate n positions equally spaced on a circle around the target."""
-        angles = np.linspace(0, 2 * np.pi, n, endpoint=False)
-        # Small random jitter to avoid perfect symmetry
-        angles += np.random.uniform(-0.05, 0.05, size=n)
-        xs = target_x + radius * np.cos(angles)
-        ys = target_y + radius * np.sin(angles)
+    def _make_spawn_positions(n, radius, inner_radius, outer_radius):
+        """Generate n random positions on a circle or annulus around the target."""
+        angles = np.random.uniform(0.0, 2 * np.pi, size=n)
+        if outer_radius > 0.0:
+            inner = max(0.0, inner_radius)
+            outer = max(outer_radius, inner)
+            # Uniform area sampling in annulus.
+            r = np.sqrt(np.random.uniform(0.0, 1.0, size=n) * (outer**2 - inner**2) + inner**2)
+        else:
+            r = np.full(n, radius)
+        xs = target_x + r * np.cos(angles)
+        ys = target_y + r * np.sin(angles)
         return xs, ys, angles
     
     # Override reset to:
@@ -143,38 +180,33 @@ def play_with_single_target(env_name: str, policy_path: str, backend: str,
     #   4. Recompute observations for the correct target
     original_reset = env.reset
     
-    _initial_reset_done = False
-    
     def custom_reset(data, done=None):
-        nonlocal _initial_reset_done
         obs, info = original_reset(data, done)
         n = data.shape[0]
         
         # Override target for all envs
         info["pose_commands"] = np.tile(shared_target, (n, 1))
-        
-        if not _initial_reset_done:
-            # First reset: spread all robots in a circle around the target
-            _initial_reset_done = True
-        else:
-            # Partial reset (during play loop): only override targets, keep positions from env.reset
-            # This prevents clobbering running robots when one reaches the center
+        reset_mask = np.ones(n, dtype=bool) if done is None else np.asarray(done, dtype=bool)
+        if not np.any(reset_mask):
             return obs, info
-        
-        circle_x, circle_y, circle_angles = _make_circle_positions(n, spawn_radius)
+
+        reset_indices = np.where(reset_mask)[0]
+        circle_x, circle_y, circle_angles = _make_spawn_positions(
+            len(reset_indices), spawn_radius, spawn_inner_radius, spawn_outer_radius
+        )
         spawn_height = env._cfg.init_state.pos[2]  # default Z height
         
         dof_pos = data.dof_pos.copy()
-        dof_pos[:, 3] = circle_x   # base X
-        dof_pos[:, 4] = circle_y   # base Y
-        dof_pos[:, 5] = spawn_height  # base Z
+        dof_pos[reset_indices, 3] = circle_x   # base X
+        dof_pos[reset_indices, 4] = circle_y   # base Y
+        dof_pos[reset_indices, 5] = spawn_height  # base Z
         
         # Face each robot toward the center (target)
-        for i in range(n):
-            face_yaw = circle_angles[i] + np.pi  # point toward center
+        for idx, angle in zip(reset_indices, circle_angles):
+            face_yaw = angle + np.pi  # point toward center
             quat = env._euler_to_quat(0, 0, face_yaw)
             quat = quat / (np.linalg.norm(quat) + 1e-8)
-            dof_pos[i, 6:10] = quat
+            dof_pos[idx, 6:10] = quat
         
         data.set_dof_pos(dof_pos, env._model)
         env._model.forward_kinematic(data)
@@ -272,13 +304,69 @@ def play_with_single_target(env_name: str, policy_path: str, backend: str,
     # Disable success truncation so robots stay visible after reaching center
     # (during training this truncates to save steps, but during demo it looks like vanishing)
     env._success_truncate = np.zeros(num_envs, dtype=bool)
-    original_update_truncate = env._update_truncate
+    from motrix_envs.np.env import NpEnv
+
     def _play_update_truncate():
-        original_update_truncate()
-        # Suppress success truncation — only allow max_episode_steps truncation
+        # Only apply max_episode_steps truncation (no success truncation)
+        NpEnv._update_truncate(env)
         env._success_truncate = np.zeros(num_envs, dtype=bool)
     env._update_truncate = _play_update_truncate
     
+    def _termination_causes(state):
+        data = state.data
+        info = state.info
+        base_contact = np.zeros(env._num_envs, dtype=bool)
+        if getattr(env, "_has_base_contact_sensor", False):
+            try:
+                base_contact_value = env._model.get_sensor_value("base_contact", data)
+                if base_contact_value.ndim == 0:
+                    base_contact = np.array([base_contact_value > 0.01], dtype=bool)
+                elif base_contact_value.shape[0] != env._num_envs:
+                    base_contact = np.full(env._num_envs, base_contact_value.flatten()[0] > 0.01, dtype=bool)
+                else:
+                    base_contact = (base_contact_value > 0.01).flatten()[: env._num_envs]
+            except BaseException:
+                base_contact = np.zeros(env._num_envs, dtype=bool)
+
+        projected_gravity = env._compute_projected_gravity(env._body.get_pose(data)[:, 3:7])
+        gxy = np.linalg.norm(projected_gravity[:, :2], axis=1)
+        gz = projected_gravity[:, 2]
+        tilt_angle = np.arctan2(gxy, np.abs(gz))
+        side_flip = tilt_angle > np.deg2rad(75)
+
+        joint_vel = env.get_dof_vel(data)
+        vel_max = np.abs(joint_vel).max(axis=1)
+        joint_overflow = vel_max > env._cfg.max_dof_vel
+        joint_extreme = np.isnan(joint_vel).any(axis=1) | np.isinf(joint_vel).any(axis=1)
+        joint_overflow = joint_overflow | joint_extreme
+
+        max_steps = info.get("steps", np.zeros(env._num_envs, dtype=np.int32)) >= env._cfg.max_episode_steps
+        success_truncate = getattr(env, "_success_truncate", np.zeros(env._num_envs, dtype=bool))
+
+        return base_contact, side_flip, joint_overflow, max_steps, success_truncate
+
+    original_reset_done_envs = env._reset_done_envs
+    env._last_done_causes = None
+
+    def _play_reset_done_envs():
+        state = env._state
+        done = state.done
+        if np.any(done):
+            base_contact, side_flip, joint_overflow, max_steps, success_truncate = _termination_causes(state)
+            env._last_done_causes = {
+                "done": done.copy(),
+                "base_contact": base_contact,
+                "side_flip": side_flip,
+                "joint_overflow": joint_overflow,
+                "max_steps": max_steps,
+                "success_truncate": success_truncate,
+            }
+        else:
+            env._last_done_causes = None
+        original_reset_done_envs()
+
+    env._reset_done_envs = _play_reset_done_envs
+
     # Wrap environment for SKRL
     wrapped_env = wrap_env(env, enable_render)
     
@@ -304,7 +392,34 @@ def play_with_single_target(env_name: str, policy_path: str, backend: str,
             t = time.time()
             outputs = agent.act(obs, timestep=0, timesteps=0)
             actions = outputs[-1].get("mean_actions", outputs[0])
-            obs, _, _, _, _ = wrapped_env.step(actions)
+            obs, _, terminated, truncated, _ = wrapped_env.step(actions)
+            if torch.is_tensor(terminated):
+                terminated = terminated.detach().cpu().numpy()
+            if torch.is_tensor(truncated):
+                truncated = truncated.detach().cpu().numpy()
+            done = np.logical_or(terminated, truncated)
+            if np.any(done):
+                causes = getattr(env, "_last_done_causes", None)
+                if causes is None:
+                    done_indices = np.where(done)[0]
+                    for idx in done_indices:
+                        logger.info("env %d done: unknown", idx)
+                else:
+                    done_indices = np.where(causes["done"])[0]
+                    for idx in done_indices:
+                        reasons = []
+                        if causes["base_contact"][idx]:
+                            reasons.append("base_contact")
+                        if causes["side_flip"][idx]:
+                            reasons.append("side_flip")
+                        if causes["joint_overflow"][idx]:
+                            reasons.append("joint_overflow")
+                        if causes["max_steps"][idx]:
+                            reasons.append("max_episode_steps")
+                        if causes["success_truncate"][idx]:
+                            reasons.append("success_truncate")
+                        reason_text = ", ".join(reasons) if reasons else "unknown"
+                        logger.info("env %d done: %s", idx, reason_text)
             wrapped_env.render()
             delta_time = time.time() - t
             if delta_time < 1.0 / fps:
@@ -351,6 +466,8 @@ def main(argv):
             target_y=_TARGET_Y.value,
             target_yaw=_TARGET_YAW.value,
             spawn_radius=_SPAWN_RADIUS.value,
+            spawn_inner_radius=_SPAWN_INNER_RADIUS.value,
+            spawn_outer_radius=_SPAWN_OUTER_RADIUS.value,
             enable_render=enable_render
         )
 

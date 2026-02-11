@@ -20,7 +20,10 @@
 10. [The Complete Experiment Timeline](#10-the-complete-experiment-timeline)
 11. [Design Principles (Summary)](#11-design-principles)
 12. [Lesson 8: Use AutoML Batch Search, Not Manual train.py](#12-lesson-8-automl-batch-search)
-13. [Appendix: Key Code Patterns](#appendix-key-code-patterns)
+13. [Lesson 9: Understand Your Metric Before Optimizing It](#13-lesson-9-understand-your-metric)
+14. [Lesson 10: Reach-and-Farm — The Third Reward Exploit](#14-lesson-10-reach-and-farm)
+15. [Lesson 11: Time-Decay and Boundary Hovering](#15-lesson-11-time-decay-and-boundary-hovering)
+16. [Appendix: Key Code Patterns](#appendix-key-code-patterns)
 
 ---
 
@@ -33,7 +36,7 @@
 - **Observation**: 54-dimensional vector (linear velocity, gyro, projected gravity, joint positions/velocities, last actions, velocity commands, position error, heading error, distance, reached flag)
 - **Action**: 12-dimensional (4 legs × 3 joints), mapped to PD torque targets via `torque = kp*(target - current) - kv*velocity`
 - **Success**: Robot arrives within 0.3m of center AND stops (speed < 0.15 m/s) for 50 consecutive steps (0.5 seconds)
-- **Episode**: Max 4000 steps (40 seconds) or until robot falls (body contact with ground)
+- **Episode**: Max 1000 steps (10 seconds) after Round6 fix — originally 4000 steps (40 seconds), reduced to prevent standing-dominance exploit (see Lesson 1). Or until robot falls (body contact with ground)
 
 **Competition scoring**: 10 robots × 2 points each = 20 max. Robots spawn at ~10m from center.
 
@@ -458,6 +461,9 @@ This shows the iterative nature of RL experimentation — each run reveals new i
 | 10 | forward_velocity=0.5 | 6K | 8.6% | Still too weak | Need ≥0.8 for navigation drive |
 | 11 | Speed cap + term=-250 | 8K | 7% | Too conservative | Termination too harsh |
 | 12 | term=-200, speed cap=0.6 | — | — | Interrupted | Should have used AutoML |
+| R6v4 | **Round6: max_steps=1000, fwd=1.5, term=-100** | 7K/15M | **27.7%** | First working Round6 config | Reward budget audit proved standing>>> walking at 4000 steps |
+| AM4 T1 | AutoML best (arrival=130, approach=40) | 4880/10M | **44.6%** | Best overall metric | Stop farming inflated metric (uncapped stop_bonus) |
+| R7 Full | T1 + Round7 stop cap (50-step budget) | 7700/15M | **32.9%** | **First non-declining trajectory** | Stop cap working; still climbing when stopped |
 
 **Key insight**: Progress is not linear. Each experiment's failure teaches you something specific. The biggest breakthroughs come from **diagnosing the per-component reward breakdown**, not from tuning a single number.
 
@@ -514,6 +520,10 @@ The most important signals:
 13. **Short runs reveal failure modes quickly.** 5-10K TensorBoard steps (~2-5 hours) is enough to see if reward shaping is working. Don't wait for 10M steps to discover a broken budget.
 
 14. **Use AutoML batch search, not manual train.py iteration.** When comparing N reward configurations, use `automl.py --hp-trials N`. Manual one-at-a-time search is slow, error-prone, and produces no structured comparison. See [Lesson 8](#12-lesson-8-automl-batch-search).
+
+15. **Verify what your metric actually computes at the code level.** `reached_fraction` measuring instantaneous occupancy vs cumulative success changes interpretation of every experiment. See [Lesson 9](#13-lesson-9-understand-your-metric).
+
+16. **Time-cap any per-step reward that can be farmed post-task.** If the robot can earn per-step rewards after completing its primary task, compute the farming budget vs navigation budget. Cap farming duration to prevent it dominating. See [Lesson 10](#14-lesson-10-reach-and-farm).
 
 ---
 
@@ -586,6 +596,132 @@ This will:
 > The AutoML pipeline exists precisely for parameter search. Manual iteration is the RL equivalent of debugging by adding print statements throughout your code instead of using a debugger.
 
 ---
+
+## 13. Lesson 9: Understand Your Metric Before Optimizing It
+
+### The Misinterpretation
+
+Throughout early experiments, `reached_fraction` was treated as a per-episode success rate ("67% of episodes succeeded"). In reality, it is the **instantaneous fraction of parallel environments** where `distance_to_target < 0.5m` — a time-averaged target occupancy metric.
+
+### Why the Distinction Matters
+
+| Policy | reached_fraction | Per-Episode Success | Behavior |
+|--------|-----------------|---------------------|----------|
+| Sprint-crash | 18% | **98%** | Almost every episode touches target, but robot crashes immediately — low occupancy |
+| Reach-and-farm | **44%** | 88% | Robot reaches target and sits there farming stop_bonus — inflated occupancy |
+| Healthy navigation | 28% | 75% | Robot reaches, stops briefly, episode truncates — honest occupancy |
+
+**Key insight**: The per-episode success rate (from `arrival_bonus / scale`) is typically 3-5× higher than `reached_fraction`. The difference is that robots spend most of each episode traversing. For competition scoring (which rewards sustained target presence), `reached_fraction` is actually the better proxy.
+
+### Deriving Per-Episode Success Rate
+
+```python
+# arrival_bonus is a ONE-TIME reward given on first_time_reach
+# Its mean across episodes = scale × p(reach_in_episode)
+per_episode_success = mean(arrival_bonus) / arrival_bonus_scale
+```
+
+### Takeaway
+
+> **Always verify what your metric actually computes at the code level.** `reached_fraction` measuring instantaneous occupancy vs cumulative success changes how you interpret every experiment. All relative comparisons remain valid (same metric throughout), but absolute interpretation requires understanding the definition.
+
+---
+
+## 14. Lesson 10: Reach-and-Farm — The Third Reward Exploit
+
+### The Pattern
+
+After fixing Lazy Robot (per-step alive exploit) and Sprint-Crash (per-episode reset exploit), a **third** exploit emerged: Reach-and-Farm.
+
+| Step | reached_frac | Reward | stop_bonus | Interpretation |
+|------|-------------|--------|-----------|----------------|
+| 3000 | 30.9% | 2.56 | 519 | Normal navigation |
+| 4000 | **32.0% (PEAK)** | 2.73 | 799 | Stop farming starting |
+| 4600 | 29.8% (declining) | **2.90 (still rising!)** | 1030 | Reward↑ while metric↓ = HACK |
+
+### The Budget Analysis
+
+```python
+# Per-step stop_bonus when perfectly still at target:
+stop_base = 5.97 × (0.8×exp(-v²/0.04) + 1.2×exp(-ω⁴/0.0001)) ≈ 11.94/step
+zero_ang_bonus = 9.27/step  (when |ω_z| < 0.05)
+total_per_step = 21.21/step
+
+# With max_episode_steps=1000 and reaching at step ~400:
+remaining_steps = 600
+stop_farming_total = 21.21 × 600 = 12,726
+
+# Navigation reward total for completing the task:
+approach(~200) + forward(~200) + arrival(130) + inner_fence(40) + alive(~41) = ~611
+
+# RATIO: 12,726 / 611 = 20.8× in favor of farming!
+```
+
+### Why It's Different from Lazy Robot and Sprint-Crash
+
+| | Lazy Robot | Sprint-Crash | **Reach-and-Farm** |
+|---|-----------|-------------|-------------------|
+| **Exploits** | Per-step alive | Per-episode arrival | **Post-arrival per-step stop** |
+| **Reaches target?** | ❌ No | ✅ Yes (briefly) | ✅ Yes (and stays) |
+| **Episode length** | Maximum | Very short | **Maximum** |
+| **Diagnostic** | ep_len→max, reached→0 | ep_len→min, fwd_vel→max | **Reward↑ while reached%↓ AFTER initial peak** |
+| **Root cause** | alive >> arrival | arrival cheap, reset cheap | **stop × remaining >> navigation** |
+
+### The Fix: Time-Capped Stop_Bonus (Round7)
+
+```python
+# Track when robot first reaches target
+info["first_reach_step"] = np.where(first_time_reach & (info["first_reach_step"] < 0),
+                                     steps, info["first_reach_step"])
+# Only give stop_bonus for first 50 steps after reaching
+steps_since_reach = steps - info["first_reach_step"]
+stop_eligible = np.clip(50.0 - steps_since_reach, 0.0, 50.0) > 0
+genuinely_slow = reached_all & (speed_xy < 0.3) & stop_eligible
+```
+
+**Result**: Farming reward reduced from 12,726 to 1,060 (12× reduction). Navigation-to-farming ratio improved from 1:20.8 to 1:1.7. Round7 produced the only training run that did NOT show peak-then-decline through the critical step 4000-7000 zone.
+
+### Taxonomy of Known Reward Exploits
+
+| # | Name | What it exploits | Onset | Fix |
+|---|------|-----------------|-------|-----|
+| 1 | **Lazy Robot** | Per-step alive_bonus | Immediate | Reduce alive, increase arrival |
+| 2 | **Sprint-Crash** | Per-episode arrival + cheap resets | Mid-training | Speed capping, speed-distance coupling |
+| 3 | **Stand Dominance** | alive × max_steps >> arrival | Immediate | Shorten episode (4000→1000) |
+| 4 | **Touch-and-Die** | alive=0 after reaching | Early | Always-active alive_bonus |
+| 5 | **Fly-Through** | stop_bonus at any speed | Early | Speed-gate (v<0.3) |
+| 6 | **Deceleration Moat** | Penalty zone too large | Early | Reduce near_target radius (2m→0.5m) |
+| 7 | **Conservative Hovering** | termination too harsh | Early | Reduce to -100/-150 |
+| 8 | **Negative Walk Incentive** | Penalties cancel movement | Immediate | Increase forward_velocity scale |
+| 9 | **Reach-and-Farm** | Post-arrival stop_bonus farming | Late (after step 4K) | Time-cap stop_bonus (50-step budget) |
+
+### The "Proposal Evaluation" Framework
+
+When evaluating reward improvement proposals, apply these filters:
+
+1. **Does the new signal provide gradient information the policy doesn't already have?** Tightening a gate threshold removes gradient signal if an exponential already provides it (e.g., stop speed gate 0.3→0.15 rejected because `exp(-(v/0.2)²)` already differentiates 0.3 from 0.15).
+
+2. **Does the new signal risk re-introducing a known exploit?** Any time-based bonus at the target risks Reach-and-Farm. Check against the taxonomy above.
+
+3. **Is there an architectural gap or just a scaling gap?** A departure penalty fills an architectural gap (no feedback for leaving the target in either reward branch). Tightening a threshold is a scaling change (the signal exists, just weaker).
+
+4. **Does the condition guard against exploration penalty?** Global retreat penalties kill exploration (Round5 lesson). Conditional penalties (`ever_reached` guard) only activate after the robot has proven competence.
+
+---
+
+## 15. Lesson 11: Time-Decay and Boundary Hovering
+
+Two late-stage incentives were found to distort long runs:
+
+1. **Time-decay creates a die-early incentive**. If per-step rewards are multiplied by a decaying factor, two short episodes can outscore one long episode, so PPO learns to crash or reset early.
+2. **Ungated fine-position tracking encourages hovering near the boundary**. The sharp `fine_position_tracking` signal (sigma=0.5) can make staying just outside the `reached` radius almost as profitable as reaching.
+
+**Fixes adopted in Navigation1:**
+
+- **Remove time_decay** so later steps are not devalued.
+- **Gate fine_position_tracking behind** `ever_reached` so the precision signal only activates after the robot has proven it can reach.
+
+These changes shift the incentive structure toward completing the task and holding position rather than cycling short episodes or hovering just outside the target radius.
 
 ## Appendix: Key Code Patterns
 
@@ -668,15 +804,3 @@ if cfg.lr_scheduler_type == "linear":
 # Quick config check — run before every training launch
 uv run python -c "from starter_kit.navigation1.vbot import cfg as _; from motrix_envs.registry import make; env = make('vbot_navigation_section001', num_envs=1); s = env._cfg.reward_config.scales; print('alive:', s['alive_bonus'], '| arrival:', s['arrival_bonus'], '| term:', s['termination'], '| fwd_vel:', s['forward_velocity'], '| spawn:', env._cfg.spawn_inner_radius, '-', env._cfg.spawn_outer_radius)"
 ```
-
----
-
-## Further Reading
-
-- **REPORT_NAV1.md** — Full experiment log with every data point, attempt, and outcome
-- **`.github/copilot-instructions.md`** — AutoML-first policy and essential commands
-- **`.github/skills/reward-penalty-engineering/SKILL.md`** — Systematic process for reward discovery
-- **`.github/skills/curriculum-learning/SKILL.md`** — Stage progression with warm-starts
-- **`.github/skills/hyperparameter-optimization/SKILL.md`** — AutoML grid/random/Bayesian search
-- **`starter_kit_schedule/scripts/automl.py`** — AutoML batch search engine (use instead of train.py)
-- **MotrixArena S1 Competition Guide** — `starter_kit_docs/MotrixArena_S1_仿真强化学习挑战赛_赛事全攻略.md`

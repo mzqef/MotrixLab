@@ -1,0 +1,5 @@
+Loss / Entropy loss: peak=-0.012846 curr=-0.010813 delta=+0.002033
+Loss / Policy loss: peak=-0.009690 curr=-0.007274 delta=+0.002415
+Loss / Value loss: peak=0.046380 curr=0.021752 delta=-0.024628
+Policy / Standard deviation: peak=2.041411 curr=1.476513 delta=-0.564898
+Episode / Total timesteps (mean): peak=963.301453 curr=577.985863 delta=-385.315590

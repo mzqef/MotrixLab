@@ -10,7 +10,7 @@ Use the Copilot CLI subagent for **analysis** tasks in MotrixLab RL workflows:
 - **Automated VLM Policy Analysis** — Play a trained policy, auto-capture frames, send to VLM for behavior diagnosis
 - **Screenshot analysis** — Capture and analyze simulation renders, environment states
 - **Image file inspection** — Read training plots, reward curves, TensorBoard exports
-- **PDF document reading** — Parse navigation1.pdf/navigation2.pdf instructions
+- **PDF document reading** — Parse competition instruction PDFs
 - **Parallel research agent** — Offload complex analysis while you coordinate
 - **Code inspection** — Analyze reward structures, environment configs, policy architectures
 - **Visual debugging** — Interpret failure modes from rendered frames
@@ -41,30 +41,30 @@ The `capture_vlm.py` script automates the full pipeline: **play policy → captu
 
 ```powershell
 # Play best policy, capture 20 frames, analyze with gpt-4.1
-uv run scripts/capture_vlm.py --env vbot_navigation_section001
+uv run scripts/capture_vlm.py --env <env-name>
 ```
 
 ### Full Options
 
 ```powershell
 # Specify policy, capture settings, and custom VLM focus
-uv run scripts/capture_vlm.py --env vbot_navigation_section001 \
-    --policy runs/vbot_navigation_section001/.../best_agent.pt \
+uv run scripts/capture_vlm.py --env <env-name> \
+    --policy runs/<env-name>/.../best_agent.pt \
     --capture-every 30 --max-frames 30 \
     --vlm-prompt "Focus on leg coordination and whether the robot reaches the target"
 
 # Capture only (no VLM), analyze later manually
-uv run scripts/capture_vlm.py --env vbot_navigation_section001 --no-vlm
+uv run scripts/capture_vlm.py --env <env-name> --no-vlm
 
 # Use a different VLM model
-uv run scripts/capture_vlm.py --env vbot_navigation_section001 --vlm-model gpt-4.1
+uv run scripts/capture_vlm.py --env <env-name> --vlm-model gpt-4.1
 ```
 
 ### Script Parameters
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--env` | `vbot_navigation_section001` | Environment name |
+| `--env` | (required) | Environment name |
 | `--policy` | auto-discover | Policy checkpoint path |
 | `--train-backend` | `torch` | Inference backend (torch/jax) |
 | `--num-envs` | `1` | Parallel envs for playback |
@@ -96,7 +96,7 @@ uv run scripts/capture_vlm.py --env vbot_navigation_section001 --vlm-model gpt-4
 ### Output Structure
 
 ```
-starter_kit_log/vlm_captures/vbot_navigation_section001/20260209_142000/
+starter_kit_log/vlm_captures/<env-name>/<timestamp>/
 ├── frame_00045.png          # Captured simulation frames
 ├── frame_00060.png
 ├── frame_00075.png
@@ -111,19 +111,19 @@ starter_kit_log/vlm_captures/vbot_navigation_section001/20260209_142000/
 
 ```powershell
 # Train, then immediately check visual quality
-uv run scripts/train.py --env vbot_navigation_section001 --train-backend torch
-uv run scripts/capture_vlm.py --env vbot_navigation_section001 --max-frames 15
+uv run scripts/train.py --env <env-name> --train-backend torch
+uv run scripts/capture_vlm.py --env <env-name> --max-frames 15
 ```
 
 #### Comparing Two Policies
 
 ```powershell
 # Capture frames from policy A
-uv run scripts/capture_vlm.py --env vbot_navigation_section001 \
+uv run scripts/capture_vlm.py --env <env-name> \
     --policy runs/.../checkpoint_A.pt --output-dir analysis/policy_a
 
 # Capture frames from policy B
-uv run scripts/capture_vlm.py --env vbot_navigation_section001 \
+uv run scripts/capture_vlm.py --env <env-name> \
     --policy runs/.../checkpoint_B.pt --output-dir analysis/policy_b
 
 # Compare with VLM
@@ -136,11 +136,11 @@ copilot --model gpt-4.1 --allow-all \
 
 ```powershell
 # Just capture
-uv run scripts/capture_vlm.py --env vbot_navigation_section001 --no-vlm
+uv run scripts/capture_vlm.py --env <env-name> --no-vlm
 
 # Analyze specific frames later
 copilot --model gpt-4.1 --allow-all \
-    --add-dir starter_kit_log/vlm_captures/vbot_navigation_section001/latest \
+    --add-dir starter_kit_log/vlm_captures/<env-name>/latest \
     -p "Examine frame_00060.png and frame_00075.png — the robot seems to stumble. What's happening?" -s
 ```
 
@@ -148,11 +148,11 @@ copilot --model gpt-4.1 --allow-all \
 
 ```powershell
 # VLM focus on leg issues
-uv run scripts/capture_vlm.py --env vbot_navigation_section001 \
+uv run scripts/capture_vlm.py --env <env-name> \
     --vlm-prompt "The robot's rear legs seem to drag. Focus on rear leg joint angles and contact patterns."
 
 # VLM focus on navigation failures
-uv run scripts/capture_vlm.py --env vbot_navigation_section001 \
+uv run scripts/capture_vlm.py --env <env-name> \
     --vlm-prompt "The robot circles instead of going straight to target. Analyze heading and path curvature."
 ```
 
@@ -177,7 +177,7 @@ $result = copilot --model gpt-4.1 --allow-all -p "<prompt>" -s
 
 ```powershell
 # Add MotrixLab directories for context
-copilot --model gpt-4.1 --allow-all --add-dir d:\MotrixLab\starter_kit\navigation1 -p "<prompt>" -s
+copilot --model gpt-4.1 --allow-all --add-dir d:\MotrixLab\starter_kit\<task> -p "<prompt>" -s
 
 # Multiple directories
 copilot --model gpt-4.1 --allow-all --add-dir d:\MotrixLab\starter_kit --add-dir d:\MotrixLab\runs -p "<prompt>" -s
@@ -211,7 +211,7 @@ $frames = copilot --model gpt-4.1 --allow-all --add-dir d:\MotrixLab\renders\epi
 
 ```powershell
 # Re-analyze previously captured frames with a new prompt
-$captureDir = "starter_kit_log/vlm_captures/vbot_navigation_section001/20260209_142000"
+$captureDir = "starter_kit_log/vlm_captures/<env-name>/<timestamp>"
 copilot --model gpt-4.1 --allow-all --add-dir $captureDir -p "Re-examine these policy evaluation frames. This time focus specifically on: 1) Whether the robot reaches the target platform 2) Any reward hacking behavior 3) Energy efficiency of the gait" -s
 ```
 
@@ -235,16 +235,14 @@ $diagnosis = copilot --model gpt-4.1 --allow-all -p "Look at d:\MotrixLab\screen
 
 ```powershell
 # Analyze competition instructions
-$nav1_info = copilot --model gpt-4.1 --allow-all -p "Read d:\MotrixLab\starter_kit\navigation1\navigation1.pdf. Summarize: 1) Task objectives 2) Terrain description 3) Scoring criteria 4) Time limits 5) Robot constraints" -s
-
-$nav2_info = copilot --model gpt-4.1 --allow-all -p "Read d:\MotrixLab\starter_kit\navigation2\navigation2.pdf. What are the key differences from navigation1? List new challenges." -s
+$task_info = copilot --model gpt-4.1 --allow-all -p "Read d:\MotrixLab\starter_kit\<task>\<task>.pdf. Summarize: 1) Task objectives 2) Terrain description 3) Scoring criteria 4) Time limits 5) Robot constraints" -s
 ```
 
 ### Compare Navigation Tasks
 
 ```powershell
 # Side-by-side comparison
-$comparison = copilot --model gpt-4.1 --allow-all -p "Read both navigation1.pdf and navigation2.pdf from d:\MotrixLab\starter_kit\. Create a comparison table of: terrain complexity, distance, time limits, scoring weights." -s
+$comparison = copilot --model gpt-4.1 --allow-all -p "Read all PDF files from d:\MotrixLab\starter_kit\. Create a comparison table of: terrain complexity, distance, time limits, scoring weights." -s
 ```
 
 ## Training Metrics & Reward Analysis
@@ -276,7 +274,7 @@ $comparison = copilot --model gpt-4.1 --allow-all -p "Compare reward curves: d:\
 
 ```powershell
 # Deep dive into reward function design
-$rewards = copilot --model gpt-4.1 --allow-all -p "Read d:\MotrixLab\starter_kit\navigation1\vbot\cfg.py. Analyze the RewardConfig class: 1) List all reward components with weights 2) Identify potential reward hacking risks 3) Suggest improvements for navigation task" -s
+$rewards = copilot --model gpt-4.1 --allow-all -p "Read d:\MotrixLab\starter_kit\<task>\vbot\cfg.py. Analyze the RewardConfig class: 1) List all reward components with weights 2) Identify potential reward hacking risks 3) Suggest improvements for navigation task" -s
 ```
 
 ### Analyze Policy Architecture
@@ -290,7 +288,7 @@ $arch = copilot --model gpt-4.1 --allow-all --add-dir d:\MotrixLab\motrix_rl\src
 
 ```powershell
 # Understand terrain and physics setup
-$scene = copilot --model gpt-4.1 --allow-all -p "Read d:\MotrixLab\starter_kit\navigation1\vbot\xmls\scene_section001.xml. Describe: 1) Terrain geometry 2) Obstacle placements 3) Goal marker positions 4) Physics parameters" -s
+$scene = copilot --model gpt-4.1 --allow-all -p "Read d:\MotrixLab\starter_kit\<task>\vbot\xmls\<scene>.xml. Describe: 1) Terrain geometry 2) Obstacle placements 3) Goal marker positions 4) Physics parameters" -s
 ```
 
 ## Parallel Analysis Conversations
@@ -325,10 +323,10 @@ The subagent is **stateless** - each invocation is independent. To exchange info
 
 ```powershell
 # Get analysis result and use it
-$reward_analysis = copilot --model gpt-4.1 --allow-all -p "What is the termination penalty in navigation1 cfg.py?" -s
+$reward_analysis = copilot --model gpt-4.1 --allow-all -p "What is the termination penalty in <task> cfg.py?" -s
 
-if ($reward_analysis -match "-200") {
-    Write-Host "High termination penalty detected - robot will be conservative"
+if ($reward_analysis -match "termination") {
+    Write-Host "Termination penalty detected - robot will be conservative"
 }
 ```
 
@@ -346,7 +344,7 @@ $solution = copilot --model gpt-4.1 --allow-all -p "The VBot failure type is: $p
 
 ```powershell
 # Generate and save detailed analysis
-copilot --model gpt-4.1 --allow-all -p "Analyze d:\MotrixLab\starter_kit\navigation1\vbot\cfg.py thoroughly. Output a markdown report covering: environment overview, reward breakdown, training recommendations." -s > d:\MotrixLab\analysis\nav1_report.md
+copilot --model gpt-4.1 --allow-all -p "Analyze d:\MotrixLab\starter_kit\<task>\vbot\cfg.py thoroughly. Output a markdown report covering: environment overview, reward breakdown, training recommendations." -s > d:\MotrixLab\analysis\task_report.md
 ```
 
 ## Visual Debugging Workflows
@@ -355,12 +353,12 @@ copilot --model gpt-4.1 --allow-all -p "Analyze d:\MotrixLab\starter_kit\navigat
 
 ```powershell
 # One-command visual debugging: play policy, capture frames, get VLM diagnosis
-uv run scripts/capture_vlm.py --env vbot_navigation_section001 \
+uv run scripts/capture_vlm.py --env <env-name> \
     --max-frames 25 --capture-every 10 \
     --vlm-prompt "This policy was trained for 5M steps but the robot seems to fall. Diagnose the issue."
 
 # Read the analysis report
-Get-Content starter_kit_log/vlm_captures/vbot_navigation_section001/*/vlm_analysis.md
+Get-Content starter_kit_log/vlm_captures/<env-name>/*/vlm_analysis.md
 ```
 
 ### Episode Failure Investigation
@@ -400,25 +398,19 @@ $gait = copilot --model gpt-4.1 --allow-all --add-dir d:\MotrixLab\renders\locom
 | File | Analysis Purpose |
 |------|------------------|
 | `scripts/capture_vlm.py` | **VLM frame capture + analysis pipeline** |
-| `starter_kit/navigation1/vbot/cfg.py` | Reward structure, env params |
-| `starter_kit/navigation1/vbot/vbot_section001_np.py` | Reward function implementation |
-| `starter_kit/navigation2/vbot/cfg.py` | Navigation2 env params |
-| `starter_kit/navigation1/vbot/xmls/*.xml` | Scene geometry, physics |
-| `starter_kit/navigation2/vbot/xmls/*.xml` | Obstacle course scenes |
+| `starter_kit/{task}/vbot/cfg.py` | Reward structure, env params |
+| `starter_kit/{task}/vbot/vbot_*_np.py` | Reward function implementation |
+| `starter_kit/{task}/vbot/xmls/*.xml` | Scene geometry, physics |
 | `motrix_rl/src/motrix_rl/cfgs.py` | PPO hyperparameters |
 | `runs/*/checkpoints/` | Trained policy analysis |
 | `starter_kit_log/vlm_captures/` | VLM capture outputs + analysis reports |
+| `starter_kit_docs/{task}/Task_Reference.md` | Task-specific env IDs, reward scales, terrain data |
 
 ### VBot Navigation Environments
 
-| Environment | Terrain | Package |
-|-------------|---------|---------|
-| `vbot_navigation_section001` | Flat ground (Stage 1) | navigation1 |
-| `vbot_navigation_section01` | Section 01 | navigation2 |
-| `vbot_navigation_section02` | Section 02 | navigation2 |
-| `vbot_navigation_section03` | Section 03 | navigation2 |
-| `vbot_navigation_stairs` | Stairs + platforms | navigation2 |
-| `vbot_navigation_long_course` | Full 30m course | navigation2 |
+> **Full list of environment IDs, terrains, and packages** is documented in:
+> - `starter_kit_docs/navigation1/Task_Reference.md` → "Environment IDs" section
+> - `starter_kit_docs/navigation2/Task_Reference.md` → "Environment IDs" section
 
 ## Best Practices
 

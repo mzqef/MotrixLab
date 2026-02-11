@@ -303,5 +303,5 @@ class navigation:
         policy_hidden_layer_sizes: tuple[int, ...] = (256, 128, 64)
         value_hidden_layer_sizes: tuple[int, ...] = (256, 128, 64)
 
-    # Nav2 RL configs moved to starter_kit/navigation2/vbot/rl_cfgs.py
+    # Navigation2 RL configs moved to starter_kit/navigation2/vbot/rl_cfgs.py
     # (section001, section011, section012, section013, long_course)

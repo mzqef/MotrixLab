@@ -85,37 +85,25 @@ Each trial samples **both** PPO parameters and reward weights. This is the compl
 
 ### Reward / Penalty Weights
 
-These come from `starter_kit/navigation1/vbot/cfg.py` → `RewardConfig.scales`. Each trial samples a complete reward weight vector.
+Reward weights come from `starter_kit/{task}/vbot/cfg.py` → `RewardConfig.scales`. Each trial samples a complete reward weight vector jointly with PPO params.
 
-| Weight | Type | Range | Default | Category |
-|--------|------|-------|---------|----------|
-| `position_tracking` | uniform | 0.5 – 5.0 | 1.5 | Navigation core |
-| `fine_position_tracking` | uniform | 2.0 – 12.0 | 8.0 | Navigation core (sigma=0.5, within 2.5m) |
-| `heading_tracking` | uniform | 0.1 – 2.0 | 1.0 | Navigation core |
-| `forward_velocity` | uniform | 0.2 – 1.5 | 0.8 | Navigation core — **>1.0 triggers sprint-crash** |
-| `distance_progress` | uniform | 0.5 – 5.0 | 1.5 | Navigation (linear 1-d/d_max) |
-| `approach_scale` | uniform | 2.0 – 10.0 | 5.0 | Navigation (approach) |
-| `arrival_bonus` | uniform | 50.0 – 200.0 | 100.0 | Navigation (arrival) — **must be >> alive_bonus × max_steps** |
-| `alive_bonus` | uniform | 0.05 – 0.5 | 0.15 | Navigation (conditional — 0 after reaching) |
-| `stop_scale` | uniform | 2.0 – 10.0 | 5.0 | Navigation (stop) |
-| `zero_ang_bonus` | uniform | 2.0 – 15.0 | 10.0 | Navigation (stop) |
-| `inner_fence_bonus` | uniform | 10.0 – 80.0 | 40.0 | Navigation (one-time at d<0.75m) |
-| `near_target_speed` | uniform | -3.0 – -0.1 | -0.5 | Speed penalty near target (activation at 0.5m) |
-| `boundary_penalty` | uniform | -10.0 – -0.5 | -3.0 | Edge safety penalty |
-| `orientation` | uniform | -0.3 – -0.01 | -0.05 | Stability penalty |
-| `lin_vel_z` | uniform | -2.0 – -0.1 | -0.3 | Stability penalty |
-| `ang_vel_xy` | uniform | -0.3 – -0.01 | -0.03 | Stability penalty |
-| `torques` | log-uniform | -1e-3 – -1e-6 | -1e-5 | Efficiency penalty |
-| `dof_vel` | log-uniform | -1e-3 – -1e-5 | -5e-5 | Efficiency penalty |
-| `dof_acc` | log-uniform | -1e-5 – -1e-8 | -2.5e-7 | Efficiency penalty |
-| `action_rate` | uniform | -0.05 – -0.001 | -0.01 | Smoothness penalty |
-| `termination` | choice | -300, -200, -150, -100 | -200.0 | Termination penalty — **-250+ too harsh (Exp11: robot afraid to approach)** |
+> **Concrete reward weight ranges, default values, and known warnings** (sprint-crash, deceleration moat, lazy robot) are task-specific.
+> See: `starter_kit_docs/{task-name}/Task_Reference.md` → "Reward Search Space" section.
 
-> **WARNING:** `arrival_bonus` must be large enough to dominate `alive_bonus × typical_episode_length`. If `alive_bonus=0.5` and episodes run 3800 steps, total alive = 1900. With arrival_bonus=15, the robot learns to stand still instead of navigating. See `reward-penalty-engineering` skill for the "Lazy Robot" case study.
->
-> **Sprint-crash warning:** `forward_velocity` > 1.0 causes sprint-and-crash exploit after ~12K steps. Keep ≤ 0.8 and use speed cap (clip to 0.6 m/s) in the env code.
->
-> **Deceleration moat warning:** `near_target_speed` activation radius too large (2.0m) creates "moat" where robot hovers at 1m and never reaches 0.3m target. Keep activation ≤ 0.5m.
+General schema for reward weight search entries:
+
+```yaml
+reward_weights:
+  <reward_name>:
+    type: "uniform" | "loguniform" | "choice"
+    low: <min_value>     # for uniform/loguniform
+    high: <max_value>    # for uniform/loguniform
+    values: [...]        # for choice
+    prior: <default>     # center of search
+    category: "navigation" | "stability" | "efficiency" | "terminal"
+```
+
+**Key principle:** `arrival_bonus` (or equivalent goal reward) must be large enough to dominate per-step bonuses like `alive_bonus × typical_episode_length`. See `.github/copilot-instructions.md` → "Reward Budget Audit Principle".
 
 ## Search Space Schema
 
@@ -269,7 +257,7 @@ uv run starter_kit_schedule/scripts/automl.py `
     --hp-trials 8
 
 # === SINGLE TRAINING RUN (manual HP selection) ===
-uv run scripts/train.py --env vbot_navigation_section001
+uv run scripts/train.py --env <env-name>
 
 # === ANALYZE RESULTS ===
 uv run starter_kit_schedule/scripts/analyze.py `
@@ -377,33 +365,18 @@ reward_weights:
 9. **Review experiment history before launching** — See `training-pipeline` Step 0
 10. **Watch for lazy robot at long horizons** — 5M trials may look great but fail at 50M. Check that reached% is increasing, not just reward.
 
-## Empirical Findings (from actual experiments)
+## Empirical Findings
 
-### Round 1 AutoML (15 trials, 5M steps each)
-| Insight | Value |
-|---------|-------|
-| Best learning rate | ~2.4e-04 |
-| Rollouts sweet spot | 32 (16 and 48 also viable) |
-| Termination penalty | -200 worked at 5M but caused issues at 50M |
-| Learning rate < 5e-5 | Too slow to learn meaningfully in 5M |
+> **Task-specific empirical findings** (best LR, rollout sweet spots, sprint-crash thresholds, deceleration moat, anti-laziness results, LR scheduler findings) are documented in:
+> `starter_kit_docs/{task-name}/Task_Reference.md` → "Empirical AutoML Findings" section.
+>
+> **Always check this reference before launching new searches** to avoid repeating experiments.
 
-### Round 2 AutoML (anti-laziness, 10M steps each)
-| Insight | Value |
-|---------|-------|
-| arrival_bonus=87.70 | High values show late learning surge |
-| alive_bonus=0.13 | Very low alive_bonus forces goal-seeking |
-| fine_position_tracking=8.83 | High values help precise positioning |
-| Late learning surge | Reward can jump 50%+ after step 4000-5000, so trials should be ≥10M |
+General lessons that apply across tasks:
 
-### Session 3: Manual train.py results (should have used AutoML!)
-| Insight | Value |
-|---------|-------|
-| forward_velocity=0.8, near_target at 0.5m | **52% reached** (best ever, Exp8 step 4K) |
-| forward_velocity=0.2 | 0% — lazy robot, too weak |
-| forward_velocity=0.5 | 8.6% — still too weak |
-| termination=-250 | 7% — robot too afraid to approach target |
-| near_target_speed at d<2.0m | Deceleration moat — robot hovers at 1m |
-| Speed cap 0.6 m/s (clip) | Partially mitigates sprint-crash — untested long-term |
-
-> **Lesson**: These 6 manual experiments wasted time doing one-at-a-time search.
-> A single `automl.py --hp-trials 8` would have found the best combination automatically.
+| Insight | Details |
+|---------|--------|
+| Joint PPO+reward search | Better than separate tuning — reward weights interact with LR/entropy |
+| Trial length matters | 5M steps too short to detect reward hacking; use ≥10M for serious candidates |
+| Manual iteration wastes time | N manual `train.py` experiments should be 1 AutoML batch |
+| Per-step bonuses are dangerous | Unconditional per-step rewards dominate goal bonuses at long horizons |

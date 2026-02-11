@@ -33,85 +33,60 @@ description: Multi-stage curriculum training for VBot quadruped navigation. Stag
 
 > **Before designing or running any curriculum**, review existing experiment history following `training-pipeline` skill → Step 0.
 
-## 📋 Experiment Reports (MANDATORY check before any work)
-
-> **ALWAYS read `REPORT_NAV*.md` files at the workspace root before starting curriculum work.**
-> These reports track all experiments, discoveries, and current configuration state.
-
-```powershell
-# Check what reports exist and their current state
-Get-ChildItem REPORT_NAV*.md | Select-Object Name, Length, LastWriteTime
-
-# Read the latest nav1 report (flat ground curriculum)
-Get-Content REPORT_NAV1.md | Select-Object -Last 100
-```
-
-**What to look for in reports:**
-- Current curriculum stage (spawn_inner/outer_radius values in cfg.py)
-- Which experiments used which stage config
-- Promotion criteria results (reached%, ep_len stability)
-- Active TODO items in "Next Steps" section
-- Lessons learned that affect curriculum design
-
 ## Registered Environments
 
-| Environment ID | Terrain | Package |
-|----------------|---------|---------|
-| `vbot_navigation_section001` | Flat ground (Stage 1) | `starter_kit/navigation1/` |
-| `vbot_navigation_section01` | Section 01 | `starter_kit/navigation2/` |
-| `vbot_navigation_section02` | Section 02 | `starter_kit/navigation2/` |
-| `vbot_navigation_section03` | Section 03 | `starter_kit/navigation2/` |
-| `vbot_navigation_stairs` | Stairs + platforms | `starter_kit/navigation2/` |
-| `vbot_navigation_long_course` | Full 30m course | `starter_kit/navigation2/` |
+> **Task-specific environment IDs, terrain descriptions, and stage progressions** are in:
+> `starter_kit_docs/{task-name}/Task_Reference.md`
+>
+> Review that file to find the concrete environment names, reward scales, and stage configurations for each task.
 
 ## Curriculum Pipeline
 
-### Recommended Progression
+### Recommended Progression Pattern
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                           CURRICULUM STAGES                                  │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  STAGE 1: Flat Ground (20 pts)                                              │
-│  └── Environment: vbot_navigation_section001                                │
+│  STAGE 1: Simplest Terrain                                                  │
+│  └── Environment: <easiest-env>                                             │
 │  └── Steps: 50M (use AutoML pipeline)                                       │
 │  └── Goal: Basic locomotion + navigation                                    │
 │                          ↓                                                   │
 │                   [Best Checkpoint]                                          │
 │                          ↓                                                   │
-│  STAGE 2A: Section 01                                                       │
-│  └── Environment: vbot_navigation_section01                                 │
+│  STAGE 2A: Intermediate Terrain                                             │
+│  └── Environment: <mid-difficulty-env>                                      │
 │  └── Steps: 30M                                                             │
 │  └── Warm-start: Stage 1 best, LR × 0.5                                     │
 │                          ↓                                                   │
-│  STAGE 2B: Stairs                                                           │
-│  └── Environment: vbot_navigation_stairs                                    │
+│  STAGE 2B: Hard Terrain                                                     │
+│  └── Environment: <hard-env>                                                │
 │  └── Steps: 40M                                                             │
 │  └── Warm-start: Stage 2A best, LR × 0.3                                    │
 │                          ↓                                                   │
-│  STAGE 2C: Section 03                                                       │
-│  └── Environment: vbot_navigation_section03                                 │
-│  └── Steps: 30M                                                             │
-│                          ↓                                                   │
 │  FINAL: Full Course                                                         │
-│  └── Environment: vbot_navigation_long_course                               │
+│  └── Environment: <full-course-env>                                         │
 │  └── Steps: 50M                                                             │
-│  └── Goal: End-to-end 30m navigation                                        │
+│  └── Goal: End-to-end navigation                                            │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+> **Concrete stage progressions** with specific environment IDs and step counts are in:
+> `starter_kit_docs/{task-name}/Task_Reference.md` → "Curriculum Stages" section.
 
 ## Curriculum Plan Schema
 
 ```yaml
 # starter_kit_schedule/templates/curriculum_full.yaml
-plan_id: "curriculum_vbot_20260206"
-name: "VBot Full Curriculum"
+plan_id: "curriculum_<task>_YYYYMMDD"
+name: "<Task> Full Curriculum"
 
 curriculum:
-  - stage_id: "stage1_flat"
-    environment: "vbot_navigation_section001"
+  - stage_id: "stage1_easy"
+    environment: "<env-name>"
     max_env_steps: 50_000_000
     checkpoint_interval: 500
     warm_start: null  # Start fresh
@@ -120,7 +95,6 @@ curriculum:
       position_tracking: 2.0
       heading_tracking: 1.0
       termination: -200.0
-      orientation: -0.05
     
     promotion_criteria:
       metric: "episode_reward_mean"
@@ -128,19 +102,19 @@ curriculum:
       min_steps: 20_000_000
       success_rate: 0.95
     
-  - stage_id: "stage2a_waves"
-    environment: "vbot_navigation_section012"
+  - stage_id: "stage2_medium"
+    environment: "<env-name-2>"
     max_env_steps: 30_000_000
     
     warm_start:
-      from_stage: "stage1_flat"
+      from_stage: "stage1_easy"
       strategy: "best_checkpoint"
       reset_optimizer: true
       learning_rate_multiplier: 0.5
     
     reward_overrides:
       position_tracking: 1.5
-      height_variance_penalty: -0.1
+      # Stage-specific overrides
     
     promotion_criteria:
       metric: "episode_reward_mean"
@@ -150,13 +124,17 @@ curriculum:
 
 ## Stage Configuration Reference
 
+> **Concrete stage configurations** with exact environment IDs, step counts, LR multipliers, and reward overrides:
+> `starter_kit_docs/{task-name}/Task_Reference.md` → "Curriculum Stages" section.
+
+General template:
+
 | Stage | Environment | Steps | LR Mult | Key Rewards |
 |-------|-------------|-------|---------|-------------|
-| 1: Flat | `vbot_navigation_section001` | 50M | 1.0 | position, heading |
-| 2A: Section01 | `vbot_navigation_section01` | 30M | 0.5 | terrain adaptation |
-| 2B: Stairs | `vbot_navigation_stairs` | 40M | 0.3 | knee_lift, edge_avoid |
-| 2C: Section03 | `vbot_navigation_section03` | 30M | 0.3 | obstacle avoidance |
-| Final | `vbot_navigation_long_course` | 50M | 1.0 | all combined |
+| 1: Easy | `<env-1>` | 50M | 1.0 | position, heading |
+| 2: Medium | `<env-2>` | 30M | 0.5 | + terrain adaptation |
+| 3: Hard | `<env-3>` | 40M | 0.3 | + obstacle avoidance |
+| Final | `<full-course>` | 50M | 1.0 | all combined |
 
 ## Warm-Start Strategies
 
@@ -193,13 +171,13 @@ Get-Content starter_kit_schedule/progress/automl_state.yaml
 Get-Content starter_kit_log/automl_*/report.md
 
 # === FINAL DEPLOYMENT (after AutoML found best config for this stage) ===
-uv run scripts/train.py --env vbot_navigation_section001 --train-backend torch
+uv run scripts/train.py --env <env-name> --train-backend torch
 
 # === EVALUATE a checkpoint ===
-uv run scripts/play.py --env vbot_navigation_section001
+uv run scripts/play.py --env <env-name>
 
 # === TENSORBOARD ===
-uv run tensorboard --logdir runs/vbot_navigation_section001
+uv run tensorboard --logdir runs/<env-name>
 ```
 
 ## Progress State Schema

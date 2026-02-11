@@ -489,6 +489,9 @@ class VBotSection001Env(NpEnv):
         state.info["reach_stop_count"] = reach_stop_count
         # 连续50步（0.5秒）稳定停在目标处 → 标记成功截断
         self._success_truncate = reach_stop_count >= 50
+        # Round9 REVERTED: 预算耗尽强制截断实验失败（50步/150步都过于激进，
+        # 阻碍早期学习,R9/R9b低于R7)。peak-then-decline根源是policy std collapse,
+        # 不是后预算exploitation。让训练跑完100M步后选最佳checkpoint。
 
         # 记录评估指标用于TensorBoard和Pipeline评估
         state.info["metrics"] = {
@@ -613,6 +616,8 @@ class VBotSection001Env(NpEnv):
         # 原来 d<1.5m 时后退无惩罚，导致"hovering"行为
         # Round6 FIX: 移除retreat惩罚 (clip下界0而非-0.5)
         # step-delta退后惩罚会惩罚早期探索，原始min_distance方法从未惩罚退后
+        # Round8 REVERTED: 分段clip实验失败 — approach_scale=40.46 × -0.5 = -20.2/step
+        # 使机器人害怕触达目标 (触达后退后惩罚太大), R8 reached% 14% vs R7 33%
         approach_reward = np.clip(raw_approach, 0.0, 1.0)
 
         # 线性距离递减奖励（新增）：提供全局梯度信号
@@ -625,11 +630,15 @@ class VBotSection001Env(NpEnv):
         # 现在持续鼓励存活，由 success_truncation（50步停止）控制episode结束
         alive_bonus = np.ones(self._num_envs, dtype=np.float32)
 
-        # ========== 时间压力：随步数递减奖励 ==========
-        # 鼓励快速到达：步数越多，每步奖励越少
+        # ========== 时间压力：已移除 ==========
+        # R11 FIX: 移除time_decay — Budget Audit发现它创造"早死"激励
+        # 原因：time_decay使后期步骤价值降低(步0=1.0, 步500=0.75, 步1000=0.5)
+        # 两个500步episode(avg decay=0.94)比一个1000步episode(avg decay=0.75)多17%奖励
+        # PPO学会激进approach→摔倒→重启 以获取更高per-step奖励
+        # 证据：R10 ep_len从975→528, per_step从2.49→2.99, reached从35%→14%
         steps = info.get("steps", np.zeros(self._num_envs, dtype=np.float32)).astype(np.float32)
         max_steps = float(self._cfg.max_episode_steps)
-        time_decay = np.clip(1.0 - 0.5 * steps / max_steps, 0.5, 1.0)  # 从1.0线性衰减到0.5
+        time_decay = np.ones(self._num_envs, dtype=np.float32)  # 常数1.0，无衰减
 
         # ========== 到达后的停止奖励 ==========
 
@@ -639,11 +648,25 @@ class VBotSection001Env(NpEnv):
         info["ever_reached"] = np.logical_or(info["ever_reached"], reached_all)
         arrival_bonus = np.where(first_time_reach, scales.get("arrival_bonus", 15.0), 0.0)
 
-        # 停止奖励：到达后鼓励静止
+        # Round7 FIX: 记录首次到达的步数，限制stop_bonus最多持续50步
+        # 原因：stop_bonus为21.2/step，600步farming=12726远超导航奖励611
+        # 这导致robot学会到达后站立farming，最终变得过于保守(peak-then-decline)
+        info["first_reach_step"] = info.get("first_reach_step", np.full(self._num_envs, -1.0, dtype=np.float32))
+        info["first_reach_step"] = np.where(
+            np.logical_and(first_time_reach, info["first_reach_step"] < 0),
+            steps, info["first_reach_step"]
+        )
+        # 首次到达后经过的步数
+        steps_since_reach = np.where(info["first_reach_step"] >= 0, steps - info["first_reach_step"], 0.0)
+        stop_budget_remaining = np.clip(50.0 - steps_since_reach, 0.0, 50.0)  # 最多50步stop奖励
+        stop_eligible = stop_budget_remaining > 0
+
+        # 停止奖励：到达后鼓励静止（限50步）
         # Round5 FIX: 添加速度门控，只有真正在减速（<0.3m/s）才给stop_bonus
-        # 原来飞越0.5m区域也能短暂收集stop_bonus，助长sprint-crash
+        # Round7 FIX: 50步预算上限，防止stop farming dominance
         speed_xy = np.linalg.norm(base_lin_vel[:, :2], axis=1)
         genuinely_slow = np.logical_and(reached_all, speed_xy < 0.3)
+        genuinely_slow = np.logical_and(genuinely_slow, stop_eligible)  # Round7: 预算内才给奖励
         stop_base = scales.get("stop_scale", 2.0) * (
             0.8 * np.exp(-(speed_xy / 0.2) ** 2) + 1.2 * np.exp(-(np.abs(gyro[:, 2]) / 0.1) ** 4)
         )
@@ -703,7 +726,32 @@ class VBotSection001Env(NpEnv):
         boundary_violation = np.maximum(dist_from_center - (self.platform_radius - boundary_margin), 0.0)
         boundary_penalty = scales.get("boundary_penalty", 0.0) * boundary_violation
 
+        # ========== Round8: 离开中心区惩罚 ==========
+        # 当机器人在目标区域内(d<0.5m)且向外移动时，立即惩罚
+        # 填补架构缺口：reached分支无approach信号，not-reached分支approach无后退惩罚
+        prev_distance = info.get("prev_distance", distance_to_target.copy())
+        delta_d = distance_to_target - prev_distance  # 正值 = 远离目标
+        info["prev_distance"] = distance_to_target.copy()
+        is_departing_from_center = np.logical_and(reached_all, delta_d > 0.01)
+        departure_penalty = np.where(
+            is_departing_from_center,
+            scales.get("departure_penalty", -5.0) * delta_d,
+            0.0
+        )
+
         # ========== 综合奖励（到达前/后分支） ==========
+        # R11 FIX: fine_position_tracking仅在ever_reached后解锁
+        # Budget Audit: fine_position_tracking (sigma=0.5) 在d≈0.52m时给4.24/step
+        # 创造"悬停在d=0.5m边界外"的激励 — 几乎等于reaching的奖励(97%)
+        # 修复：必须先触达(d<0.5m)才能解锁fine_position_tracking
+        # position_tracking (sigma=5.0) 保留在所有分支 — 它提供平缓的全局梯度
+        # (d=0.7m和d=2m的差异仅0.35/step，不足以创造hovering激励)
+        fine_tracking_gated = np.where(
+            info["ever_reached"],
+            scales.get("fine_position_tracking", 2.0) * fine_position_tracking,
+            0.0
+        )
+
         # 惩罚项公共部分（到达前后都生效）
         penalties = (
             scales.get("orientation", -0.05) * orientation_penalty
@@ -716,28 +764,33 @@ class VBotSection001Env(NpEnv):
             + termination_penalty
             + near_target_speed_penalty
             + boundary_penalty
+            + departure_penalty
         )
 
         reward = np.where(
             reached_all,
-            # 到达后：停止奖励 + 到达奖励 + 内围栏奖励 + 惩罚（alive_bonus=0 after reach）
-            stop_bonus + arrival_bonus + inner_fence_bonus + penalties,
-            # 未到达：导航跟踪 × time_decay + 前进 + 接近 + 距离递减 + 存活 + 内围栏 + 惩罚
-            time_decay * (
+            # 到达后：停止奖励 + 到达奖励 + 位置跟踪 + fine(已解锁) + 内围栏 + 惩罚
+            stop_bonus + arrival_bonus
+            + scales.get("position_tracking", 1.5) * position_tracking
+            + fine_tracking_gated
+            + inner_fence_bonus + penalties,
+            # 未到达：导航 + position_tracking(全局) + fine(仅ever_reached后) + 接近 + 内围栏 + 惩罚
+            # R11: 移除time_decay(=1.0), fine_position_tracking门控behind ever_reached
+            (
                 scales.get("position_tracking", 1.5) * position_tracking
-                + scales.get("fine_position_tracking", 2.0) * fine_position_tracking
                 + scales.get("heading_tracking", 0.8) * heading_tracking
                 + scales.get("forward_velocity", 1.5) * forward_velocity
                 + scales.get("distance_progress", 2.0) * distance_progress
                 + scales.get("alive_bonus", 0.5) * alive_bonus
                 + approach_reward
-            ) + inner_fence_bonus + penalties
+            ) + fine_tracking_gated + inner_fence_bonus + penalties
         )
 
         # 记录各奖励分量用于TensorBoard可视化
         info["Reward"] = {
             "position_tracking": scales.get("position_tracking", 2.0) * position_tracking,
             "fine_position_tracking": scales.get("fine_position_tracking", 2.0) * fine_position_tracking,
+            "fine_tracking_gated": fine_tracking_gated,  # R11: ever_reached门控后的fine值
             "heading_tracking": scales.get("heading_tracking", 1.0) * heading_tracking,
             "forward_velocity": scales.get("forward_velocity", 0.5) * forward_velocity,
             "approach_reward": approach_reward,
@@ -748,6 +801,7 @@ class VBotSection001Env(NpEnv):
             "stop_bonus": stop_bonus,
             "near_target_speed": near_target_speed_penalty,
             "boundary_penalty": boundary_penalty,
+            "departure_penalty": departure_penalty,
             "penalties": penalties,
             "termination": termination_penalty,
         }

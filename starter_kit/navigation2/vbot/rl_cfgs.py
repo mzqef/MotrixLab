@@ -1,7 +1,7 @@
 # Copyright (C) 2020-2025 Motphys Technology Co., Ltd. All Rights Reserved.
 # ==============================================================================
 """
-Nav2 专用 RL 配置文件 —— 独立于 motrix_rl/cfgs.py
+Navigation2 专用 RL 配置文件 —— 独立于 motrix_rl/cfgs.py
 所有 navigation2 的 PPO 超参数在此定义，不影响 navigation1 训练。
 """
 
@@ -11,7 +11,7 @@ from motrix_rl.registry import rlcfg
 from motrix_rl.skrl.cfg import PPOCfg
 
 
-class nav2:
+class navigation2:
     """Navigation2 专用 RL 配置"""
 
     @rlcfg("vbot_navigation_section001")
@@ -45,7 +45,7 @@ class nav2:
     @rlcfg("vbot_navigation_section011")
     @dataclass
     class VBotSection011PPOConfig(PPOCfg):
-        """VBot Section011 导航 PPO 配置（Nav2 section01 平地+坡道+高台）"""
+        """VBot Section011 导航 PPO 配置（Navigation2 section01 平地+坡道+高台）"""
         seed: int = 42
         num_envs: int = 2048
         play_num_envs: int = 16

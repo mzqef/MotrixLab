@@ -21,15 +21,15 @@ from absl import app, flags
 from skrl import config
 
 # Determine which starter_kit to import based on env name
-_NAV2_ENVS = {"vbot_navigation_section011", "vbot_navigation_section012", "vbot_navigation_section013", "vbot_navigation_long_course"}
+_NAVIGATION2_ENVS = {"vbot_navigation_section011", "vbot_navigation_section012", "vbot_navigation_section013", "vbot_navigation_long_course"}
 _env_name_for_import = None
 for _i, _arg in enumerate(sys.argv):
     if _arg == "--env" and _i + 1 < len(sys.argv):
         _env_name_for_import = sys.argv[_i + 1]
         break
 
-if _env_name_for_import in _NAV2_ENVS:
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "starter_kit"))
+if _env_name_for_import in _NAVIGATION2_ENVS:
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "starter_kit" / "navigation2"))
     import navigation2  # noqa: F401, E402
 else:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "starter_kit" / "navigation1"))

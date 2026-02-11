@@ -20,7 +20,21 @@ Competition work lives in `starter_kit/navigation1/` (flat) and `starter_kit/nav
 > - numpy int64/float64 JSON serialization → fixed in `automl.py` with `_NumpyEncoder` + native types in `sample_from_space()`
 > - Import order (`@rlcfg` requires env registration first) → fixed in `train_one.py` (imports `vbot` before `motrix_rl`)
 > - Zero reward function → fully implemented in `vbot_section001_np.py`
-> - Dual environment confusion → only `vbot_navigation_section001` registered for nav1
+> - Dual environment confusion → only `vbot_navigation_section001` registered for navigation1
+
+## 🔴 Experiment Reports (MANDATORY check before reward changes)
+
+> **ALWAYS read `REPORT_NAV*.md` files at `/starter_kit_docs/{<task-name>}` before modifying rewards.**
+
+> These reports track all experiments, discoveries, and current configuration state.
+
+**What to look for in reports:**
+- Current curriculum stage (spawn_inner/outer_radius values in cfg.py)
+- Which experiments used which stage config
+- Promotion criteria results (reached%, ep_len stability)
+- Active TODO items in "Next Steps" section
+- Lessons learned that affect curriculum design
+> **After completing any experiment or making significant changes**, append results to the relevant REPORT_NAV*.md file. Never overwrite existing content — the history is a chronological record.
 
 ## 🔴 AutoML-First Policy (MANDATORY)
 
@@ -113,6 +127,131 @@ Get-Content starter_kit_log/automl_*/report.md
 3. **Final deployment runs** — After AutoML has found the best config, train the winning config to full steps
 4. **Warm-start curriculum promotion** — Loading a checkpoint and running to completion with known-good config
 
+## 🔴 Pre-Training Checklist (MANDATORY)
+
+> **ALWAYS review existing experiment history before starting new training or making changes.**
+
+```powershell
+# 1. Read experiment reports for this task
+Get-Content starter_kit_docs/<task-name>/REPORT_*.md
+
+# 2. List AutoML runs and their outcomes
+Get-ChildItem starter_kit_log/automl_* -Directory | ForEach-Object {
+    $state = Join-Path $_.FullName "state.yaml"
+    if (Test-Path $state) { Write-Host "=== $($_.Name) ==="; Get-Content $state | Select-Object -First 20 }
+}
+
+# 3. Check current automl progress
+if (Test-Path starter_kit_schedule/progress/automl_state.yaml) {
+    Get-Content starter_kit_schedule/progress/automl_state.yaml
+}
+
+# 4. List recent training runs
+Get-ChildItem runs/<env-name>/ -Directory | Sort-Object Name -Descending | Select-Object -First 10
+
+# 5. Review reward library
+Get-ChildItem starter_kit_schedule/reward_library/ -Recurse -Filter "*.yaml" -ErrorAction SilentlyContinue
+```
+
+**What to look for:**
+- Best reward/composite score achieved so far
+- Which HP configurations worked best
+- Known failure modes already diagnosed
+- Active TODO items in the report's "Next Steps" section
+- Current curriculum stage and promotion criteria
+
+## 🔴 Reward Engineering Methodology (MANDATORY)
+
+### Reward Budget Audit Principle
+
+> **Before committing to any reward configuration**, compute the maximum cumulative reward for:
+> 1. The **desired behavior** (e.g., walk to target, stop, collect bonuses)
+> 2. The **degenerate behavior** (e.g., stand still, sprint-crash-reset, hover safely)
+>
+> If degenerate reward ≥ desired reward, the agent **WILL** find and exploit the degenerate strategy given enough training time. Fix the budget before training.
+
+**Template:**
+```
+STANDING STILL for max_steps:
+  per_step_passive_reward × max_steps × time_decay ≈ ???
+
+COMPLETING TASK in ~N steps:
+  one_time_bonuses + active_per_step × N + passive_per_step × N ≈ ???
+
+If STANDING > COMPLETING → broken incentive. Fix before training.
+```
+
+### One Variable Per Experiment
+
+> **Never change more than one reward dimension per experiment cycle.** If you change both the termination penalty AND add a new gait reward, you cannot attribute outcomes. Weight adjustments should use **multiplicative steps** (×0.5, ×2, ×10), not additive.
+
+### Exploration Cycle
+
+Every reward/penalty change follows this cycle:
+
+```
+DIAGNOSE → HYPOTHESIZE → IMPLEMENT → TEST → EVALUATE → ARCHIVE
+    ↑                                                      |
+    └──────────────────────────────────────────────────────┘
+```
+
+1. **Diagnose**: Watch the policy (`play.py`, `capture_vlm.py`). Identify the specific behavioral gap — not "reward is too low" but "robot hovers at 1m and never approaches."
+2. **Hypothesize**: Formulate a testable hypothesis: "If I add signal X with weight W, the robot should do Y, but might also Z."
+3. **Implement**: Minimal change, one variable at a time. Adjust weights before adding code.
+4. **Test**: Use `automl.py --hp-trials 8+` for batch comparison. NEVER iterate manually with `train.py`.
+5. **Evaluate**: Did target behavior improve? Side effects? Consistent across seeds? Reward curve healthy?
+6. **Archive**: Record result in `starter_kit_schedule/reward_library/` — both successes AND failures.
+
+### Discovery Strategies
+
+When generating reward hypotheses, use these abstract strategies:
+
+| Strategy | Description |
+|----------|-------------|
+| **Inversion** | Directly penalize the undesired behavior (bouncing → penalize vertical velocity) |
+| **Gradient Shaping** | If the robot is stuck, the reward surface is flat — add a signal that creates local gradient |
+| **Proxy Decomposition** | Break the competition score into sub-goals, create a signal for each |
+| **Biomimetic Analogy** | What would a real animal "want" in this situation? |
+| **Ablation Discovery** | Remove one existing reward component — if nothing changes, it was irrelevant |
+| **Competition-Score Alignment** | Compare training reward to competition scoring — gaps indicate missing signals |
+| **Library Browse** | Check `starter_kit_schedule/reward_library/` before inventing new components |
+
+### Anti-Patterns
+
+| Anti-Pattern | Why It Fails | Instead |
+|--------------|-------------|---------|
+| Manual `train.py` iteration | Slow one-at-a-time search; no structured comparison | `automl.py --hp-trials 8+` |
+| Changing 3+ rewards at once | Cannot attribute outcomes | One variable per cycle |
+| Only watching reward curves | High reward ≠ good behavior | Always watch policy visually + check reached%, distance, ep_len |
+| Discarding failed experiments | Wastes future effort | Archive in `reward_library/rejected/` |
+| Tuning weights without diagnosis | Blind search | Diagnose behavior first (VLM) |
+| Unconditional per-step bonuses | Robot learns to survive, not navigate | Make per-step bonuses conditional or time-decayed |
+| Goal reward too small vs per-step | Per-step accumulation dominates one-time bonuses | Goal reward must dominate: `bonus > per_step × typical_episode_len / 3` |
+
+## 🔴 Warm-Start & Curriculum Best Practices (MANDATORY)
+
+| Practice | Guidance |
+|----------|----------|
+| **LR on transfer** | Reduce to 0.3–0.5× of original to prevent catastrophic forgetting |
+| **Optimizer state** | Reset optimizer when warm-starting (momentum/variance from old task is stale) |
+| **Never warm-start from degraded runs** | Optimizer state carries instability — use fresh training |
+| **Test promotion criteria** | Run 1M steps before committing to full stage |
+| **Checkpoint frequently** | Every 500 iters for early stages, 1000 for later |
+| **Anti-laziness at long horizons** | Conditional per-step bonuses + time_decay are essential for >10M step training |
+
+## Hardware Performance (measured)
+
+| Metric | Value |
+|--------|-------|
+| Backend | PyTorch (JAX NOT available) |
+| GPU | NVIDIA (torch_gpu=True) |
+| Training speed | ~7,500-12,500 steps/sec |
+| 200K steps | ~16s |
+| 2M steps | ~4 min |
+| 5M steps (HP trial) | ~7-8 min |
+| 50M steps (full run) | ~70 min |
+| 100M steps | ~2.2 hours |
+
 ## Essential Commands
 
 ```powershell
@@ -200,20 +339,23 @@ Key state object: `NpEnvState(data, obs, reward, terminated, truncated, info)` w
 
 ## TUTORIAL, REPORT and LOG REQUIREMENTS
 
-- Keep periodically updated tutorial `Tutorial.md`, experiment report files `REPORT_NAV*.md` and log files up to date with the latest pipeline and code structure and experiment results.
+- For each task, in `starter_kit_docs/{<task-name>}/`, keep periodically updated:
+  - `Tutorial.md`, `Tutorial_RL_Reward_Engineering.md` — guides to the task
+  - `REPORT_*.md` — chronological experiment reports (append-only, never overwrite)
+  - `Task_Reference.md` — task-specific reference: environment IDs, reward scales, search spaces, terrain descriptions, robot config, competition scoring. **Skills reference this file for concrete values instead of hardcoding them.**
 
 ## AI Agent Skills Reference
 
 | Skill | File | Purpose | When to Use |
 |-------|------|---------|-------------|
-| **training-pipeline** | `.github/skills/training-pipeline/SKILL.md` | Index skill and entry point for all RL training tasks. Contains Quick Start commands, experiment history summary, known fixed issues, hardware benchmarks, and routing table to other skills. | Start here for any training-related task. Review before launching any experiment. |
-| **curriculum-learning** | `.github/skills/curriculum-learning/SKILL.md` | Multi-stage curriculum training for progressive skill acquisition. Defines stage progression (flat → slopes → stairs → obstacles → full course), warm-start strategies, promotion criteria, and checkpoint transfer between stages. | Designing multi-stage training plans, defining promotion thresholds, configuring warm-start LR multipliers, transferring checkpoints between environments. |
-| **hyperparameter-optimization** | `.github/skills/hyperparameter-optimization/SKILL.md` | Unified PPO hyperparameter AND reward weight search. Covers learning rate, entropy, clipping, network architecture, and all reward scales in a single joint search space. Supports grid, random, and Bayesian optimization. | Tuning learning rate, network size, PPO dynamics, or reward weights. Contains full search space schema, presets (quick validation, full search, fine-tuning), empirical findings from prior AutoML rounds, and parameter importance rankings. |
-| **reward-penalty-engineering** | `.github/skills/reward-penalty-engineering/SKILL.md` | Process-oriented methodology for systematic reward discovery. Teaches the Diagnose → Hypothesize → Implement → Test → Evaluate → Archive cycle. Not a recipe book — focuses on HOW to explore rewards. | Identifying behavioral gaps, formulating reward hypotheses, running controlled experiments, archiving findings in the reward library. Contains the critical "Lazy Robot" case study documenting reward hacking and the anti-laziness trifecta fix. |
-| **training-campaign** | `.github/skills/training-campaign/SKILL.md` | Execute and monitor long-running RL training campaigns. Covers checkpoint management, experiment logging, progress monitoring, directory structure, AutoML pipeline architecture, and resume capabilities. | Starting/resuming training runs, monitoring progress, managing checkpoints, understanding the AutoML subprocess pipeline (`automl.py` → `train_one.py` → `evaluate.py`). |
-| **quadruped-competition-tutor** | `.github/skills/quadruped-competition-tutor/SKILL.md` | Comprehensive competition strategy guide. Covers VBot 12-DOF robot architecture (joints, actuators, observation/action spaces), terrain traversal strategies (waves, stairs, rolling balls, celebration zones), scoring optimization, reward function code examples, and submission checklist. | Understanding competition rules, VBot robot design, terrain-specific reward strategies, scoring breakdown per section, gait quality techniques, and submission preparation. |
-| **mjcf-xml-reasoning** | `.github/skills/mjcf-xml-reasoning/SKILL.md` | Master guide for reading and reasoning about MuJoCo MJCF XML model files. Covers all XML elements (`compiler`, `option`, `default`, `asset`, `worldbody`, `actuator`, `sensor`, `contact`), geometry types, joint configurations, contact physics, and height field sizing. | Understanding robot/scene XML definitions, debugging physics issues (collision, slippery feet, wobbly joints), analyzing terrain layouts, modifying scene files, interpreting kinematic trees and contact parameters. |
-| **subagent-copilot-cli** | `.github/skills/subagent-copilot-cli/SKILL.md` | Delegate visual analysis tasks to GitHub Copilot CLI. Primary workflow: automated VLM policy analysis via `capture_vlm.py` (play policy → capture frames → send to gpt-4.1 → get behavior diagnosis). Also handles screenshot analysis, training curve interpretation, PDF reading, and code inspection. | Visual debugging of trained policies, gait quality assessment, failure mode diagnosis from rendered frames, before/after reward change comparison, reward curve interpretation, competition document analysis. |
+| **training-pipeline** | `.github/skills/training-pipeline/SKILL.md` | Index skill and entry point for all RL training tasks. Quick Start commands, known fixed issues, and routing table to other skills. | Start here for any training-related task. Review before launching any experiment. |
+| **curriculum-learning** | `.github/skills/curriculum-learning/SKILL.md` | Abstract multi-stage curriculum training methodology. Generic stage progression templates, warm-start strategies, promotion criteria. Task-specific stages in Task_Reference.md. | Designing multi-stage training plans, defining promotion thresholds, configuring warm-start LR multipliers, transferring checkpoints between environments. |
+| **hyperparameter-optimization** | `.github/skills/hyperparameter-optimization/SKILL.md` | Abstract PPO hyperparameter AND reward weight search methodology. Search space schema, presets (quick/full/fine-tune), optimization strategies. Task-specific ranges in Task_Reference.md. | Tuning learning rate, network size, PPO dynamics, or reward weights. |
+| **reward-penalty-engineering** | `.github/skills/reward-penalty-engineering/SKILL.md` | Process-oriented methodology for systematic reward discovery. Diagnose → Hypothesize → Implement → Test → Evaluate → Archive cycle. Abstract "Lazy Robot" case study. | Identifying behavioral gaps, formulating reward hypotheses, running controlled experiments, archiving findings in the reward library. |
+| **training-campaign** | `.github/skills/training-campaign/SKILL.md` | Execute and monitor long-running RL training campaigns. Generic checkpoint management, experiment logging, progress monitoring, AutoML pipeline architecture. | Starting/resuming training runs, monitoring progress, managing checkpoints, understanding the AutoML subprocess pipeline. |
+| **quadruped-competition-tutor** | `.github/skills/quadruped-competition-tutor/SKILL.md` | Abstract competition strategy guide. Generic reward engineering principles, terrain traversal pattern templates, scoring optimization tactics, submission checklist. Task-specific details in Task_Reference.md. | Understanding competition structure, abstract reward strategies, terrain pattern recognition, submission preparation. |
+| **mjcf-xml-reasoning** | `.github/skills/mjcf-xml-reasoning/SKILL.md` | Master guide for reading and reasoning about MuJoCo MJCF XML model files. All XML elements, geometry types, joint configurations, contact physics, height field sizing. Terrain geometry details in Task_Reference.md. | Understanding robot/scene XML definitions, debugging physics issues, analyzing terrain layouts, modifying scene files. |
+| **subagent-copilot-cli** | `.github/skills/subagent-copilot-cli/SKILL.md` | Delegate visual analysis tasks to GitHub Copilot CLI. Automated VLM policy analysis via `capture_vlm.py`, screenshot analysis, training curve interpretation, PDF reading. Generic env-name patterns. | Visual debugging of trained policies, gait quality assessment, failure mode diagnosis, reward curve interpretation. |
 
 ## Key Directories
 
@@ -224,15 +366,14 @@ Key state object: `NpEnvState(data, obs, reward, terminated, truncated, info)` w
 | `motrix_envs/src/motrix_envs/registry.py` | Environment registry (`make`, `envcfg`, `env`) |
 | `motrix_rl/src/motrix_rl/cfgs.py` | All RL training configs (PPO hyperparameters) |
 | `motrix_rl/src/motrix_rl/registry.py` | RL config registry (`rlcfg`, `default_rl_cfg`) |
-| `starter_kit/navigation1/vbot/cfg.py` | VBot env configs with reward scales (Stage 1) |
-| `starter_kit/navigation1/vbot/vbot_section001_np.py` | VBot environment implementation (competition) |
-| `starter_kit/navigation2/vbot/cfg.py` | VBot env configs (Stage 2, obstacles/stairs) |
-| `starter_kit/navigation2/vbot/vbot_section*_np.py` | VBot environment implementations (Stage 2) |
-| `starter_kit/navigation2/vbot/xmls/` | MuJoCo MJCF scene files |
+| `starter_kit/{task}/vbot/cfg.py` | VBot env configs with reward scales |
+| `starter_kit/{task}/vbot/vbot_*_np.py` | VBot environment implementations |
+| `starter_kit/{task}/vbot/xmls/` | MuJoCo MJCF scene files |
 | `starter_kit_schedule/` | Training campaign pipeline, reward library, hyperparameter search |
 | `starter_kit_schedule/scripts/automl.py` | AutoML HP search engine |
 | `starter_kit_log/{automl_id}/` | Self-contained automl run: configs/, experiments/, index.yaml, report.md |
 | `starter_kit_docs/` | Competition guides and scoring rules |
+| `starter_kit_docs/{task}/Task_Reference.md` | Task-specific env IDs, reward scales, terrain data, curriculum stages |
 | `runs/` | Training outputs (checkpoints, TensorBoard logs) |
 | `starter_kit_log/vlm_captures/` | VLM frame captures and analysis reports |
 | `.github/skills/` | AI agent skill files for specialized tasks |

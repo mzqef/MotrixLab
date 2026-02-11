@@ -447,6 +447,7 @@ class VBotSection001EnvCfg(VBotStairsEnvCfg):
                 "stop_scale": 5.0,               # 停止奖励 (Phase5: 2→5, 竞赛精确停止)
                 "zero_ang_bonus": 10.0,          # 零角速度奖励 (Phase5: 6→10)
                 "near_target_speed": -2.0,       # 距离-速度耦合惩罚 (Round5: quadratic speed_excess²)
+                "departure_penalty": -5.0,       # 离开中心区惩罚 (Round8: d<0.5m时后退penalty)
                 "boundary_penalty": -3.0,        # 边界惩罚 (新增, 防掉落)
 
                 # ===== Locomotion稳定性惩罚 =====
@@ -468,11 +469,11 @@ class VBotSection001EnvCfg(VBotStairsEnvCfg):
 
     # 课程学习：生成距离控制
     # 机器人在 [spawn_inner_radius, spawn_outer_radius] 环形区域内生成
-    # Stage 1 (Easy):   inner=2, outer=5   — 近距离学基本功
+    # Stage 1 (Easy):   inner=2, outer=5   — 近距离学基本功  ✅ COMPLETED (66.58% peak)
     # Stage 2 (Medium): inner=5, outer=8   — 中等距离
-    # Stage 3 (Hard):   inner=8, outer=11  — 竞赛距离
-    spawn_inner_radius: float = 2.0   # 课程 Stage 1: 最近距离
-    spawn_outer_radius: float = 5.0   # 课程 Stage 1: 最远距离
+    # Stage 3 (Hard):   inner=8, outer=11  — 竞赛距离        ← CURRENT
+    spawn_inner_radius: float = 8.0   # 课程 Stage 3: 最近距离 (was 5.0 in Stage 2)
+    spawn_outer_radius: float = 11.0  # 课程 Stage 3: 最远距离 (was 8.0 in Stage 2)
 
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)

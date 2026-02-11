@@ -1,0 +1,17 @@
+metrics / reached_fraction (mean)                            0.2908         0.2410    -0.0498
+metrics / distance_to_target (mean)                          2.4014         2.8201    +0.4187
+Reward / Instantaneous reward (mean)                         2.1946         2.6553    +0.4608
+Reward Total/ fine_position_tracking (mean)               2114.4826      1557.4046  -557.0780
+Reward Total/ position_tracking (mean)                    1128.2764       897.5958  -230.6806
+Reward Total/ heading_tracking (mean)                      123.8014       146.0745   +22.2730
+Reward Total/ forward_velocity (mean)                      585.4934       539.3725   -46.1210
+Reward Total/ approach_reward (mean)                       216.5950       203.6602   -12.9348
+Reward Total/ stop_bonus (mean)                            296.8474       540.6591  +243.8118
+Reward Total/ arrival_bonus (mean)                         109.6994       117.6899    +7.9905
+Reward Total/ alive_bonus (mean)                           110.2476        89.4940   -20.7536
+Reward Total/ distance_progress (mean)                     641.5271       497.8934  -143.6337
+Reward Total/ termination (mean)                            -3.6987        -3.4723    +0.2264
+Reward Total/ departure_penalty (mean)                      -0.0017        -0.0001    +0.0016
+Reward Total/ near_target_speed (mean)                    -101.2568       -92.4395    +8.8173
+Reward Total/ penalties (mean)                            -424.1019      -316.2121  +107.8898
+Episode / Total timesteps (mean)                           963.3015       790.0879  -173.2136

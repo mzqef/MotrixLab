@@ -1,7 +1,8 @@
 {
-  "run_tag": "full_t1_best_100M",
+  "run_tag": "stage3_warmstart_stage2best_50M",
   "env_name": "vbot_navigation_section001",
   "starter_kit_dir": "D:\\MotrixLab\\starter_kit\\navigation1",
+  "checkpoint": "D:\\MotrixLab\\runs\\vbot_navigation_section001\\26-02-11_11-57-08-242154_PPO\\checkpoints\\agent_1000.pt",
   "reward_scales": {
     "position_tracking": 1.7333844544037973,
     "fine_position_tracking": 11.99516440930778,
@@ -27,7 +28,7 @@
     "departure_penalty": -5.0
   },
   "rl_overrides": {
-    "learning_rate": 0.00043391977829516584,
+    "learning_rate": 0.000125,
     "entropy_loss_scale": 0.006025418875448697,
     "policy_hidden_layer_sizes": [256, 128, 64],
     "value_hidden_layer_sizes": [512, 256, 128],
@@ -35,7 +36,7 @@
     "learning_epochs": 6,
     "mini_batches": 32,
     "discount_factor": 0.99,
-    "max_env_steps": 100000000,
+    "max_env_steps": 50000000,
     "seed": 42,
     "check_point_interval": 100
   }

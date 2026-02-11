@@ -29,10 +29,10 @@ for arg_i, arg in enumerate(sys.argv):
         _env_name_for_import = sys.argv[arg_i + 1]
         break
 
-_NAV2_ENVS = {"vbot_navigation_section011", "vbot_navigation_section012", "vbot_navigation_section013", "vbot_navigation_long_course"}
-if _env_name_for_import in _NAV2_ENVS:
+_NAVIGATION2_ENVS = {"vbot_navigation_section011", "vbot_navigation_section012", "vbot_navigation_section013", "vbot_navigation_long_course"}
+if _env_name_for_import in _NAVIGATION2_ENVS:
     # Register Navigation2 environments (section011, section012, section013)
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "starter_kit"))
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "starter_kit" / "navigation2"))
     import navigation2  # noqa: F401, E402
 else:
     # Register Navigation1 environments (default)

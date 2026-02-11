@@ -1,7 +1,8 @@
 {
-  "run_tag": "full_t1_best_100M",
+  "run_tag": "R8c_warmstart_peak_higher_entropy",
   "env_name": "vbot_navigation_section001",
   "starter_kit_dir": "D:\\MotrixLab\\starter_kit\\navigation1",
+  "checkpoint": "D:\\MotrixLab\\runs\\vbot_navigation_section001\\26-02-11_00-48-16-248222_PPO\\checkpoints\\agent_6500.pt",
   "reward_scales": {
     "position_tracking": 1.7333844544037973,
     "fine_position_tracking": 11.99516440930778,
@@ -27,8 +28,8 @@
     "departure_penalty": -5.0
   },
   "rl_overrides": {
-    "learning_rate": 0.00043391977829516584,
-    "entropy_loss_scale": 0.006025418875448697,
+    "learning_rate": 0.00013,
+    "entropy_loss_scale": 0.012,
     "policy_hidden_layer_sizes": [256, 128, 64],
     "value_hidden_layer_sizes": [512, 256, 128],
     "rollouts": 24,

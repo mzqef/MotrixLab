@@ -258,6 +258,8 @@ approach_reward = np.clip(raw_approach, -0.5, 1.0)  # retreat always penalized
 
 ### 4.1c Round6 Fixes — Reward Budget Root Cause (Feb 10 Session 5)
 
+> **Note**: Round6 changed `max_episode_steps` from 4000 to **1000** (and `max_episode_seconds` from 40 to **10**). All subsequent training uses the 1000-step limit.
+
 After Round5 fixes, `reached%` remained near 0%. A formal **reward budget analysis** revealed the real root cause: the robot was *rationally choosing to stand still* because passive rewards dominated active rewards.
 
 #### The Reward Budget Methodology
@@ -287,6 +289,59 @@ walk_total = approach + forward + arrival + stop ≈ 2,031
 | 4 | `termination` | -200 → **-100** | Too harsh; caused risk aversion |
 
 **Result**: Round6 v4 achieved **27.7% reached** at 12M steps — up from 0% with Round5.
+
+### 4.1d Round7 Fix — Stop_Bonus Farming Cap (Feb 10 Session 6)
+
+After Round6, monitoring long training runs revealed a third reward exploit: **Reach-and-Farm**. The robot would reach the target (d<0.5m) and then stand perfectly still, accumulating `stop_bonus + zero_ang_bonus ≈ 21.2/step` for the remaining 600+ steps (12,726 total). This dominated the navigation reward (~611) by a factor of 20.8×.
+
+#### The Fix: 50-Step Stop_Bonus Budget
+
+```python
+# Track first reach time per environment
+info["first_reach_step"] = np.where(
+    np.logical_and(first_time_reach, info["first_reach_step"] < 0),
+    steps, info["first_reach_step"]
+)
+# Only give stop_bonus for the first 50 steps after reaching
+steps_since_reach = steps - info["first_reach_step"]
+stop_budget_remaining = np.clip(50.0 - steps_since_reach, 0.0, 50.0)
+stop_eligible = stop_budget_remaining > 0
+genuinely_slow = np.logical_and(reached_all, np.logical_and(speed_xy < 0.3, stop_eligible))
+```
+
+**Result**: Stop farming reward reduced from 12,726 to 1,060 (50 steps × 21.2/step). Navigation-to-farming ratio improved from 1:20.8 to 1:1.7. The Round7 full training run was the **first to not show the peak-then-decline pattern** through the critical step 4000-7000 zone, reaching 32.9% reached_fraction and still climbing when stopped.
+
+### 4.1e Key Metric: What `reached_fraction` Actually Measures
+
+> **Important**: The `reached_fraction` TensorBoard metric is the **instantaneous fraction of parallel environments where the robot is within 0.5m of the target at that simulation step**. It is NOT a per-episode success rate.
+
+With 2048 parallel environments, `reached_fraction = 0.30` means "30% of the 2048 envs currently have a robot within 0.5m of center." This is a **time-averaged target occupancy** metric.
+
+The actual **per-episode success rate** (did the robot ever reach within 0.5m during the episode?) is typically 3-5× higher. It can be derived from the `arrival_bonus` component:
+
+```python
+per_episode_success_rate = mean(arrival_bonus_per_episode) / arrival_bonus_scale
+```
+
+For example, a policy with 28% reached_fraction may have 75% per-episode success — the difference is that robots spend most of each episode traversing (not at target).
+
+**For competition purposes**, `reached_fraction` is actually a better proxy because competition rewards sustained target presence, not brief touches. A sprint-crash exploit achieves ~98% per-episode success but only 18% reached_fraction (brief touches, immediate crash).
+
+### 4.1f Planned Improvement: Departure Penalty (Session 7)
+
+After completing Sessions 1-6, a gap was identified in the reward architecture: when the robot is inside the target zone (d < 0.5m) and drifts outward, **neither branch of the reward provides negative feedback**. The reached branch has no approach signal, and the not-reached branch clips approach retreat to zero.
+
+Two adoptions are planned (pending VLM validation of drift behavior):
+
+1. **Departure penalty**: When `reached_all=True` AND `delta_d > 0.01` (drifting out while at target), apply `-5.0 × delta_d` as a penalty in the common penalties section.
+
+2. **Piecewise approach clipping**: When `ever_reached=True` AND `d ≥ 0.5m` (robot has left the center zone after reaching), change approach clipping from `(0.0, 1.0)` to `(-0.5, 1.0)` — re-enabling retreat penalties only after the robot has proven it can reach.
+
+Two other proposals were analyzed and **rejected**:
+- **Tighter stop speed gate** (0.3→0.15): Rejected because the exponential inside the gate already provides the gradient; tightening removes the deceleration teaching signal.
+- **Dwell time bonus**: Rejected because it re-introduces farming risk and is redundant with stop_bonus + success_truncation.
+
+See [REPORT_NAV1.md](REPORT_NAV1.md) Section 56-57 for full analysis and the phased training plan.
 
 #### TensorBoard Component Analysis (diagnostic technique)
 
@@ -434,6 +489,7 @@ The search spaces were tightened around the proven Round6 v4 config to avoid was
 | **Fly-Through** | stop_bonus earned at high speed | No speed gate on stop_bonus | Gate stop_bonus on speed < 0.3 m/s |
 | **Conservative Hovering** | Robot approaches to ~0.5m then stalls | termination too harsh (>-250) | Reduce to -150 with speed-distance coupling |
 | **Negative Walking Incentive** | Robot stands despite movement reward | Stability penalties (-430/ep) cancel movement rewards (+134/ep) | Increase forward_velocity scale to overcome penalty budget |
+| **Reach-and-Farm** | Reward↑ reached%↓ after step 4K, stop_bonus climbs | stop_bonus×remaining_steps >> navigation reward (20.8× ratio) | Time-cap stop_bonus (50-step budget via Round7 fix) |
 
 ---
 
@@ -496,6 +552,15 @@ A: Use the AutoML pipeline (`starter_kit_schedule/scripts/automl.py`) and check 
 
 ---
 
-## 11. Final Advice
+## 11. Feb 11 Update (R11 Reward Fixes)
+
+Recent Navigation1 work added two structural reward fixes in the environment code:
+
+- **Removed time decay**: The per-step multiplier based on episode time was removed to avoid incentivizing short episodes.
+- **Gated fine-position tracking**: `fine_position_tracking` now activates only after the first successful reach (`ever_reached`). This keeps the early approach signal smooth while avoiding the hover-at-boundary exploit.
+
+For full experiment history, checkpoints, and metrics, see [starter_kit_docs/navigation1/REPORT_NAV1.md](starter_kit_docs/navigation1/REPORT_NAV1.md).
+
+## 12. Final Advice
 
 MotrixLab is a powerful, modular RL framework for robotics. Take your time to read the configs, experiment with reward scales, and use the scripts to run and debug your experiments. The best way to learn is to try small changes and observe their effects in training and evaluation. Good luck, and don’t hesitate to ask for help or clarification!

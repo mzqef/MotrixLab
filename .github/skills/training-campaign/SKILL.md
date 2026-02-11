@@ -43,28 +43,12 @@ description: Execute and monitor long-running RL training campaigns. Progress tr
 
 > **ALWAYS** review existing experiments before starting new training. See `training-pipeline` skill → "Step 0: Review Experiment History" for the full checklist.
 
-### Read Experiment Reports First
-
-```powershell
-# MANDATORY: Read experiment reports before ANY training
-Get-ChildItem REPORT_NAV*.md | Select-Object Name, Length, LastWriteTime
-Get-Content REPORT_NAV1.md | Select-Object -Last 80  # Check latest TODO/next steps
-```
-
-**REPORT_NAV*.md** is the canonical record of all experiments. Check:
-- "Next Steps" section → what should be done next
-- "Updated Experiment Summary" → what's already been tried
-- "Current Configuration State" → verified runtime config
-- "Lessons Learned" → pitfalls to avoid
-
-> **After completing any training run**, append results to the report. Never overwrite.
-
 ### Quick Review Commands
 
 ```powershell
 # Quick review: what training exists?
 Get-ChildItem starter_kit_log/automl_* -Directory | Select-Object Name
-Get-ChildItem runs/vbot_navigation_section001/ -Directory | Sort-Object Name -Descending | Select-Object -First 5
+Get-ChildItem runs/<env-name>/ -Directory | Sort-Object Name -Descending | Select-Object -First 5
 
 # Check training progress of latest run
 uv run starter_kit_schedule/scripts/check_training.py
@@ -82,13 +66,13 @@ uv run starter_kit_schedule/scripts/automl.py `
     --hp-trials 15
 
 # === SMOKE TEST ONLY (<500K steps, verify code compiles) ===
-uv run scripts/train.py --env vbot_navigation_section001 --train-backend torch --max-env-steps 200000
+uv run scripts/train.py --env <env-name> --train-backend torch --max-env-steps 200000
 
 # === VISUAL DEBUGGING ONLY ===
-uv run scripts/train.py --env vbot_navigation_section001 --render
+uv run scripts/train.py --env <env-name> --render
 
 # === FINAL DEPLOYMENT RUN (after AutoML found best config) ===
-uv run scripts/train.py --env vbot_navigation_section001 --train-backend torch
+uv run scripts/train.py --env <env-name> --train-backend torch
 ```
 
 ### Monitor Progress
@@ -98,21 +82,21 @@ uv run scripts/train.py --env vbot_navigation_section001 --train-backend torch
 Get-Content starter_kit_schedule/progress/automl_state.yaml
 
 # TensorBoard (opens web dashboard)
-uv run tensorboard --logdir runs/vbot_navigation_section001
+uv run tensorboard --logdir runs/<env-name>
 
 # List checkpoints
-Get-ChildItem runs/vbot_navigation_section001/ -Recurse -Filter "*.pt"
+Get-ChildItem runs/<env-name>/ -Recurse -Filter "*.pt"
 ```
 
 ### Evaluate
 
 ```powershell
 # Play latest checkpoint
-uv run scripts/play.py --env vbot_navigation_section001
+uv run scripts/play.py --env <env-name>
 
 # Play specific checkpoint
-uv run scripts/play.py --env vbot_navigation_section001 `
-    --policy runs/vbot_navigation_section001/<run_dir>/checkpoints/agent.pt
+uv run scripts/play.py --env <env-name> `
+    --policy runs/<env-name>/<run_dir>/checkpoints/agent.pt
 ```
 
 ## Directory Structure
@@ -147,7 +131,7 @@ starter_kit_log/
     └── state.yaml             # AutoML state snapshot
 
 runs/                          # Training outputs
-└── vbot_navigation_section001/
+└── <env-name>/
     └── <timestamp>_PPO/
         ├── checkpoints/       # Policy checkpoints
         ├── events.out.tfevents.*  # TensorBoard logs
@@ -159,7 +143,7 @@ runs/                          # Training outputs
 The AutoML pipeline runs as a single process that spawns subprocesses:
 
 ```
-run.py (entry point, sets --env vbot_navigation_section001)
+run.py (entry point, sets --env <env-name>)
   └── automl.py (HP search engine)
        ├── sample_from_space() → HP config (native Python types)
        ├── _train_and_eval() → spawns subprocess:

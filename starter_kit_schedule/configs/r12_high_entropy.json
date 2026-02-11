@@ -1,5 +1,5 @@
 {
-  "run_tag": "full_t1_best_100M",
+  "run_tag": "r12_high_entropy_100M",
   "env_name": "vbot_navigation_section001",
   "starter_kit_dir": "D:\\MotrixLab\\starter_kit\\navigation1",
   "reward_scales": {
@@ -28,7 +28,7 @@
   },
   "rl_overrides": {
     "learning_rate": 0.00043391977829516584,
-    "entropy_loss_scale": 0.006025418875448697,
+    "entropy_loss_scale": 0.018,
     "policy_hidden_layer_sizes": [256, 128, 64],
     "value_hidden_layer_sizes": [512, 256, 128],
     "rollouts": 24,
