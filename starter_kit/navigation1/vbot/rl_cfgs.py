@@ -38,6 +38,6 @@ class navigation1:
         clip_predicted_values: bool = True
 
         share_policy_value_features: bool = False
-        # (256,128,64) 经验证对VBot收敛稳定
+        # (256,128,64) policy + (512,256,128) value — 匹配竞赛最终checkpoint
         policy_hidden_layer_sizes: tuple[int, ...] = (256, 128, 64)
-        value_hidden_layer_sizes: tuple[int, ...] = (256, 128, 64)
+        value_hidden_layer_sizes: tuple[int, ...] = (512, 256, 128)

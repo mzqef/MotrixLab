@@ -45,29 +45,34 @@ class navigation2:
     @rlcfg("vbot_navigation_section011")
     @dataclass
     class VBotSection011PPOConfig(PPOCfg):
-        """VBot Section011 导航 PPO 配置（Navigation2 section01 平地+坡道+高台）"""
+        """VBot Section011 导航 PPO 配置（Navigation2 section01 平地+坡道+高台）
+        
+        v7: v4 proven config + zone approach delta reward for side zone collection.
+        Core navigation unchanged from v4 (wp_idx max=3 at 2K iters).
+        """
         seed: int = 42
         num_envs: int = 2048
         play_num_envs: int = 16
-        max_env_steps: int = 100_000_000
-        check_point_interval: int = 1000
+        max_env_steps: int = 80_000_000
+        check_point_interval: int = 500
 
-        learning_rate: float = 3e-4
-        rollouts: int = 24
+        learning_rate: float = 2.5e-4   # v4 proven value
+        lr_scheduler_type: str | None = "linear"
+        rollouts: int = 32              # v4 proven value
         learning_epochs: int = 8
         mini_batches: int = 32
         discount_factor: float = 0.99
         lambda_param: float = 0.95
         grad_norm_clip: float = 1.0
-        entropy_loss_scale: float = 0.005
+        entropy_loss_scale: float = 0.008  # v4 proven value: sufficient exploration
 
-        ratio_clip: float = 0.2
+        ratio_clip: float = 0.2          # Standard clip
         value_clip: float = 0.2
         clip_predicted_values: bool = True
 
         share_policy_value_features: bool = False
         policy_hidden_layer_sizes: tuple[int, ...] = (256, 128, 64)
-        value_hidden_layer_sizes: tuple[int, ...] = (256, 128, 64)
+        value_hidden_layer_sizes: tuple[int, ...] = (512, 256, 128)
 
     @rlcfg("vbot_navigation_section012")
     @dataclass

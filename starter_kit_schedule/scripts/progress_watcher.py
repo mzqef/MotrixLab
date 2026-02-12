@@ -68,23 +68,30 @@ def load_automl_state(automl_dir):
 
 def find_active_runs():
     """Find currently running training experiments by checking recent TensorBoard writes."""
-    runs_dir = PROJECT_ROOT / "runs" / "vbot_navigation_section001"
-    if not runs_dir.exists():
+    runs_root = PROJECT_ROOT / "runs"
+    if not runs_root.exists():
         return []
 
     active = []
     now = time.time()
-    for run_dir in sorted(runs_dir.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)[:5]:
-        event_files = glob.glob(str(run_dir / "events.out.tfevents.*"))
-        if event_files:
-            latest_event = max(event_files, key=os.path.getmtime)
-            age = now - os.path.getmtime(latest_event)
-            if age < 600:  # Modified in last 10 minutes
-                active.append({
-                    "dir": run_dir.name,
-                    "age_seconds": age,
-                    "event_file": latest_event,
-                })
+    # Scan all env subdirectories under runs/
+    for env_dir in sorted(runs_root.iterdir()):
+        if not env_dir.is_dir():
+            continue
+        for run_dir in sorted(env_dir.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)[:5]:
+            if not run_dir.is_dir():
+                continue
+            event_files = glob.glob(str(run_dir / "events.out.tfevents.*"))
+            if event_files:
+                latest_event = max(event_files, key=os.path.getmtime)
+                age = now - os.path.getmtime(latest_event)
+                if age < 600:  # Modified in last 10 minutes
+                    active.append({
+                        "env": env_dir.name,
+                        "dir": run_dir.name,
+                        "age_seconds": age,
+                        "event_file": latest_event,
+                    })
     return active
 
 
@@ -130,21 +137,27 @@ def generate_snapshot():
     # Active runs
     snapshot["active_runs"] = find_active_runs()
 
-    # Best runs by reward
-    runs_dir = PROJECT_ROOT / "runs" / "vbot_navigation_section001"
-    if runs_dir.exists():
-        all_runs = sorted(runs_dir.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)[:10]
-        for run_dir in all_runs:
-            metrics = get_latest_metrics(run_dir)
-            if "reward" in metrics:
-                snapshot["best_runs"].append({
-                    "dir": run_dir.name,
-                    "reward_last": metrics["reward"]["last"],
-                    "reward_max": metrics["reward"]["max"],
-                    "distance": metrics.get("distance", {}).get("last", "?"),
-                    "reached": metrics.get("reached", {}).get("last", 0),
-                    "steps": metrics["reward"]["steps"],
-                })
+    # Best runs by reward — scan all env directories
+    runs_root = PROJECT_ROOT / "runs"
+    if runs_root.exists():
+        for env_dir in sorted(runs_root.iterdir()):
+            if not env_dir.is_dir():
+                continue
+            all_runs = sorted(env_dir.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)[:10]
+            for run_dir in all_runs:
+                if not run_dir.is_dir():
+                    continue
+                metrics = get_latest_metrics(run_dir)
+                if "reward" in metrics:
+                    snapshot["best_runs"].append({
+                        "env": env_dir.name,
+                        "dir": run_dir.name,
+                        "reward_last": metrics["reward"]["last"],
+                        "reward_max": metrics["reward"]["max"],
+                        "distance": metrics.get("distance", {}).get("last", "?"),
+                        "reached": metrics.get("reached", {}).get("last", 0),
+                        "steps": metrics["reward"]["steps"],
+                    })
 
     # Sort best_runs by reward
     snapshot["best_runs"].sort(key=lambda r: r.get("reward_max", 0), reverse=True)
@@ -187,7 +200,7 @@ def write_wakeup_md(snapshot):
     if active:
         lines.extend(["## Active Training Runs", ""])
         for run in active:
-            lines.append(f"- `{run['dir']}` (modified {run['age_seconds']:.0f}s ago)")
+            lines.append(f"- `{run.get('env', '?')}/{run['dir']}` (modified {run['age_seconds']:.0f}s ago)")
         lines.append("")
 
     # Best runs
@@ -200,7 +213,7 @@ def write_wakeup_md(snapshot):
         ])
         for r in best_runs[:5]:
             lines.append(
-                f"| {r['dir'][:30]} | {r['reward_max']:.2f} | {r['reward_last']:.2f} | "
+                f"| {r.get('env', '?')}/{r['dir'][:25]} | {r['reward_max']:.2f} | {r['reward_last']:.2f} | "
                 f"{r['distance']:.2f} | {r['reached']:.2%} | {r['steps']:,} |"
             )
         lines.append("")
@@ -208,8 +221,8 @@ def write_wakeup_md(snapshot):
     # Action items for the agent
     lines.extend([
         "## Suggested Next Actions",
-        "1. Check TensorBoard: `uv run tensorboard --logdir runs/vbot_navigation_section001`",
-        "2. Evaluate best: `uv run scripts/play.py --env vbot_navigation_section001`",
+        "1. Check TensorBoard: `uv run tensorboard --logdir runs/`",
+        "2. Evaluate best: `uv run scripts/play.py --env <env_name>`",
         "3. Resume AutoML: `uv run starter_kit_schedule/scripts/automl.py --resume`",
         "4. Check reward curves and adjust weights if plateauing",
         "",
@@ -237,13 +250,13 @@ def print_status(snapshot):
     if active:
         print(f"\nActive runs: {len(active)}")
         for r in active:
-            print(f"  - {r['dir']} ({r['age_seconds']:.0f}s ago)")
+            print(f"  - {r.get('env', '?')}/{r['dir']} ({r['age_seconds']:.0f}s ago)")
 
     best = snapshot.get("best_runs", [])
     if best:
         print(f"\nTop runs:")
         for r in best[:5]:
-            print(f"  {r['dir'][:35]:35s} reward={r['reward_max']:.2f} dist={r['distance']:.2f} "
+            print(f"  {r.get('env', '?')}/{r['dir'][:30]:30s} reward={r['reward_max']:.2f} dist={r['distance']:.2f} "
                   f"reached={r['reached']:.1%} steps={r['steps']:,}")
 
     print(f"\n{'='*60}\n")

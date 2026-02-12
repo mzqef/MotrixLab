@@ -30,7 +30,7 @@ for _i, _arg in enumerate(sys.argv):
 
 if _env_name_for_import in _NAVIGATION2_ENVS:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "starter_kit" / "navigation2"))
-    import navigation2  # noqa: F401, E402
+    import vbot as navigation2_vbot  # noqa: F401, E402
 else:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "starter_kit" / "navigation1"))
     import vbot  # noqa: F401, E402
@@ -47,7 +47,7 @@ _SIM_BACKEND = flags.DEFINE_string(
     "The simulation backend to use.(If not specified, it will be choosen automatically)",
 )
 _POLICY = flags.DEFINE_string("policy", None, "The policy to load")
-_NUM_ENVS = flags.DEFINE_integer("num-envs", 2048, "Number of envs to play")
+_NUM_ENVS = flags.DEFINE_integer("num-envs", 1, "Number of envs to play")
 _SEED = flags.DEFINE_integer("seed", None, "Random seed for reproducibility")
 _RAND_SEED = flags.DEFINE_bool("rand-seed", False, "Generate random seed")
 
@@ -131,8 +131,7 @@ def main(argv):
 
     rl_override = {}
 
-    if _NUM_ENVS.present:
-        rl_override["play_num_envs"] = _NUM_ENVS.value
+    rl_override["play_num_envs"] = _NUM_ENVS.value
 
     if _RAND_SEED.value:
         rl_override["seed"] = None

@@ -223,7 +223,8 @@ HP_SEARCH_SPACE = {
     "mini_batches": {"type": "choice", "values": [16, 32]},
 }
 
-REWARD_SEARCH_SPACE = {
+# --- Section001 (flat ground navigation) ---
+REWARD_SEARCH_SPACE_SECTION001 = {
     # === Navigation core (positive incentives) ===
     "position_tracking": {"type": "uniform", "low": 0.5, "high": 3.0},
     "fine_position_tracking": {"type": "uniform", "low": 4.0, "high": 12.0},
@@ -247,6 +248,54 @@ REWARD_SEARCH_SPACE = {
     # === Termination ===
     "termination": {"type": "choice", "values": [-150, -100, -75, -50]},   # Round6: lighter range
 }
+
+# --- Section011 (bumps/slope/high-platform with waypoint navigation) ---
+# v9 "Living First" centered: alive_bonus dominates, forward_velocity restrained
+REWARD_SEARCH_SPACE_SECTION011 = {
+    # === Movement (restrained — Living First principle) ===
+    "forward_velocity": {"type": "uniform", "low": 0.5, "high": 3.0},     # v9 baseline: 1.5
+    "waypoint_approach": {"type": "uniform", "low": 50.0, "high": 200.0}, # v9 baseline: 100
+    "waypoint_facing": {"type": "uniform", "low": 0.05, "high": 0.3},     # v9 baseline: 0.15
+    # === Survival (LIVING FIRST — must dominate sprint-die) ===
+    "alive_bonus": {"type": "uniform", "low": 0.3, "high": 1.0},          # v9 baseline: 0.5
+    "position_tracking": {"type": "uniform", "low": 0.01, "high": 0.15},  # v9 baseline: 0.05 (weak gradient)
+    # === One-time bonuses (waypoint/zone/celebration) ===
+    "waypoint_bonus": {"type": "uniform", "low": 50.0, "high": 200.0},    # v9 baseline: 100
+    "smiley_bonus": {"type": "uniform", "low": 20.0, "high": 80.0},       # v9 baseline: 40
+    "red_packet_bonus": {"type": "uniform", "low": 10.0, "high": 40.0},   # v9 baseline: 20
+    "celebration_bonus": {"type": "uniform", "low": 50.0, "high": 200.0}, # v9 baseline: 100
+    # === Terrain adaptation ===
+    "height_progress": {"type": "uniform", "low": 5.0, "high": 25.0},     # v9 baseline: 12
+    "traversal_bonus": {"type": "uniform", "low": 15.0, "high": 60.0},    # v9 baseline: 30
+    "foot_clearance": {"type": "uniform", "low": 0.005, "high": 0.05},    # v9 baseline: 0.02
+    # === Celebration spin ===
+    "spin_progress": {"type": "uniform", "low": 2.0, "high": 8.0},        # v9 baseline: 4.0
+    "spin_hold": {"type": "uniform", "low": 3.0, "high": 12.0},           # v9 baseline: 6.0
+    # === Stability penalties (terrain-relaxed) ===
+    "orientation": {"type": "uniform", "low": -0.04, "high": -0.005},     # v9 baseline: -0.015
+    "lin_vel_z": {"type": "uniform", "low": -0.15, "high": -0.02},        # v9 baseline: -0.06
+    "action_rate": {"type": "uniform", "low": -0.015, "high": -0.002},    # v9 baseline: -0.005
+    "swing_contact_penalty": {"type": "uniform", "low": -0.15, "high": -0.02},  # v9 baseline: -0.05
+    # === Termination ===
+    "termination": {"type": "choice", "values": [-150, -100, -75, -50]},   # v9 baseline: -100
+}
+
+# Registry: env name pattern → search space
+_REWARD_SEARCH_SPACES = {
+    "section011": REWARD_SEARCH_SPACE_SECTION011,
+    "section001": REWARD_SEARCH_SPACE_SECTION001,
+}
+
+# Default (backward compat)
+REWARD_SEARCH_SPACE = REWARD_SEARCH_SPACE_SECTION001
+
+
+def get_reward_search_space(env_name: str) -> dict:
+    """Return the reward search space matching the given environment name."""
+    for pattern, space in _REWARD_SEARCH_SPACES.items():
+        if pattern in env_name:
+            return space
+    return REWARD_SEARCH_SPACE_SECTION001
 
 
 # =============================================================================
@@ -292,6 +341,22 @@ REWARD_COMPONENT_CATEGORIES = {
     # Gait
     "gait_frequency": "gait",
     "gait_symmetry": "gait",
+    # Section011 waypoint navigation
+    "waypoint_approach": "navigation",
+    "waypoint_facing": "navigation",
+    "waypoint_bonus": "navigation",
+    "smiley_bonus": "navigation",
+    "red_packet_bonus": "navigation",
+    "celebration_bonus": "navigation",
+    "zone_approach": "navigation",
+    # Section011 terrain
+    "height_progress": "terrain",
+    "traversal_bonus": "terrain",
+    # Section011 celebration
+    "spin_progress": "navigation",
+    "spin_hold": "navigation",
+    # Section011 stability
+    "swing_contact_penalty": "stability",
 }
 
 
@@ -355,12 +420,17 @@ def sample_hp_config() -> HPConfig:
     )
 
 
-def sample_reward_config() -> RewardConfig:
-    """Sample a random reward configuration from REWARD_SEARCH_SPACE."""
+def sample_reward_config(env_name: str = "") -> dict:
+    """Sample a random reward configuration from the env-specific search space.
+    
+    Returns a plain dict of reward_scales (not a RewardConfig dataclass),
+    which is directly compatible with train_one.py's scales.update() pattern.
+    """
+    space = get_reward_search_space(env_name)
     kwargs = {}
-    for key, space in REWARD_SEARCH_SPACE.items():
-        kwargs[key] = sample_from_space(space)
-    return RewardConfig(**kwargs)
+    for key, spec in space.items():
+        kwargs[key] = sample_from_space(spec)
+    return kwargs
 
 
 # =============================================================================
@@ -517,7 +587,7 @@ class AutoMLPipeline:
         # Save best results
         self.state.best_results[stage] = {
             "hp_config": asdict(best_hp),
-            "reward_config": asdict(best_reward),
+            "reward_config": best_reward,
             "metrics": asdict(metrics),
             "checkpoint": str(self.log_dir / "stages" / stage / "best_checkpoint"),
         }
@@ -528,9 +598,12 @@ class AutoMLPipeline:
         """Run unified HP + reward weight search for a stage.
 
         Returns:
-            (HPConfig, RewardConfig) — best configs found.
+            (HPConfig, dict) — best HP config and reward_scales dict found.
         """
         logger.info(f"Running unified HP+reward search for {stage}: {self.config.hp_trials_per_stage} trials")
+        logger.info(f"  Environment: {self.config.environment}")
+        search_space = get_reward_search_space(self.config.environment)
+        logger.info(f"  Reward search space: {len(search_space)} parameters")
 
         best_hp = None
         best_reward = None
@@ -545,15 +618,15 @@ class AutoMLPipeline:
             # Sample or use Bayesian acquisition
             if trial < self.config.hp_warmup_trials or self.config.hp_method == "random":
                 hp_config = sample_hp_config()
-                reward_config = sample_reward_config()
+                reward_config = sample_reward_config(self.config.environment)
             else:
                 # Simple Bayesian: perturb best HP + reward config
                 hp_config, reward_config = self._bayesian_suggest(best_hp, best_reward)
 
             logger.info(
                 f"Trial {trial+1}/{self.config.hp_trials_per_stage}: "
-                f"lr={hp_config.learning_rate:.2e}, term={reward_config.termination:.0f}, "
-                f"approach={reward_config.approach_scale:.1f}"
+                f"lr={hp_config.learning_rate:.2e}, term={reward_config.get('termination', '?')}, "
+                f"alive={reward_config.get('alive_bonus', '?')}"
             )
 
             # Train and evaluate
@@ -568,7 +641,7 @@ class AutoMLPipeline:
             self.state.hp_search_history.append({
                 "trial": trial,
                 "hp_config": asdict(hp_config),
-                "reward_config": asdict(reward_config),
+                "reward_config": reward_config,
                 "metrics": asdict(metrics),
                 "score": score,
             })
@@ -582,21 +655,22 @@ class AutoMLPipeline:
             self.update_elapsed_time()
             self.save_state()
 
-        logger.info(f"Unified search complete. Best lr: {best_hp.learning_rate:.2e}, term: {best_reward.termination:.0f}")
-        return (best_hp or HPConfig(), best_reward or RewardConfig())
+        if best_hp:
+            logger.info(f"Unified search complete. Best lr: {best_hp.learning_rate:.2e}, term: {best_reward.get('termination', '?')}")
+        return (best_hp or HPConfig(), best_reward or sample_reward_config(self.config.environment))
 
     def _bayesian_suggest(
         self,
         current_best_hp: Optional[HPConfig],
-        current_best_reward: Optional[RewardConfig],
+        current_best_reward: Optional[dict],
     ) -> tuple:
         """Bayesian suggestion: perturb best HP + reward config jointly.
 
         Returns:
-            (HPConfig, RewardConfig)
+            (HPConfig, dict) — HP config and reward_scales dict.
         """
         if current_best_hp is None:
-            return sample_hp_config(), sample_reward_config()
+            return sample_hp_config(), sample_reward_config(self.config.environment)
 
         # --- Perturb HP config ---
         hp_dict = asdict(current_best_hp)
@@ -623,8 +697,11 @@ class AutoMLPipeline:
         hp_config = HPConfig(**hp_dict)
 
         # --- Perturb reward config ---
-        reward_dict = asdict(current_best_reward)
-        for key, space in REWARD_SEARCH_SPACE.items():
+        reward_dict = dict(current_best_reward)  # already a plain dict
+        search_space = get_reward_search_space(self.config.environment)
+        for key, space in search_space.items():
+            if key not in reward_dict:
+                continue
             if random.random() < 0.3:  # Perturb ~30% of weights per trial
                 if space["type"] in ["uniform", "loguniform"]:
                     current = reward_dict[key]
@@ -635,20 +712,18 @@ class AutoMLPipeline:
                 elif space["type"] == "choice":
                     reward_dict[key] = random.choice(space["values"])
 
-        reward_config = RewardConfig(**reward_dict)
-
-        return hp_config, reward_config
+        return hp_config, reward_dict
 
     # NOTE: _run_reward_search removed — reward weights are now searched
     # jointly with HP params in _run_hp_search via _bayesian_suggest.
 
     def _run_full_training(
-        self, stage: str, hp_config: HPConfig, reward_config: RewardConfig
+        self, stage: str, hp_config: HPConfig, reward_config: dict
     ) -> EvalMetrics:
         """Run full training with best configs."""
         logger.info(f"Running full training for {stage}")
         logger.info(f"HP: lr={hp_config.learning_rate:.2e}, entropy={hp_config.entropy_loss_scale:.2e}")
-        logger.info(f"Reward: pos={reward_config.position_tracking:.2f}, term={reward_config.termination:.0f}")
+        logger.info(f"Reward: alive={reward_config.get('alive_bonus', '?')}, term={reward_config.get('termination', '?')}")
 
         metrics = self._train_and_eval(
             stage, hp_config, reward_config,
@@ -662,7 +737,7 @@ class AutoMLPipeline:
         self,
         stage: str,
         hp_config: HPConfig,
-        reward_config: RewardConfig,
+        reward_config: dict,
         max_steps: int
     ) -> EvalMetrics:
         """
@@ -698,11 +773,11 @@ class AutoMLPipeline:
             )),
         }
 
-        # Convert RewardConfig → reward_scales dict
-        reward_scales = asdict(reward_config)
+        # reward_config is already a plain dict
+        reward_scales = reward_config
 
         # Resolve starter_kit dir so train_one.py can import the env module
-        if "navigation2" in self.config.environment or "stairs" in self.config.environment:
+        if any(p in self.config.environment for p in ["navigation2", "stairs", "section01", "section02", "section03", "long_course"]):
             starter_kit_dir = str(PROJECT_ROOT / "starter_kit" / "navigation2")
         else:
             starter_kit_dir = str(PROJECT_ROOT / "starter_kit" / "navigation1")
@@ -728,8 +803,8 @@ class AutoMLPipeline:
 
         logger.info(f"Launching training: {iteration_tag}")
         logger.info(f"  HP: lr={hp_config.learning_rate:.2e}, rollouts={hp_config.rollouts}")
-        logger.info(f"  Reward: pos={reward_config.position_tracking:.2f}, "
-                     f"approach={reward_config.approach_scale:.1f}, term={reward_config.termination:.0f}")
+        logger.info(f"  Reward: alive={reward_config.get('alive_bonus', '?')}, "
+                     f"term={reward_config.get('termination', '?')}")
         logger.info(f"  Steps: {max_steps:,}")
 
         start = time.time()
@@ -843,7 +918,7 @@ class AutoMLPipeline:
         stage = self.state.current_stage or self.config.stages[0]
         best_hp, best_reward = self._run_hp_search(stage)
         self.state.current_hp_config = asdict(best_hp)
-        self.state.current_reward_config = asdict(best_reward)
+        self.state.current_reward_config = best_reward
 
     def _run_evaluation_only(self):
         """Run evaluation only mode."""

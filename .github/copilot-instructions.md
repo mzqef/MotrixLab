@@ -24,7 +24,7 @@ Competition work lives in `starter_kit/navigation1/` (flat) and `starter_kit/nav
 
 ## 🔴 Experiment Reports (MANDATORY check before reward changes)
 
-> **ALWAYS read `REPORT_NAV*.md` files at `/starter_kit_docs/{<task-name>}` before modifying rewards.**
+> **ALWAYS read markdown files at `/starter_kit_docs/{<task-name>}` and its subfolders before modifying rewards.**
 
 > These reports track all experiments, discoveries, and current configuration state.
 
@@ -35,6 +35,10 @@ Competition work lives in `starter_kit/navigation1/` (flat) and `starter_kit/nav
 - Active TODO items in "Next Steps" section
 - Lessons learned that affect curriculum design
 > **After completing any experiment or making significant changes**, append results to the relevant REPORT_NAV*.md file. Never overwrite existing content — the history is a chronological record.
+
+## 🔴 Skills FIRST
+
+Always follow a skill rather rath wildly reasoning from first principles. The skills are designed to be modular and composable — use them as building blocks for your work.
 
 ## 🔴 AutoML-First Policy (MANDATORY)
 
@@ -286,6 +290,25 @@ uv run scripts/view.py --env <env-name>
 # TensorBoard
 uv run tensorboard --logdir runs/<env-name>
 
+# === ANALYSIS & MONITORING TOOLS ===
+# Monitor latest training run (compact dashboard)
+uv run starter_kit_schedule/scripts/monitor_training.py --env <env-name>
+
+# Deep analysis (full reward breakdown + auto-diagnosis)
+uv run starter_kit_schedule/scripts/monitor_training.py --env <env-name> --deep
+
+# Compare two runs side-by-side
+uv run starter_kit_schedule/scripts/monitor_training.py --compare runs/.../run_A runs/.../run_B
+
+# Smoke test + reward budget audit
+uv run starter_kit_schedule/scripts/smoke_test.py --env <env-name> --all
+
+# Evaluate a checkpoint (headless multi-trial)
+uv run starter_kit_schedule/scripts/eval_checkpoint.py --env <env-name> --ckpt path/to/agent.pt
+
+# Rank checkpoints in a run by metric
+uv run starter_kit_schedule/scripts/eval_checkpoint.py --rank runs/<env-name>/<run_dir>
+
 # Lint
 uv run ruff check .
 ```
@@ -371,6 +394,9 @@ Key state object: `NpEnvState(data, obs, reward, terminated, truncated, info)` w
 | `starter_kit/{task}/vbot/xmls/` | MuJoCo MJCF scene files |
 | `starter_kit_schedule/` | Training campaign pipeline, reward library, hyperparameter search |
 | `starter_kit_schedule/scripts/automl.py` | AutoML HP search engine |
+| `starter_kit_schedule/scripts/monitor_training.py` | **Training monitor & TB analyzer** (monitor, deep analysis, compare, list tags) |
+| `starter_kit_schedule/scripts/eval_checkpoint.py` | **Checkpoint evaluator & ranker** (headless eval, rank by metric) |
+| `starter_kit_schedule/scripts/smoke_test.py` | **Smoke test & reward budget auditor** (env step test, budget ratios) |
 | `starter_kit_log/{automl_id}/` | Self-contained automl run: configs/, experiments/, index.yaml, report.md |
 | `starter_kit_docs/` | Competition guides and scoring rules |
 | `starter_kit_docs/{task}/Task_Reference.md` | Task-specific env IDs, reward scales, terrain data, curriculum stages |

@@ -33,7 +33,7 @@ _NAVIGATION2_ENVS = {"vbot_navigation_section011", "vbot_navigation_section012",
 if _env_name_for_import in _NAVIGATION2_ENVS:
     # Register Navigation2 environments (section011, section012, section013)
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "starter_kit" / "navigation2"))
-    import navigation2  # noqa: F401, E402
+    import vbot as navigation2_vbot  # noqa: F401, E402
 else:
     # Register Navigation1 environments (default)
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "starter_kit" / "navigation1"))

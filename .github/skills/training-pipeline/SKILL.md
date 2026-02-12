@@ -122,9 +122,13 @@ uv run tensorboard --logdir runs/<env-name>
 | `scripts/train.py` | Single training run |
 | `scripts/play.py` | Evaluate / play a checkpoint |
 | `scripts/view.py` | View environment (no training) |
+| `scripts/capture_vlm.py` | VLM visual analysis (frame capture + gpt-4.1) |
 | `starter_kit_schedule/scripts/automl.py` | **AutoML entry point** — HP search, reward search, curriculum |
 | `starter_kit_schedule/scripts/train_one.py` | Single trial subprocess (called by automl) |
 | `starter_kit_schedule/scripts/evaluate.py` | Read TensorBoard logs for metrics |
+| `starter_kit_schedule/scripts/monitor_training.py` | **Training monitor & TB analyzer** — live dashboard, deep analysis, run comparison |
+| `starter_kit_schedule/scripts/eval_checkpoint.py` | **Checkpoint evaluator & ranker** — headless multi-trial eval, rank by metric |
+| `starter_kit_schedule/scripts/smoke_test.py` | **Smoke test & reward budget audit** — env step test, budget ratios |
 | `starter_kit_schedule/scripts/progress_watcher.py` | Progress monitoring + WAKE_UP.md generation |
 | `starter_kit_schedule/scripts/analyze.py` | Compare experiment results |
 | `starter_kit_schedule/scripts/status.py` | Check training status |

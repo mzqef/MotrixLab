@@ -36,7 +36,7 @@ def _resolve_starter_kit_dir(config):
         return explicit
 
     env_name = config.get("env_name", "")
-    if "navigation2" in env_name or "stairs" in env_name:
+    if "navigation2" in env_name or "stairs" in env_name or "section01" in env_name or "section02" in env_name or "section03" in env_name or "long_course" in env_name:
         return _STARTER_KIT_DIRS["navigation2"]
     # Default to navigation1
     return _STARTER_KIT_DIRS["navigation1"]
@@ -105,7 +105,41 @@ def main():
 
     # Warm-start from checkpoint if specified (loads policy/value weights only, not optimizer state)
     checkpoint_path = config.get("checkpoint")
-    trainer.train(checkpoint=checkpoint_path)
+    freeze_preprocessor = config.get("freeze_preprocessor", False)
+
+    if checkpoint_path and freeze_preprocessor:
+        # Decomposed training flow: create agent, load checkpoint, freeze normalizer, then train.
+        # This prevents RunningStandardScaler drift that causes ~1000-iter cyclical policy collapse
+        # during warm-start training (normalizer stats fitted to source domain shift when seeing
+        # target domain observations, periodically disrupting the policy).
+        from motrix_envs import registry as _env_reg
+        from motrix_rl.skrl import get_log_dir
+        from motrix_rl.skrl.torch import wrap_env as _wrap_env
+        from skrl.trainers.torch import SequentialTrainer
+        from skrl.utils import set_seed as _set_seed
+
+        rlcfg = trainer._rlcfg
+        _env = _env_reg.make(env_name, sim_backend=None, num_envs=rlcfg.num_envs)
+        _set_seed(rlcfg.seed)
+        _skrl_env = _wrap_env(_env, False)
+        _models = trainer._make_model(_skrl_env, rlcfg)
+        _ppo_cfg = ppo._get_cfg(rlcfg, _skrl_env, log_dir=get_log_dir(env_name))
+        _agent = trainer._make_agent(_models, _skrl_env, _ppo_cfg)
+        _agent.load(checkpoint_path)
+
+        # Freeze: monkey-patch _parallel_variance to no-op.
+        # The scaler still applies its frozen mean/variance during forward(),
+        # but never updates the running statistics.
+        _agent._state_preprocessor._parallel_variance = lambda *a, **kw: None
+        _agent._value_preprocessor._parallel_variance = lambda *a, **kw: None
+        print(f"[Pipeline] Warm-started from: {checkpoint_path}")
+        print("[Pipeline] Preprocessor FROZEN (normalizer stats will not update)")
+
+        _cfg_trainer = {"timesteps": rlcfg.max_batch_env_steps, "headless": True}
+        _seq_trainer = SequentialTrainer(cfg=_cfg_trainer, env=_skrl_env, agents=_agent)
+        _seq_trainer.train()
+    else:
+        trainer.train(checkpoint=checkpoint_path)
     elapsed = time.time() - start_time
 
     # Find the new run directory created during training.

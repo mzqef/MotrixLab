@@ -50,7 +50,7 @@ for _i, _arg in enumerate(sys.argv):
 
 if _env_name_for_import in _NAVIGATION2_ENVS:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "starter_kit" / "navigation2"))
-    import navigation2  # noqa: F401
+    import vbot as navigation2_vbot  # noqa: F401
 else:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "starter_kit" / "navigation1"))
     import vbot  # noqa: F401

@@ -91,7 +91,7 @@ Get-ChildItem runs/<env-name>/ -Recurse -Filter "*.pt"
 ### Evaluate
 
 ```powershell
-# Play latest checkpoint
+# Play latest checkpoint (visual)
 uv run scripts/play.py --env <env-name>
 
 # Play specific checkpoint
@@ -114,6 +114,9 @@ starter_kit_schedule/
 │   ├── automl.py              # AutoML search engine (entry point)
 │   ├── train_one.py           # Single trial subprocess
 │   ├── evaluate.py            # Read TensorBoard for metrics
+│   ├── monitor_training.py    # Training monitor & TB analyzer
+│   ├── eval_checkpoint.py     # Checkpoint evaluator & ranker
+│   ├── smoke_test.py          # Smoke test & reward budget auditor
 │   ├── check_training.py      # Quick training progress checker
 │   └── progress_watcher.py    # Generates WAKE_UP.md for agent context
 ├── progress/

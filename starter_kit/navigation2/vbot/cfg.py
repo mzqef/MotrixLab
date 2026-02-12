@@ -346,7 +346,8 @@ class VBotLongCourseEnvCfg(VBotStairsEnvCfg):
     
     @dataclass
     class ControlConfig:
-        action_scale = 0.25
+        action_scale = 0.5  # 0.5: 地形需要更大关节范围（抬脚过障碍, 高度场0.277m）
+    
     
     @dataclass
     class RewardConfig:
@@ -386,20 +387,28 @@ class VBotSection011EnvCfg(VBotStairsEnvCfg):
     """VBot Section01（高台/坡道）导航配置
 
     XML地形信息 (0126_C_section01.xml):
+    - START平台 (Adiban_001)：中心(0, -2.5, -0.25)，尺寸5×1m，顶面z=0
     - 高度场：中心(0, 0, 0)，范围x=±5m, y=±1.5m，高度0~0.277m
     - 地面平台：z=0
     - 15°坡道 (Adiban_003)：中心(0, 4.48, 0.41)
     - 高台 (Adiban_004)：中心(0, 7.83, 1.044)，尺寸(5×2.5×0.25)m，顶面z=1.294
     - 边界墙顶部 z≈2.45
+
+    竞赛得分区 (Section1 = 20分满分):
+    - 3个笑脸区 (各+4分=12分): OBJ坐标 (-3,0), (0,0), (3,0)  y∈[-1,1]
+    - 3个红包区 (各+2分=6分):  OBJ坐标 (-3,4.4), (0,4.4), (3,4.4) y∈[3.4,5.4]
+    - 庆祝动作 (+2分): 在"2026"平台(高台顶部)做出庆祝动作
     """
     model_file: str = os.path.dirname(__file__) + "/xmls/scene_section011.xml"
-    max_episode_seconds: float = 40.0
+    max_episode_seconds: float = 40.0  # 40秒: START到高台10.3m, 需更多时间
     max_episode_steps: int = 4000
+    grace_period_steps: int = 500  # 前500步(5秒)不判终止，让agent充分学会在bumps区域站立+行走
     @dataclass
     class InitState:
-        # 起始位置：section01起点，地面z=0，机器人高度0.5m
-        pos = [0.0, -2.4, 0.5]
-        pos_randomization_range = [-0.5, -0.5, 0.5, 0.5]  # X±0.5m, Y±0.5m随机
+        # 竞赛正确起点：START平台 (Adiban_001), center=(0, -2.5), 顶面z=0
+        # 竞赛规则: "初始点位置随机分布在'START'平台区域" y∈[-3.5, -1.5]
+        pos = [0.0, -2.5, 0.5]  # START平台中心 (竞赛正确位置)
+        pos_randomization_range = [-2.0, -0.5, 2.0, 0.5]  # X: ±2.0m (5m宽平台), Y: ±0.5m → y∈[-3.0,-2.0]
 
         default_joint_angles = {
             "FR_hip_joint": -0.0,
@@ -417,37 +426,118 @@ class VBotSection011EnvCfg(VBotStairsEnvCfg):
         }
     @dataclass
     class Commands:
-        # 固定目标：高台顶部中心
-        # 起始Y=-2.4 + 偏移10.2 → 目标Y=7.8（≈高台中心y=7.83，顶面z=1.294）
-        pose_command_range = [0.0, 10.2, 0.0, 0.0, 10.2, 0.0]
+        # 从START平台到高台顶部：起始Y=-2.5 + 偏移10.3 → 目标Y=7.8（≈高台中心y=7.83）
+        pose_command_range = [0.0, 10.3, 0.0, 0.0, 10.3, 0.0]
     @dataclass
     class ControlConfig:
-        action_scale = 0.25
+        action_scale = 0.5  # 0.5: 地形需要更大关节范围（抬脚过障碍, 高度场0.277m）
+    @dataclass
+    class ScoringZones:
+        """竞赛得分区定义 (从OBJ顶点数据提取)"""
+        # 3个笑脸区(各+4分): 位于height field上，y≈0处
+        smiley_centers = [[-3.0, 0.0], [0.0, 0.0], [3.0, 0.0]]  # [x, y]
+        smiley_radius = 1.2  # 检测半径（OBJ范围~2m，取1.2m宽松判定）
+        smiley_points = 4.0  # 每个笑脸区竞赛得分
+        # 3个红包区(各+2分): 位于坡道上，y≈4.4处
+        red_packet_centers = [[-3.0, 4.4], [0.0, 4.4], [3.0, 4.4]]  # [x, y]
+        red_packet_radius = 1.2  # 检测半径
+        red_packet_points = 2.0  # 每个红包区竞赛得分
+        # 庆祝区(+2分): 高台顶部"2026"平台，y≈7.83, z>1.0
+        celebration_center = [0.0, 7.83]
+        celebration_radius = 1.5  # 高台顶部范围
+        celebration_min_z = 1.0   # 必须在高台上
+        celebration_points = 2.0
+    @dataclass
+    class CourseBounds:
+        """赛道边界 (超出边界=终止+清零得分)
+        
+        从XML碰撞模型提取 (0126_C_section01.xml):
+        - 边界墙 x=±5.25 (Abianjie), 内侧可用 x∈[-5.0, 5.0]
+        - 后墙 y≈-3.75 → START起始 y≈-3.5
+        - 高台末端 y≈8.83
+        - 最低地面 z=0 (START平台顶面), 稍有宽容到 z=-0.5 (跌落判定)
+        
+        竞赛规则: "超出边界 / 摔倒行为 → 扣除本Section所有得分"
+        """
+        x_min: float = -5.2     # 左侧边界 (墙内)
+        x_max: float = 5.2      # 右侧边界 (墙内)
+        y_min: float = -4.0     # 后方边界 (START后墙)
+        y_max: float = 9.5      # 前方边界 (高台末端+1m缓冲)
+        z_min: float = -0.5     # 跌落判定 (低于地面0.5m)
+    @dataclass
+    class WaypointNav:
+        """多航点导航配置: 3中心航点 + zone吸引力 + 庆祝
+        
+        3中心航点 (验证过: 能可靠到达高台):
+          WP0: 中心笑脸 (0, 0)    — 前进方向
+          WP1: 中心红包 (0, 4.4)  — 继续前进(上坡)
+          WP2: 高台     (0, 7.83) — 到达 + 庆祝旋转
+        
+        侧面zone通过zone_approach奖励吸引收集(代码中实现):
+          机器人在2.5m内感受到未收集zone的引力
+          配合passive zone detection (1.2m), 引导机器人顺路收集
+        """
+        # 航点坐标 [x, y] — 前进路线
+        waypoints = [[0.0, 0.0], [0.0, 4.4], [0.0, 7.83]]
+        # 航点到达半径
+        waypoint_radius = 1.0  # 笑脸/红包zone半径较大，走到附近即可
+        final_radius = 0.5     # 高台目标更精确
+        # 庆祝旋转参数
+        celebration_spin_angle = 3.14159  # 每次旋转180°
+        celebration_spin_tolerance = 0.3   # 角度容差(rad) ≈ 17°
+        celebration_spin_speed_limit = 0.3  # 旋转时平移速度上限
+        celebration_hold_steps = 30  # 旋转完成后保持静止的步数
     @dataclass
     class RewardConfig:
         scales: dict = field(default_factory=lambda: {
-            # ===== 导航任务核心奖励 =====
-            "position_tracking": 2.0,
-            "fine_position_tracking": 2.0,
-            "heading_tracking": 1.0,
-            "forward_velocity": 1.5,        # 增强前进激励
-            "distance_progress": 2.0,
-            "alive_bonus": 1.0,              # 强存活激励
-            "approach_scale": 8.0,
-            # ===== 到达奖励 =====
-            "arrival_bonus": 50.0,
-            "stop_scale": 2.0,
-            "zero_ang_bonus": 6.0,
-            # ===== 惩罚 =====
-            "orientation": -0.05,
-            "lin_vel_z": -0.5,
-            "ang_vel_xy": -0.05,
-            "torques": -1e-5,
-            "dof_vel": -5e-5,
-            "dof_acc": -2.5e-7,
-            "action_rate": -0.01,
-            "termination": -50.0,            # 降低终止惩罚，避免梯度崩溃
+            # ===== v9: LIVING FIRST — 存活>速度, bump区行走训练 =====
+            # 主动运动奖励 (降低: 不鼓励鲁莽冲刺)
+            "forward_velocity": 1.5,         # 朝目标方向速度 (v7:5.0→v9:1.5, 防止冲刺撞死)
+            "waypoint_approach": 100.0,      # 朝当前航点靠近step-delta (v7:200→v9:100)
+            "waypoint_facing": 0.15,         # 面朝当前航点(极低被动信号)
+            # 存活奖励 (LIVING FIRST原则: 活着>>冲刺)
+            "position_tracking": 0.05,       # 微弱梯度信号
+            "alive_bonus": 0.5,              # 0.5×4000=2000 (存活4000步=2000奖励, 远超冲刺)
+            # 一次性大奖
+            "waypoint_bonus": 100.0,         # 到达每个航点(3×100=300)
+            "smiley_bonus": 40.0,            # 通过笑脸区(3×40=120)
+            "red_packet_bonus": 20.0,        # 通过红包区(3×20=60)
+            "celebration_bonus": 100.0,      # 庆祝旋转完成
+            # Zone吸引力
+            "zone_approach": 0.0,            # 先禁用: 学会直线导航后再开启
+            # 地形适应
+            "height_progress": 12.0,         # 爬坡z-高度进步
+            "traversal_bonus": 30.0,         # 地形里程碑(×2=60)
+            # 抬脚奖励 (过bumps/坡道必须抬脚)
+            "foot_clearance": 0.02,          # 摆动相抬脚高度奖励 (微弱信号, 防止主导)
+            # 庆祝旋转引导
+            "spin_progress": 4.0,
+            "spin_hold": 6.0,
+            # ===== 禁用旧信号 (代码中未使用 / 反作用) =====
+            "fine_position_tracking": 0.0,
+            "heading_tracking": 0.0,
+            "distance_progress": 0.0,
+            "approach_scale": 0.0,
+            "arrival_bonus": 0.0,
+            "stop_scale": 0.0,
+            "zero_ang_bonus": 0.0,
+            "near_target_speed": 0.0,        # 禁用: 阻碍机器人前进
+            "departure_penalty": 0.0,
+            # ===== 摆动相接触惩罚 =====
+            "swing_contact_penalty": -0.05,  # 降低: 抬脚幅度大时轻微接触正常
+            # ===== 稳定性惩罚 (坡道宽松 + 大action_scale适应) =====
+            "orientation": -0.015,           # 更宽松: 坡道自然倾斜
+            "lin_vel_z": -0.06,              # 更宽松: 爬坡需要垂直速度
+            "ang_vel_xy": -0.01,
+            "torques": -5e-6,               # 降低: 更大力矩正常
+            "dof_vel": -3e-5,               # 降低: 更大关节速度正常
+            "dof_acc": -1.5e-7,
+            "action_rate": -0.005,           # 降低: action_scale=0.5导致更大动作差
+            "termination": -100.0,           # 基础终止惩罚 (加重: 死亡代价高, OOB/摔倒还会额外扣除累积奖金)
         })
+    scoring_zones: ScoringZones = field(default_factory=ScoringZones)
+    waypoint_nav: WaypointNav = field(default_factory=WaypointNav)
+    course_bounds: CourseBounds = field(default_factory=CourseBounds)
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)
     control_config: ControlConfig = field(default_factory=ControlConfig)
