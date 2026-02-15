@@ -1,242 +1,143 @@
-# Tutorial: RL Reward Engineering for Section 011 — Slopes + Multi-Waypoint + Celebration
-
-**Case Study: VBot navigating Section 01 of the MotrixArena S1 obstacle course**
-
-> This tutorial covers reward engineering specific to Section 011 — height field traversal, 15° slope climbing, scoring zone collection, multi-waypoint navigation, and celebration spin.
-
-> **Prerequisite**: Read `starter_kit_docs/navigation1/Tutorial_RL_Reward_Engineering.md` for foundational lessons.
-> For full-course reward engineering, see `starter_kit_docs/navigation2/long_course/Tutorial_RL_Reward_Engineering.md`.
+# Section 011 — RL Reward Engineering Guide (v17)
 
 ---
 
-## 1. The Task
+## 1. Reward Architecture Overview
 
-| Aspect | Value |
-|--------|-------|
-| Environment | `vbot_navigation_section011` |
-| Terrain | Flat → 15° slope → high platform |
-| Distance | ~10.3m |
-| Episode | 3000 steps (30s) |
-| Points | 20 pts (smileys 12 + red packets 6 + celebration 2) |
-
-**Architecture**: 3-waypoint navigation (smiley zone → red packet zone → platform) + celebration spin state machine.
+Section 011 uses a **multi-signal reward** combining:
+- **Navigation rewards**: waypoint approach, forward velocity, zone bonuses
+- **Height rewards**: height progress, height approach, height oscillation
+- **Stability rewards**: orientation (+ slope compensation), stance ratio
+- **Celebration rewards**: jump reward, celebration bonus
+- **Penalties**: termination, lateral velocity, lin_vel_z
 
 ---
 
-## 2. Reward Budget Audit (v3 Multi-Waypoint + Celebration)
+## 2. Current Reward Scales (v17)
 
-> **Core Principle** (from Navigation1): Before training, compute max reward for desired vs degenerate behavior.
-
-```
-STANDING STILL for 3000 steps at spawn (d≈10.3m, alive=0.05):
-  alive = 0.05 × 3000 = 150
-  position_tracking = exp(-10.3/5) × 1.5 ≈ 0.19/step → 570
-  Total standing ≈ 720
-
-COMPLETING FULL COURSE (START → smileys → ramp → red packets → platform → celebration):
-  waypoint_bonus = 3 × 25 = 75 (one-time per waypoint)
-  smiley_bonus = 3 × 20 = 60 (pass-through)
-  red_packet_bonus = 3 × 10 = 30 (pass-through)
-  celebration_bonus = 30 (one-time)
-  arrival_bonus = 160 (one-time)
-  traversal = 2 × 15 = 30 (milestones)
-  spin rewards ≈ 450 (spin_progress + spin_hold)
-  wp_approach + forward ≈ 300-500
-  Total completing ≈ 1,135-1,335
-
-✅ COMPLETING > STANDING — incentive aligned (strong discrete bonuses)
-```
-
-### Anti-Laziness Fix Applied
-
-```python
-# Section 011 current config:
-alive_bonus = 0.05       # 0.05 × 3000 = 150
-arrival_bonus = 160.0    # > alive_budget
-waypoint_bonus = 25.0    # 3 × 25 = 75
-smiley_bonus = 20.0      # 3 × 20 = 60
-red_packet_bonus = 10.0  # 3 × 10 = 30
-celebration_bonus = 30.0
-termination = -75.0      # 50% of alive_budget
-# Now: alive=150, goal_rewards=355 → ratio 0.42:1 ✅
-```
+| Signal | Scale | Category | Notes |
+|--------|-------|----------|-------|
+| `forward_velocity` | 3.0 | Navigation | Per-step forward progress |
+| `waypoint_approach` | 100.0 | Navigation | Delta distance to current target |
+| `zone_approach` | 5.0 | Navigation | Proximity to nearest zone |
+| `smiley_bonus` | 150.0 | Bonus | One-time per smiley collected |
+| `red_packet_bonus` | 150.0 | Bonus | One-time per red packet collected |
+| `celebration_bonus` | 100.0 | Bonus | One-time on successful celebration |
+| `jump_reward` | 8.0 | Celebration | Continuous z bonus during jump |
+| `height_progress` | 8.0 | Height | Raw z-delta upward |
+| `height_approach` | 5.0 | Height | Target-z approach (new v17) |
+| `height_oscillation` | -2.0 | Height | Z-bounce penalty (new v17) |
+| `orientation` | -0.05 | Stability | Tilt penalty (was -0.015) |
+| `slope_orientation` | 0.04 | Stability | Ramp tilt compensation (new v17) |
+| `stance_ratio` | 0.08 | Stability | Foot contact regularity |
+| `lateral_velocity` | 0.0 | Disabled | (Available if needed) |
+| `lin_vel_z` | -0.06 | Stability | Vertical velocity penalty |
+| `termination` | -100.0 | Penalty | Fall or body contact |
 
 ---
 
-## 3. Slope-Specific Rewards
+## 3. v17 Changes from Previous Version
 
-### 3.1 Height Progress Reward
+### 3.1 Orientation Strengthened (-0.015 → -0.05)
 
-Standard `forward_velocity` only rewards Y-axis movement. On a 15° slope, moving forward also means climbing — this effort should be explicitly rewarded.
+**Problem**: Weak orientation penalty allowed the robot to become dangerously tilted without sufficient cost, leading to falls especially on height field bumps.
 
-```python
-# Reward z-axis gain (climbing)
-z_progress = current_z - last_z  # Positive when climbing
-height_reward = np.clip(z_progress * height_scale, -0.5, 1.0)  # scale=8.0
-```
+**Solution**: 3.3× increase in orientation penalty. Combined with slope compensation so ramp climbing isn't punished.
 
-### 3.2 Slope-Aware Orientation
+### 3.2 Slope Orientation Compensation (+0.04)
 
-Don't penalize pitch on slopes — the robot SHOULD lean forward:
+**Problem**: Strengthened orientation penalty would punish correct body tilt on the 15° ramp.
 
-```python
-# Standard flat-ground: orientation = -0.05
-# Section 011 (15° slope): orientation = -0.03 (reduced)
-# Also reduced: lin_vel_z = -0.15 (climbing has z-velocity)
-#               ang_vel_xy = -0.02 (ramp stability is different)
-```
+**Solution**: On ramp (y ∈ [2.0, 7.0]), compute expected gravity projection for 15° tilt (sin(15°) ≈ 0.259), reward alignment: `exp(-gy_error²/0.05)`. Scaled at +0.04 to partially offset the -0.05 orientation penalty when correctly tilted.
 
-### 3.3 Traversal Milestones
+Result: Net orientation cost on flat ground ≈ -0.05 (strong). On ramp with correct tilt ≈ -0.01 (mild).
 
-One-time bonuses confirm the robot is making terrain progress:
+### 3.3 Height Approach (scale=5.0)
 
-| Milestone | Condition | Reward |
-|-----------|-----------|--------|
-| Mid-ramp | y > 4.0 AND z > 0.3 | 15.0 |
-| Ramp top | y > 6.5 AND z > 0.8 | 15.0 |
+**Problem**: `height_progress` (raw z-delta) only rewards positive z change. Robot gets no gradient signal about *target height*.
 
----
+**Solution**: Track |z_target - z_robot| and reward any reduction. Target z estimated from target y-position via linear interpolation on ramp geometry. Creates a smooth gradient toward the correct elevation.
 
-## 4. Multi-Waypoint Navigation Rewards
+### 3.4 Height Oscillation (-2.0)
 
-### Step-Delta Approach
+**Problem**: Robots can bounce/hop to exploit height_progress (up→down→up earns double credit on z-delta).
 
-```python
-# Reward closing distance to current waypoint (not just any forward movement)
-last_wp_dist = info.get("last_wp_distance", distance_to_target.copy())
-wp_delta = last_wp_dist - distance_to_target
-info["last_wp_distance"] = distance_to_target.copy()
-wp_approach = np.clip(wp_delta * scales["waypoint_approach"], 0.0, 1.5)  # scale=40.0
-```
+**Solution**: Penalize |z_delta| > 0.015m/step threshold. Only rapid z changes are punished; normal walking gait passes through.
 
-### Waypoint Facing
+### 3.5 Height Progress Reduced (12.0 → 8.0)
 
-```python
-# Reward facing current waypoint
-target_bearing = np.arctan2(position_error[:, 1], position_error[:, 0])
-facing_error = wrap_angle(target_bearing - robot_heading)
-heading_tracking = np.exp(-np.abs(facing_error) / 0.5)
-wp_facing = scales["waypoint_facing"] * heading_tracking  # scale=0.6
-```
-
-### One-Time Waypoint Bonus
-
-```python
-# Per-waypoint one-time bonus (3 × 25.0 = 75 total)
-wp_bonus = np.where(first_reach, scales["waypoint_bonus"], 0.0)  # scale=25.0
-```
-
-### Navigation vs Celebration Phase
-
-```python
-# During celebration phase: suppress navigation rewards, use spin rewards instead
-nav_reward = np.where(in_celeb, alive_bonus, full_nav_reward)
-```
+Reduced because height_approach now shares the height-incentive role. Total height motivation is maintained or increased; the signal is better distributed.
 
 ---
 
-## 5. Celebration Spin Rewards
+## 4. Sweep Ordering (Zone Targeting)
 
-### Spin Progress (Continuous)
+### The 90° Turn Problem
 
-```python
-# Reward progress toward target heading during spin phases
-heading_delta = abs(wrap_angle(celeb_target_heading - robot_heading))
-spin_progress_reward = scales["spin_progress"] * (1.0 - heading_delta / π)  # scale=3.0
+With nearest-first zone selection, a robot at center x=0 could target a side zone at x=3, then the next nearest at x=-3, requiring a 180° reversal. Even partial cases created 90° turns — dangerous on bumpy/sloped terrain where sideways forces cause falls.
+
+### Solution: Coordinate-Sorted Sweep
+
+Sort zones by x-coordinate based on spawn position:
+- Spawn x < 0: sweep L(-3) → C(0) → R(3)
+- Spawn x ≥ 0: sweep R(3) → C(0) → L(-3)
+
+Red packets sweep in **reverse direction**, creating a continuous zigzag:
+```
+Example (spawn x≥0):
+  S-R(3,0) → S-C(0,0) → S-L(-3,0) → RP-L(-3,4.4) → RP-C(0,4.4) → RP-R(3,4.4)
 ```
 
-### Hold Reward (Stillness)
-
-```python
-# Reward stillness after both spins complete
-is_still = (speed_xy < 0.15) & (abs(gyro_z) < 0.3)
-spin_hold_reward = np.where(holding & is_still, scales["spin_hold"], 0.0)  # scale=5.0
-```
-
-### Completion Bonus
-
-```python
-# One-time when all phases done
-celeb_bonus = np.where(done_hold, scales["celebration_bonus"], 0.0)  # scale=30.0
-```
-
-### Speed Penalty During Spin
-
-```python
-# Penalize fast translation during spin (should rotate in place)
-excess_speed = np.maximum(speed_xy - celeb_speed_limit, 0.0)
-celeb_speed_penalty = np.where(is_spinning, -2.0 * excess_speed ** 2, 0.0)
-```
+Maximum heading change between consecutive targets: ~35° (vs 90°+ with nearest-first).
 
 ---
 
-## 6. Scoring Zone Passive Collection
+## 5. Reward Budget Audit
 
-```python
-# Smileys and red packets are collected passively as robot passes through
-# (not waypoint-gated — side zones collected by proximity)
-for i in range(num_smileys):
-    d = np.linalg.norm(robot_xy - smiley_centers[i], axis=1)
-    first = (d < smiley_radius) & ~smileys_reached[:, i]
-    smileys_reached[:, i] |= (d < smiley_radius)
-    smiley_total += np.where(first, scales["smiley_bonus"], 0.0)  # 20.0 each
+### Standing Still Strategy
 ```
+Per step: stance_ratio(0.08) + possible slope_orientation(0.04) ≈ 0.12
+Over 4000 steps: 0.12 × 4000 = 480
+```
+
+### Successful Navigation
+```
+3 smileys: 3 × 150 = 450
+3 red packets: 3 × 150 = 450
+celebration_bonus: 100
+waypoint_approach: ~100 × 10 = ~1000 (varies)
+forward_velocity: ~3.0 × 1000 = ~3000 (active steps)
+height_progress: ~50-80
+height_approach: ~30-50
+Total: ~5000+
+```
+
+**Budget check**: Successful navigation (~5000+) >> standing still (~480). ✅ No degenerate incentive.
 
 ---
 
-## 7. Swing-Phase Contact Penalty
+## 6. Experiment History
 
-**Problem**: On height field bumps, feet moving at high speed can catch = tripping.
+See [REPORT_NAV2_section011.md](REPORT_NAV2_section011.md) for the full chronological record of all experiments, from v1 through v17.
 
-```python
-# Penalty triggers when: contact_force > 1N AND calf_vel > 2rad/s
-# Penalty = Σ(contact × force × velocity / 100)
-# Scale: -0.15 (moderate; avoids suppressing all walking gait)
-```
+### Key Milestones
 
----
-
-## 8. Predicted Exploits (Section 011-Specific)
-
-| Exploit | Description | Prevention |
-|---------|-------------|------------|
-| **Slope hoverer** | Robot climbs partway up slope, stands collecting passive rewards | Time-decay + checkpoint bonuses on Y-axis |
-| **Ramp-avoiding lazy robot** | Robot stays on flat area before ramp | Large arrival bonus at high platform |
-| **Platform edge camper** | Robot reaches platform but doesn't celebrate | celebration_bonus (30.0) incentivizes completion |
-| **Celebration wiggler** | Robot oscillates during spin phases instead of clean rotation | Speed penalty during spin + heading tolerance (0.3 rad) |
-
-### Exploit Detection Signals
-
-| Signal | Metric to Watch | Healthy Range |
-|--------|----------------|---------------|
-| Forward progress | max_y per episode | Should increase over training |
-| Waypoint progression | wp_idx_mean | Should reach 2+ (all waypoints) |
-| Celebration success | celeb_state_mean | Should rise above 0 |
-| Z-position progress | max_z per episode | Should approach 1.294 (platform height) |
+| Version/Stage | wp_idx | Key Change |
+|-------------|--------|------------|
+| Stage 5C | 1.559 | Baseline |
+| Stage 7B | 1.631 | HP tuning |
+| Stage 11-12 | 1.712-1.723 | γ/λ axis search |
+| Stage 13 | 1.866 | γ=0.999, λ=0.97 |
+| Stage 14 | 1.956 | γ=0.999, λ=0.98 |
+| Stage 15 | 1.977 | γ=0.999, λ=0.99 ★★★★★ |
+| v17 | ? | Sweep ordering + new rewards |
 
 ---
 
-## 9. Config Verification Script
+## 7. Debugging Tips
 
-```powershell
-uv run python -c "
-from starter_kit.navigation2.vbot import cfg as _
-from motrix_envs.registry import make
-env = make('vbot_navigation_section011', num_envs=1)
-cfg = env._cfg
-s = cfg.reward_config.scales
-max_steps = cfg.max_episode_steps
-alive = s.get('alive_bonus', 0) * max_steps
-arrival = s.get('arrival_bonus', 0)
-wp = s.get('waypoint_bonus', 0) * 3
-smileys = s.get('smiley_bonus', 0) * 3
-red_pkt = s.get('red_packet_bonus', 0) * 3
-celeb = s.get('celebration_bonus', 0)
-goal_total = arrival + wp + smileys + red_pkt + celeb
-ratio = alive / max(goal_total, 0.01)
-print(f'max_steps={max_steps}  alive_budget={alive:.0f}  goal_rewards={goal_total:.0f}')
-print(f'ratio={ratio:.1f}:1  (should be <1)')
-print(f'arrival={arrival:.0f}  wp={wp:.0f}  smileys={smileys:.0f}  red_pkt={red_pkt:.0f}  celeb={celeb:.0f}')
-print(f'term={s.get(\"termination\",\"?\")}  forward={s.get(\"forward_velocity\",\"?\")}')
-"
-```
+1. **Check new reward channels**: `monitor_training.py --deep` and grep for `height_approach`, `height_oscillation`, `slope_orientation`
+2. **Sweep direction**: Available in reset info as `sweep_direction` (-1 or +1)
+3. **Height oscillation too punitive?**: If robots stop moving on bumpy terrain, reduce threshold from 0.015 or reduce scale from -2.0
+4. **Slope orientation not activating?**: Only triggers for y ∈ [2.0, 7.0] — verify robot reaches the ramp
+5. **Zone collection stuck?**: Check `smiley_bonus` and `red_packet_bonus` in TensorBoard — should increment over training

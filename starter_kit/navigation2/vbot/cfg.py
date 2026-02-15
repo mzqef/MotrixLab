@@ -179,7 +179,7 @@ class VBotSection01EnvCfg(VBotStairsEnvCfg):
         # 起始位置：随机化范围内生成
         pos = [0.0, -2.4, 0.5]  # 中心位置
         
-        pos_randomization_range = [-0.5, -0.5, 0.5, 0.5]  # X±0.5m, Y±0.5m随机
+        pos_randomization_range = [-2.0, -0.5, 2.0, 0.5]  # Stage 6: X±2.0m (was ±0.5m), Y±0.5m — 启发侧面smiley收集多样性
         
         default_joint_angles = {
             "FR_hip_joint": -0.0,
@@ -402,7 +402,7 @@ class VBotSection011EnvCfg(VBotStairsEnvCfg):
     model_file: str = os.path.dirname(__file__) + "/xmls/scene_section011.xml"
     max_episode_seconds: float = 40.0  # 40秒: START到高台10.3m, 需更多时间
     max_episode_steps: int = 4000
-    grace_period_steps: int = 500  # 前500步(5秒)不判终止，让agent充分学会在bumps区域站立+行走
+    grace_period_steps: int = 100  # 前100步(1秒) 仅保护base_contact和中等倾斜; 严重倾斜/OOB/NaN始终终止
     @dataclass
     class InitState:
         # 竞赛正确起点：START平台 (Adiban_001), center=(0, -2.5), 顶面z=0
@@ -483,57 +483,60 @@ class VBotSection011EnvCfg(VBotStairsEnvCfg):
         waypoint_radius = 1.0  # 笑脸/红包zone半径较大，走到附近即可
         final_radius = 0.5     # 高台目标更精确
         # 庆祝旋转参数
-        celebration_spin_angle = 3.14159  # 每次旋转180°
-        celebration_spin_tolerance = 0.3   # 角度容差(rad) ≈ 17°
-        celebration_spin_speed_limit = 0.3  # 旋转时平移速度上限
-        celebration_hold_steps = 30  # 旋转完成后保持静止的步数
+        celebration_jump_threshold = 1.55  # v16b: 实测站立z≈1.52, 小跳+0.03m即可
     @dataclass
     class RewardConfig:
         scales: dict = field(default_factory=lambda: {
-            # ===== v9: LIVING FIRST — 存活>速度, bump区行走训练 =====
-            # 主动运动奖励 (降低: 不鼓励鲁莽冲刺)
-            "forward_velocity": 1.5,         # 朝目标方向速度 (v7:5.0→v9:1.5, 防止冲刺撞死)
-            "waypoint_approach": 100.0,      # 朝当前航点靠近step-delta (v7:200→v9:100)
-            "waypoint_facing": 0.15,         # 面朝当前航点(极低被动信号)
-            # 存活奖励 (LIVING FIRST原则: 活着>>冲刺)
-            "position_tracking": 0.05,       # 微弱梯度信号
-            "alive_bonus": 0.5,              # 0.5×4000=2000 (存活4000步=2000奖励, 远超冲刺)
-            # 一次性大奖
-            "waypoint_bonus": 100.0,         # 到达每个航点(3×100=300)
-            "smiley_bonus": 40.0,            # 通过笑脸区(3×40=120)
-            "red_packet_bonus": 20.0,        # 通过红包区(3×20=60)
-            "celebration_bonus": 100.0,      # 庆祝旋转完成
-            # Zone吸引力
-            "zone_approach": 0.0,            # 先禁用: 学会直线导航后再开启
-            # 地形适应
-            "height_progress": 12.0,         # 爬坡z-高度进步
-            "traversal_bonus": 30.0,         # 地形里程碑(×2=60)
-            # 抬脚奖励 (过bumps/坡道必须抬脚)
-            "foot_clearance": 0.02,          # 摆动相抬脚高度奖励 (微弱信号, 防止主导)
-            # 庆祝旋转引导
-            "spin_progress": 4.0,
-            "spin_hold": 6.0,
-            # ===== 禁用旧信号 (代码中未使用 / 反作用) =====
-            "fine_position_tracking": 0.0,
-            "heading_tracking": 0.0,
-            "distance_progress": 0.0,
-            "approach_scale": 0.0,
-            "arrival_bonus": 0.0,
-            "stop_scale": 0.0,
-            "zero_ang_bonus": 0.0,
-            "near_target_speed": 0.0,        # 禁用: 阻碍机器人前进
-            "departure_penalty": 0.0,
+            # ===== v13: BACK TO BASICS — Return to v10 BALANCED (proven WP=0.50) =====
+            # Root cause: v12 gait rewards (body_balance=234, stance=144/ep) inflated reward
+            # number (3.90) without improving navigation (WP=0.29 < v10's WP=0.50).
+            # v13 strips ALL gait rewards and restores v10's exact navigation-focused config.
+            #
+            # 主动运动奖励 (v10 proven values — navigation signal dominance)
+            "forward_velocity": 3.0,         # v10: dominant per-step signal (~1.08/step)
+            "waypoint_approach": 100.0,      # v10: strong gradient toward current WP
+            "waypoint_facing": 0.15,         # v10: gentle heading guidance
+            # 存活奖励 (条件式: 仅站立时给)
+            "position_tracking": 0.05,       # v10: weak supplementary signal
+            "alive_bonus": 0.15,             # v10: 0.15×4000=600 (no longer dominates)
+            # 一次性大奖 (v10 values — generous milestones)
+            "waypoint_bonus": 100.0,         # v10: 3×100=300 total
+            "smiley_bonus": 150.0,           # Stage 3: 3×150=450 (was 40 — too low for side-smiley detour opportunity cost)
+            "red_packet_bonus": 20.0,        # v10: 3×20=60 total
+            "phase_completion_bonus": 30.0,  # v15: 全部笑脸/全部红包完成阶段奖励
+            "celebration_bonus": 100.0,      # v10: major milestone
+            # Zone吸引力 — Stage 1: 启用侧面zone吸引力, 帮助收集侧面笑脸
+            "zone_approach": 5.0,            # v16: stronger lateral pull for all-smiley collection (was 3.0)
+            # 地形适应 (v10 values)
+            "height_progress": 12.0,         # v10: height gain reward
+            "height_approach": 0.0,          # v17: DISABLED
+            "height_oscillation": 0.0,       # v17: DISABLED
+            "traversal_bonus": 30.0,         # v10: milestone for terrain completion
+            # 抬脚奖励
+            "foot_clearance": 0.02,          # v10: light foot lift for bumps
+            "foot_clearance_bump_boost": 2.5,  # v19: stronger lift cue in bump area
+            # 跳跃庆祝引导 (v16: 简化为跳跃)
+            "jump_reward": 8.0,              # v16: continuous z elevation reward during celebration
+            # ===== 步态质量奖励 =====
+            # v12 lesson: large gait rewards dilute navigation signal.
+            # Stage 7B: unconditional stance at tiny weight (best wp_idx=1.631)
+            "stance_ratio": 0.08,            # Stage 7B: unconditional, tiny weight
             # ===== 摆动相接触惩罚 =====
-            "swing_contact_penalty": -0.05,  # 降低: 抬脚幅度大时轻微接触正常
-            # ===== 稳定性惩罚 (坡道宽松 + 大action_scale适应) =====
-            "orientation": -0.015,           # 更宽松: 坡道自然倾斜
-            "lin_vel_z": -0.06,              # 更宽松: 爬坡需要垂直速度
-            "ang_vel_xy": -0.01,
-            "torques": -5e-6,               # 降低: 更大力矩正常
-            "dof_vel": -3e-5,               # 降低: 更大关节速度正常
-            "dof_acc": -1.5e-7,
-            "action_rate": -0.005,           # 降低: action_scale=0.5导致更大动作差
-            "termination": -100.0,           # 基础终止惩罚 (加重: 死亡代价高, OOB/摔倒还会额外扣除累积奖金)
+            "swing_contact_penalty": -0.025,  # Stage 1: halved (was -0.05, -232.9/ep dominant penalty on height field)
+            "swing_contact_bump_scale": 0.6,  # v19: reduce swing-contact penalty in bump area
+            # ===== v20: 传感器驱动惩罚 (trunk_acc + jointactuatorfrc) =====
+            "impact_penalty": -0.02,         # trunk加速度计冲击惩罚 (>15m/s²视为冲击)
+            "torque_saturation": -0.01,      # 关节扭矩饱和惩罚 (>90% forcerange)
+            # ===== 稳定性惩罚 (v10 values — moderate, don't over-penalize) =====
+            "orientation": -0.015,           # v10: original stable value
+            "slope_orientation": 0.0,        # v17: DISABLED
+            "lin_vel_z": -0.06,              # v10: bouncing penalty (Stage 7 tried -0.12 but hurt bump agility)
+            "ang_vel_xy": -0.01,             # v10: rolling penalty
+            "torques": -5e-6,               # unchanged
+            "dof_vel": -3e-5,               # unchanged
+            "dof_acc": -1.5e-7,             # unchanged
+            "action_rate": -0.005,           # v10: moderate smoothness (v12 was -0.0024, too soft)
+            "termination": -100.0,           # v10: STRONG fall deterrent (v12 was -50, too soft!)
         })
     scoring_zones: ScoringZones = field(default_factory=ScoringZones)
     waypoint_nav: WaypointNav = field(default_factory=WaypointNav)

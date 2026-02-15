@@ -128,6 +128,7 @@ def evaluate_run(run_dir, primary_metric="Reward / Instantaneous reward (mean)")
     for metric_tag in [
         "metrics / reached_fraction (mean)",
         "metrics / distance_to_target (mean)",
+        "metrics / wp_idx_mean (mean)",
     ]:
         metric_data = read_tb_scalars(run_dir, metric_tag)
         if metric_data:

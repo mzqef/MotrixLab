@@ -1,8 +1,6 @@
 
 
-# MotrixLab Project — Deep-Dive Tutorial for PhD Students
-
-Welcome! This is a **hand-holding, step-by-step, file-by-file walkthrough** of the MotrixLab codebase, written for new PhD students and anyone who feels lost in RL for robotics. We’ll explain every major part, how the pieces fit, and give you practical, explicit tips for learning, debugging, and extending the system. **No question is too basic!**
+# MotrixLab Project — Deep-Dive Tutorial
 
 ---
 
@@ -35,7 +33,8 @@ MotrixLab is a modular RL framework for robotics, focused on the MotrixArena S1 
   - `templates/`: YAML templates for curriculum, reward configs, search spaces.
 - **starter_kit_docs/**: Guides, scoring rules, reward design docs, and competition explanations.
 - **runs/**: Stores training outputs (checkpoints, logs, TensorBoard data).
-- **README.md, CLAUDE.md**: Project instructions, operational notes, and AI agent guidance.
+- **README.md, CLAUDE.md, .github/copilot-instructions.md**: Project instructions, operational notes, and AI agent guidance.
+- **.github/skills**: Agent skills help build training strategies.
 
 **Tip:** The workspace is a Python 3.10 project managed by [UV](https://github.com/astral-sh/uv) for dependencies. All configs use Python dataclasses (no YAML/JSON). If you’re lost, start with the README and this tutorial!
 
@@ -87,7 +86,7 @@ class MyCustomEnv(NpEnv):
 
 ### 2.3 Competition Environments (Where’s the Real Action?)
 
-Competition environments are in `starter_kit/navigation1/vbot/` (Stage 1, flat) and `starter_kit/navigation2/vbot/` (Stage 2, obstacles/stairs). Each section has its own config and environment class.
+Competition environments are in `starter_kit/navigation1/vbot/` (Stage 1, flat) and `starter_kit/navigation2/vbot/` (Stage 2, obstacles/stairs). Each section has its own config and environment class. We made this setting for modularity and to allow for different reward structures and curriculum stages. If you want to keep standard settings, move them to `motrix_envs/` for reuse.
 
 **Example:**
 - `starter_kit/navigation1/vbot/cfg.py`: Contains `VBotSection001EnvCfg` and reward scales.
@@ -117,11 +116,15 @@ RL configs are registered with `@rlcfg("env-name")` or `@rlcfg("env-name", backe
 **Example:**
 - `motrix_rl/src/motrix_rl/cfgs.py` and `starter_kit/navigation1/vbot/rl_cfgs.py` contain RL configs for each environment.
 
+Always keep an eye on how the configs are structured, imported, registered, and overridden.
+
 ### 3.2 Training, Evaluation, and Visualization Scripts (What Do I Run?)
 
 - `scripts/train.py`: Main entry for training. Selects backend (JAX/Torch), loads env, runs PPO.
 - `scripts/play.py`: Evaluates trained policies (auto-finds latest checkpoint if not specified).
 - `scripts/view.py`: Visualizes the environment with random actions (no training).
+
+For the competition part, always test your checkpoints with `play.py` to verify performance before submission!
 
 #### Example: Training a Policy
 ```bash
@@ -189,159 +192,6 @@ class RewardConfig:
         ...
     })
 ```
-
-### 4.1b Round5 Reward Fixes — Structural Bug Fixes (Feb 9 Session 4)
-
-Four critical structural bugs were identified through VLM visual analysis and code inspection, then fixed in `vbot_section001_np.py`:
-
-#### Fix 1: `alive_bonus` Always Active (removes "touch and die" cycle)
-
-**Bug**: `alive_bonus` was zeroed after `ever_reached=True`, so the robot had no incentive to stay alive after touching the target → learned to crash immediately for faster episode resets.
-
-```python
-# BEFORE (buggy): alive_bonus zeroed after reaching target
-ever_reached = info.get("ever_reached", ...)
-alive_bonus = np.where(ever_reached, 0.0, 1.0)  # 0 after touch → crash incentive
-
-# AFTER (fixed): alive_bonus always active
-alive_bonus = np.ones(self._num_envs, dtype=np.float32)  # Always reward survival
-# success_truncation (50 steps stopped) handles episode termination naturally
-```
-
-#### Fix 2: Speed-Distance Coupling (replaces narrow `near_target_speed`)
-
-**Bug**: `near_target_speed` only activated at d<0.5m — too narrow. Robot could sprint at full speed until the last 0.5m with no penalty.
-
-```python
-# BEFORE: penalty only when d < 0.5m (too narrow)
-penalty = where(d < 0.5 and not reached, speed * scale, 0)
-
-# AFTER: smooth distance-proportional speed limit
-desired_speed = np.clip(distance_to_target * 0.5, 0.05, 0.6)  # 0.6 at d>=1.2m, 0.05 at d=0.1m
-speed_excess = np.maximum(speed_xy - desired_speed, 0.0)
-penalty = scale * speed_excess ** 2  # Quadratic penalty, smooth gradient
-```
-
-| Distance | Desired Speed | Robot at 0.5m/s → Penalty |
-|----------|--------------|---------------------------|
-| 5.0m     | 0.60 m/s     | 0 (free to sprint)        |
-| 1.0m     | 0.50 m/s     | 0 (free to walk)          |
-| 0.5m     | 0.25 m/s     | -0.125                    |
-| 0.2m     | 0.10 m/s     | -0.320                    |
-| 0.1m     | 0.05 m/s     | -0.405                    |
-
-#### Fix 3: Speed-Gated `stop_bonus` (prevents fly-through reward)
-
-**Bug**: `stop_bonus` triggered whenever `reached_all` (d<0.5m), even if robot was sprinting through at 0.6 m/s.
-
-```python
-# BEFORE: stop_bonus for any robot in the zone, regardless of speed
-stop_bonus = np.where(reached_all, stop_base + zero_ang_bonus, 0.0)
-
-# AFTER: only reward genuinely slow robots
-genuinely_slow = np.logical_and(reached_all, speed_xy < 0.3)
-stop_bonus = np.where(genuinely_slow, stop_base + zero_ang_bonus, 0.0)
-```
-
-#### Fix 4: Symmetric Approach Retreat Penalty
-
-**Bug**: Below 1.5m, approach reward was clamped to `max(0)` — no penalty for retreating from target, enabling "hovering" behavior.
-
-```python
-# BEFORE: no retreat penalty below 1.5m
-approach_reward = np.clip(raw_approach, -0.3, 1.0)
-approach_reward = np.where(d < 1.5, np.maximum(approach_reward, 0.0), approach_reward)  # free retreat!
-
-# AFTER: symmetric penalty everywhere
-approach_reward = np.clip(raw_approach, -0.5, 1.0)  # retreat always penalized
-```
-
-### 4.1c Round6 Fixes — Reward Budget Root Cause (Feb 10 Session 5)
-
-> **Note**: Round6 changed `max_episode_steps` from 4000 to **1000** (and `max_episode_seconds` from 40 to **10**). All subsequent training uses the 1000-step limit.
-
-After Round5 fixes, `reached%` remained near 0%. A formal **reward budget analysis** revealed the real root cause: the robot was *rationally choosing to stand still* because passive rewards dominated active rewards.
-
-#### The Reward Budget Methodology
-
-**Always compute the total reward for the desired behavior (walking to target) vs the degenerate behavior (standing still) over the full episode.** If the degenerate behavior earns more total reward, the policy will exploit it — no amount of HP tuning can fix a broken incentive structure.
-
-```python
-# Standing still at d=3.5m for max_episode_steps=4000:
-per_step = position_tracking(0.75) + heading(0.50) + alive(0.15)  # = 1.40/step
-standing_total = 1.40 * 4000 * 0.75(time_decay) = 4,185
-
-# Walking to target in ~583 steps + 50 stopped:
-walk_total = approach + forward + arrival + stop ≈ 2,031
-
-# STANDING WINS by 2,154!
-```
-
-**Root cause**: `max_episode_steps=4000` allowed standing to accumulate 4185 passive reward, which dwarfed the 2031 reward for successfully navigating + reaching. With `max_episode_steps=1000`: standing=1046 vs walking=2031 → walking wins by 985.
-
-#### Round6 Four Critical Fixes
-
-| # | Fix | Before → After | Impact |
-|---|-----|----------------|--------|
-| 1 | `max_episode_steps` | 4000 → **1000** | Standing reward budget cut by 75% |
-| 2 | `forward_velocity` | 0.8 → **1.5** | Phase5 halved the movement incentive; restored |
-| 3 | Approach retreat penalty | `clip(-0.5, 1.0)` → **`clip(0.0, 1.0)`** | Step-delta retreat was punishing exploration |
-| 4 | `termination` | -200 → **-100** | Too harsh; caused risk aversion |
-
-**Result**: Round6 v4 achieved **27.7% reached** at 12M steps — up from 0% with Round5.
-
-### 4.1d Round7 Fix — Stop_Bonus Farming Cap (Feb 10 Session 6)
-
-After Round6, monitoring long training runs revealed a third reward exploit: **Reach-and-Farm**. The robot would reach the target (d<0.5m) and then stand perfectly still, accumulating `stop_bonus + zero_ang_bonus ≈ 21.2/step` for the remaining 600+ steps (12,726 total). This dominated the navigation reward (~611) by a factor of 20.8×.
-
-#### The Fix: 50-Step Stop_Bonus Budget
-
-```python
-# Track first reach time per environment
-info["first_reach_step"] = np.where(
-    np.logical_and(first_time_reach, info["first_reach_step"] < 0),
-    steps, info["first_reach_step"]
-)
-# Only give stop_bonus for the first 50 steps after reaching
-steps_since_reach = steps - info["first_reach_step"]
-stop_budget_remaining = np.clip(50.0 - steps_since_reach, 0.0, 50.0)
-stop_eligible = stop_budget_remaining > 0
-genuinely_slow = np.logical_and(reached_all, np.logical_and(speed_xy < 0.3, stop_eligible))
-```
-
-**Result**: Stop farming reward reduced from 12,726 to 1,060 (50 steps × 21.2/step). Navigation-to-farming ratio improved from 1:20.8 to 1:1.7. The Round7 full training run was the **first to not show the peak-then-decline pattern** through the critical step 4000-7000 zone, reaching 32.9% reached_fraction and still climbing when stopped.
-
-### 4.1e Key Metric: What `reached_fraction` Actually Measures
-
-> **Important**: The `reached_fraction` TensorBoard metric is the **instantaneous fraction of parallel environments where the robot is within 0.5m of the target at that simulation step**. It is NOT a per-episode success rate.
-
-With 2048 parallel environments, `reached_fraction = 0.30` means "30% of the 2048 envs currently have a robot within 0.5m of center." This is a **time-averaged target occupancy** metric.
-
-The actual **per-episode success rate** (did the robot ever reach within 0.5m during the episode?) is typically 3-5× higher. It can be derived from the `arrival_bonus` component:
-
-```python
-per_episode_success_rate = mean(arrival_bonus_per_episode) / arrival_bonus_scale
-```
-
-For example, a policy with 28% reached_fraction may have 75% per-episode success — the difference is that robots spend most of each episode traversing (not at target).
-
-**For competition purposes**, `reached_fraction` is actually a better proxy because competition rewards sustained target presence, not brief touches. A sprint-crash exploit achieves ~98% per-episode success but only 18% reached_fraction (brief touches, immediate crash).
-
-### 4.1f Planned Improvement: Departure Penalty (Session 7)
-
-After completing Sessions 1-6, a gap was identified in the reward architecture: when the robot is inside the target zone (d < 0.5m) and drifts outward, **neither branch of the reward provides negative feedback**. The reached branch has no approach signal, and the not-reached branch clips approach retreat to zero.
-
-Two adoptions are planned (pending VLM validation of drift behavior):
-
-1. **Departure penalty**: When `reached_all=True` AND `delta_d > 0.01` (drifting out while at target), apply `-5.0 × delta_d` as a penalty in the common penalties section.
-
-2. **Piecewise approach clipping**: When `ever_reached=True` AND `d ≥ 0.5m` (robot has left the center zone after reaching), change approach clipping from `(0.0, 1.0)` to `(-0.5, 1.0)` — re-enabling retreat penalties only after the robot has proven it can reach.
-
-Two other proposals were analyzed and **rejected**:
-- **Tighter stop speed gate** (0.3→0.15): Rejected because the exponential inside the gate already provides the gradient; tightening removes the deceleration teaching signal.
-- **Dwell time bonus**: Rejected because it re-introduces farming risk and is redundant with stop_bonus + success_truncation.
-
-See [REPORT_NAV1.md](REPORT_NAV1.md) Section 56-57 for full analysis and the phased training plan.
 
 #### TensorBoard Component Analysis (diagnostic technique)
 
@@ -551,15 +401,6 @@ A: Copy an existing env config and env class, register them with new names, and 
 A: Use the AutoML pipeline (`starter_kit_schedule/scripts/automl.py`) and check the logs in `starter_kit_log/`.
 
 ---
-
-## 11. Feb 11 Update (R11 Reward Fixes)
-
-Recent Navigation1 work added two structural reward fixes in the environment code:
-
-- **Removed time decay**: The per-step multiplier based on episode time was removed to avoid incentivizing short episodes.
-- **Gated fine-position tracking**: `fine_position_tracking` now activates only after the first successful reach (`ever_reached`). This keeps the early approach signal smooth while avoiding the hover-at-boundary exploit.
-
-For full experiment history, checkpoints, and metrics, see [starter_kit_docs/navigation1/REPORT_NAV1.md](starter_kit_docs/navigation1/REPORT_NAV1.md).
 
 ## 12. Final Advice
 

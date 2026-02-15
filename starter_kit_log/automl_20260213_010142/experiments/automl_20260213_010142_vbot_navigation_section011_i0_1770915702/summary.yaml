@@ -1,0 +1,117 @@
+campaign_id: automl_20260213_010142
+config:
+  algorithm: PPO
+  environment: vbot_navigation_section011
+  hyperparameters:
+    check_point_interval: 15
+    discount_factor: 0.99
+    entropy_loss_scale: 0.01948261112065684
+    learning_epochs: 4
+    learning_rate: 0.000790185529950548
+    max_env_steps: 5000000
+    mini_batches: 32
+    policy_hidden_layer_sizes:
+    - 256
+    - 128
+    - 64
+    rollouts: 32
+    seed: 42
+    value_hidden_layer_sizes:
+    - 256
+    - 256
+    - 256
+config_id: automl_20260213_010142_vbot_navigation_section011_i0_1770915702
+execution:
+  completed_at: '2026-02-13T01:12:28.084981Z'
+  duration_hours: 0.1786600120862325
+  started_at: '2026-02-13T01:01:42.480705Z'
+  status: completed
+experiment_id: automl_20260213_010142_vbot_navigation_section011_i0_1770915702
+results:
+  final_metrics:
+    episode_reward_mean: 0.8389580696821213
+    success_rate: 0.0
+  reward_components:
+    active_components:
+    - forward_velocity
+    - waypoint_approach
+    - waypoint_facing
+    - alive_bonus
+    - position_tracking
+    - waypoint_bonus
+    - smiley_bonus
+    - red_packet_bonus
+    - celebration_bonus
+    - height_progress
+    - traversal_bonus
+    - foot_clearance
+    - spin_progress
+    - spin_hold
+    - feet_contact_pattern
+    - stance_ratio
+    - lateral_velocity
+    - body_balance
+    - orientation
+    - lin_vel_z
+    - ang_vel_xy
+    - action_rate
+    - swing_contact_penalty
+    - termination
+    active_count: 24
+    efficiency:
+      action_rate: -0.012978564389260885
+    navigation:
+      alive_bonus: 0.06066733534845108
+      celebration_bonus: 192.33216737652126
+      forward_velocity: 2.2890633181442603
+      position_tracking: 0.025547443651795655
+      red_packet_bonus: 25.97341941612018
+      smiley_bonus: 65.97424048369078
+      spin_hold: 7.149421234163498
+      spin_progress: 5.917914355581734
+      waypoint_approach: 181.04446969989993
+      waypoint_bonus: 138.24535905277594
+      waypoint_facing: 0.5933793627367041
+    other:
+      body_balance: 1.1541015749097125
+      feet_contact_pattern: 0.581581649696753
+      lateral_velocity: -0.5342300294790927
+      stance_ratio: 0.9154103397398289
+    stability:
+      ang_vel_xy: -0.037171117132873216
+      lin_vel_z: -0.1555439329459922
+      orientation: -0.04650320747588916
+      swing_contact_penalty: -0.052334963988088956
+    termination:
+      termination: -150
+    terrain:
+      foot_clearance: 0.01975703696409057
+      height_progress: 14.785407350937136
+      traversal_bonus: 45.48426912746453
+  reward_scales:
+    action_rate: -0.012978564389260885
+    alive_bonus: 0.06066733534845108
+    ang_vel_xy: -0.037171117132873216
+    body_balance: 1.1541015749097125
+    celebration_bonus: 192.33216737652126
+    feet_contact_pattern: 0.581581649696753
+    foot_clearance: 0.01975703696409057
+    forward_velocity: 2.2890633181442603
+    height_progress: 14.785407350937136
+    lateral_velocity: -0.5342300294790927
+    lin_vel_z: -0.1555439329459922
+    orientation: -0.04650320747588916
+    position_tracking: 0.025547443651795655
+    red_packet_bonus: 25.97341941612018
+    smiley_bonus: 65.97424048369078
+    spin_hold: 7.149421234163498
+    spin_progress: 5.917914355581734
+    stance_ratio: 0.9154103397398289
+    swing_contact_penalty: -0.052334963988088956
+    termination: -150
+    traversal_bonus: 45.48426912746453
+    waypoint_approach: 181.04446969989993
+    waypoint_bonus: 138.24535905277594
+    waypoint_facing: 0.5933793627367041
+  run_dir: runs\vbot_navigation_section011\26-02-13_01-01-48-482393_PPO
+trial_index: 0

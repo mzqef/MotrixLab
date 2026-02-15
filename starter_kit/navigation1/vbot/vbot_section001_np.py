@@ -90,25 +90,32 @@ class VBotSection001Env(NpEnv):
         # 初始化缓存
         self._init_buffer()
 
-        # 检测base_contact传感器是否可用（flat场景没有此传感器）
-        self._has_base_contact_sensor = "base_contact" in getattr(
-            self._model, 'sensor_names', []
-        )
+        # 检测base_contact传感器是否可用
+        # motrixsim 0.5.0b2+ 不再有 sensor_names 属性
+        # 设为 True，在 _compute_terminated 中用 try/except 安全读取
+        self._has_base_contact_sensor = self._model.num_sensors > 0
 
         # 初始位置生成参数
         self.spawn_center = np.array(cfg.init_state.pos, dtype=np.float32)
+
         # 从配置读取随机化范围（不再硬编码0.1m）
         pos_range = cfg.init_state.pos_randomization_range
         self.spawn_range_low = np.array(pos_range[:2], dtype=np.float32)
         self.spawn_range_high = np.array(pos_range[2:], dtype=np.float32)
+        
         # 圆形平台安全半径（超出则裁剪到圆内）
         self.platform_radius = getattr(cfg, 'platform_radius', 11.0)
+
         # 目标生成半径（目标集中在平台中心附近）
         self.target_radius = getattr(cfg.commands, 'target_radius', 3.0)
 
         # 课程学习：生成距离控制
-        self.spawn_inner_radius = getattr(cfg, 'spawn_inner_radius', 0.0)
+        self.spawn_inner_radius = getattr(cfg, 'spawn_inner_radius', self.platform_radius)
         self.spawn_outer_radius = getattr(cfg, 'spawn_outer_radius', self.platform_radius)
+
+        # Play模式固定目标：None=训练（随机目标），[x,y,yaw]=play（固定目标）
+        self.fixed_target = [0.0, 0.0, 0.0]
+        print('[Info] 自定义目标设置为:', self.fixed_target if self.fixed_target else '随机目标')
 
         # 导航统计计数器
         self.navigation_stats_step = 0
@@ -430,9 +437,9 @@ class VBotSection001Env(NpEnv):
         last_actions = state.info["current_actions"]
 
         # 任务相关观测
-        position_error_normalized = position_error / 5.0
+        position_error_normalized = position_error / 12.0
         heading_error_normalized = heading_diff / np.pi
-        distance_normalized = np.clip(distance_to_target / 5.0, 0, 1)
+        distance_normalized = np.clip(distance_to_target / 12.0, 0, 1)
         reached_flag = reached_all.astype(np.float32)
 
         stop_ready = np.logical_and(
@@ -520,16 +527,18 @@ class VBotSection001Env(NpEnv):
         """
         data = state.data
 
-        # 1. 基座接触地面终止（使用传感器，仅在传感器存在时读取）
+        # 1. 基座接触地面终止（使用传感器力的范数，兼容 3D force vector）
         if self._has_base_contact_sensor:
             try:
                 base_contact_value = self._model.get_sensor_value("base_contact", data)
-                if base_contact_value.ndim == 0:
-                    base_contact = np.array([base_contact_value > 0.01], dtype=bool)
-                elif base_contact_value.shape[0] != self._num_envs:
-                    base_contact = np.full(self._num_envs, base_contact_value.flatten()[0] > 0.01, dtype=bool)
+                # motrixsim 0.5+ returns 3D force vector (n, 3); compute magnitude
+                if base_contact_value.ndim >= 2 and base_contact_value.shape[-1] == 3:
+                    force_mag = np.linalg.norm(base_contact_value, axis=-1)  # (n,)
+                    base_contact = (force_mag > 0.01).flatten()[:self._num_envs]
+                elif base_contact_value.ndim == 0:
+                    base_contact = np.array([float(base_contact_value) > 0.01], dtype=bool)
                 else:
-                    base_contact = (base_contact_value > 0.01).flatten()[:self._num_envs]
+                    base_contact = (base_contact_value.flatten() > 0.01)[:self._num_envs]
             except BaseException:
                 base_contact = np.zeros(self._num_envs, dtype=bool)
         else:
@@ -845,15 +854,41 @@ class VBotSection001Env(NpEnv):
         cfg: VBotSection001EnvCfg = self._cfg
         num_envs = data.shape[0]
 
-        # 在环形区域内随机生成起始位置（课程学习控制距离）
-        robot_init_xy = self._random_point_in_annulus(
+        # ===== 1. 目标位置生成（先于机器人位置） =====
+        if self.fixed_target is not None:
+            # Play模式：固定目标（所有env共享同一目标）
+            ft = np.asarray(self.fixed_target, dtype=np.float32)
+            target_positions = np.tile(ft[:2], (num_envs, 1))
+        else:
+            # 训练模式：随机目标
+            target_mode = getattr(cfg.commands, 'target_mode', 'relative')
+            if target_mode == "absolute":
+                # 绝对坐标模式：目标在平台中心附近小圆内随机（竞赛目标区域）
+                target_positions = self._random_point_in_circle(num_envs, self.target_radius)
+                target_positions += self.spawn_center[:2]
+            else:
+                # 旧模式：相对偏移（以平台中心为基准）
+                target_positions = self.spawn_center[:2] + np.random.uniform(
+                    low=cfg.commands.pose_command_range[:2],
+                    high=cfg.commands.pose_command_range[3:5],
+                    size=(num_envs, 2)
+                )
+                target_positions = self._clip_to_circle(
+                    target_positions - self.spawn_center[:2], self.platform_radius
+                ) + self.spawn_center[:2]
+
+        # ===== 2. 机器人位置：在目标周围的环形区域内随机 =====
+        # 以目标为中心生成机器人，保证距离在 [spawn_inner_radius, spawn_outer_radius] 内
+        robot_offset_xy = self._random_point_in_annulus(
             num_envs, self.spawn_inner_radius, self.spawn_outer_radius
         )
-        # 加上平台中心偏移（通常为0,0）
-        robot_init_xy += self.spawn_center[:2]
+        robot_init_xy = target_positions + robot_offset_xy
+        # 裁剪到平台安全半径内（防掉落）
+        robot_init_xy = self._clip_to_circle(
+            robot_init_xy - self.spawn_center[:2], self.platform_radius
+        ) + self.spawn_center[:2]
         terrain_heights = np.full(num_envs, self.spawn_center[2], dtype=np.float32)
 
-        robot_init_pos = robot_init_xy
         robot_init_xyz = np.column_stack([robot_init_xy, terrain_heights])
 
         dof_pos = np.tile(self._init_dof_pos, (num_envs, 1))
@@ -868,40 +903,14 @@ class VBotSection001Env(NpEnv):
             quat = self._euler_to_quat(0, 0, random_yaw[i])
             dof_pos[i, self._base_quat_start:self._base_quat_end] = quat / (np.linalg.norm(quat) + 1e-8)
 
-        # 目标位置生成
-        target_mode = getattr(cfg.commands, 'target_mode', 'relative')
-        min_dist = getattr(cfg.commands, 'min_distance', 3.0)
-
-        if target_mode == "absolute":
-            # 绝对坐标模式：目标在平台中心附近小圆内随机（竞赛目标区域）
-            target_positions = self._random_point_in_circle(num_envs, self.target_radius)
-            target_positions += self.spawn_center[:2]
-            # 保证起始与目标之间的最小距离
-            for i in range(num_envs):
-                attempts = 0
-                while np.linalg.norm(target_positions[i] - robot_init_pos[i]) < min_dist and attempts < 20:
-                    tp = self._random_point_in_circle(1, self.platform_radius)[0]
-                    tp += self.spawn_center[:2]
-                    target_positions[i] = tp
-                    attempts += 1
+        if self.fixed_target is not None:
+            target_headings = np.full((num_envs, 1), float(self.fixed_target[2]), dtype=np.float32)
         else:
-            # 旧模式：相对偏移
-            target_offset = np.random.uniform(
-                low=cfg.commands.pose_command_range[:2],
-                high=cfg.commands.pose_command_range[3:5],
-                size=(num_envs, 2)
+            target_headings = np.random.uniform(
+                low=cfg.commands.pose_command_range[2],
+                high=cfg.commands.pose_command_range[5],
+                size=(num_envs, 1)
             )
-            target_positions = robot_init_pos + target_offset
-            # 裁剪到平台内
-            target_positions = self._clip_to_circle(
-                target_positions - self.spawn_center[:2], self.platform_radius
-            ) + self.spawn_center[:2]
-
-        target_headings = np.random.uniform(
-            low=cfg.commands.pose_command_range[2],
-            high=cfg.commands.pose_command_range[5],
-            size=(num_envs, 1)
-        )
 
         pose_commands = np.concatenate([target_positions, target_headings], axis=1)
 
@@ -1001,9 +1010,9 @@ class VBotSection001Env(NpEnv):
         last_actions = np.zeros((num_envs, self._num_action), dtype=np.float32)
 
         # 任务相关观测
-        position_error_normalized = position_error / 5.0
+        position_error_normalized = position_error / 12.0
         heading_error_normalized = heading_diff / np.pi
-        distance_normalized = np.clip(distance_to_target / 5.0, 0, 1)
+        distance_normalized = np.clip(distance_to_target / 12.0, 0, 1)
         reached_flag = reached_all.astype(np.float32)
 
         stop_ready = np.logical_and(

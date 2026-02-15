@@ -129,6 +129,31 @@ From extensive experimentation, three values must satisfy:
 3. arrival_bonus           >  50% of alive_budget              # Goal dominates
 ```
 
+### Round6 Budget Root-Cause Verification (Session 5)
+
+After Round5 structural fixes, a formal budget check showed why policy learning still failed with long episodes:
+
+```python
+# Standing still at d=3.5m with max_episode_steps=4000
+per_step = position_tracking(0.75) + heading(0.50) + alive(0.15)  # 1.40/step
+standing_total = 1.40 * 4000 * 0.75(time_decay) = 4,185
+
+# Walking to target in ~583 steps + 50 stopped
+walk_total = approach + forward + arrival + stop ≈ 2,031
+
+# Standing still wins by 2,154
+```
+
+This directly motivated Round6 changes:
+
+| Fix | Before → After | Why |
+|-----|----------------|-----|
+| Episode length | 4000 → **1000** | Cuts passive standing budget by 75% |
+| `forward_velocity` | 0.8 → **1.5** | Restores movement incentive |
+| `termination` | -200 → **-100** | Reduces excessive risk aversion |
+
+**Result**: Round6 v4 reached 27.7% and established the first stable post-budget baseline.
+
 ---
 
 ## 4. Lesson 2: Reward Hacking — The Lazy Robot
@@ -218,6 +243,17 @@ near_target_speed: -1.5  # Penalize speed when distance < threshold
 # Sweet spot: 0.5m — robot can slow down at last moment
 near_target_activation_radius: 0.5  # Only penalize speed within 0.5m of target
 ```
+
+### Round5 Structural Reward Fixes (Session 4)
+
+VLM-driven debugging identified four structural issues in `vbot_section001_np.py`:
+
+1. **`alive_bonus` always active after reach** (prevents touch-and-die reset farming).
+2. **Speed-distance coupling** replaced a too-narrow near-target gate, so deceleration pressure is smooth instead of abrupt.
+3. **Speed-gated `stop_bonus`** (`speed_xy < 0.3`) to block fly-through reward collection.
+4. **Symmetric retreat handling** in approach shaping to avoid free retreat near the center.
+
+These fixes removed two high-frequency exploits (touch-and-die, fly-through) and set up the Round6 budget rebalance in Lesson 3.
 
 ### The Deceleration Moat Problem
 
@@ -722,6 +758,21 @@ Two late-stage incentives were found to distort long runs:
 - **Gate fine_position_tracking behind** `ever_reached` so the precision signal only activates after the robot has proven it can reach.
 
 These changes shift the incentive structure toward completing the task and holding position rather than cycling short episodes or hovering just outside the target radius.
+
+### Planned Next Iteration: Departure Penalty (Session 7)
+
+A remaining architectural gap is weak negative feedback when a robot has already reached and then drifts outward.
+
+Planned changes:
+
+1. **Departure penalty**: when `reached_all=True` and `delta_d > 0.01`, apply a penalty proportional to outward drift.
+2. **Piecewise retreat penalty restoration**: when `ever_reached=True` and `d ≥ 0.5m`, re-enable negative approach shaping for retreat.
+
+Two proposals were deliberately rejected:
+- tighter stop-speed gate (0.3→0.15), because existing exponential terms already provide deceleration gradient;
+- dwell-time bonus, because it risks reintroducing stop-farming.
+
+For detailed rollout planning and experiment chronology, see `REPORT_NAV1.md`.
 
 ## Appendix: Key Code Patterns
 

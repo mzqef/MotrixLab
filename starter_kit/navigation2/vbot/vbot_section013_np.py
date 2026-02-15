@@ -482,12 +482,14 @@ class VBotSection013Env(NpEnv):
         data = state.data
         try:
             base_contact_value = self._model.get_sensor_value("base_contact", data)
-            if base_contact_value.ndim == 0:
-                base_contact = np.array([base_contact_value > 0.01], dtype=bool)
-            elif base_contact_value.shape[0] != self._num_envs:
-                base_contact = np.full(self._num_envs, base_contact_value.flatten()[0] > 0.01, dtype=bool)
+            # motrixsim 0.5+ returns 3D force vector (n, 3); compute magnitude
+            if base_contact_value.ndim >= 2 and base_contact_value.shape[-1] == 3:
+                force_mag = np.linalg.norm(base_contact_value, axis=-1)  # (n,)
+                base_contact = (force_mag > 0.01).flatten()[:self._num_envs]
+            elif base_contact_value.ndim == 0:
+                base_contact = np.array([float(base_contact_value) > 0.01], dtype=bool)
             else:
-                base_contact = (base_contact_value > 0.01).flatten()[:self._num_envs]
+                base_contact = (base_contact_value.flatten() > 0.01)[:self._num_envs]
         except Exception:
             base_contact = np.zeros(self._num_envs, dtype=bool)
         terminated = base_contact.copy()
