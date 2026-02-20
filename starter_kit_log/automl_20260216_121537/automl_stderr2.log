@@ -1,0 +1,14 @@
+2026-02-16T13:05:37Z [INFO] Resuming AutoML: automl_20260216_121537
+2026-02-16T13:05:37Z [INFO] Starting AutoML pipeline: automl_20260216_121537
+2026-02-16T13:05:37Z [INFO] Mode: hp-search, Budget: 4.0h
+2026-02-16T13:05:37Z [INFO] State saved to D:\MotrixLab\starter_kit_log\automl_20260216_121537\state.yaml
+2026-02-16T13:05:37Z [INFO] Running unified HP+reward search for stage1_flat: 15 trials
+2026-02-16T13:05:37Z [INFO]   Environment: vbot_navigation_section011
+2026-02-16T13:05:37Z [INFO]   Reward search space: 19 parameters
+2026-02-16T13:05:37Z [INFO]   Resuming from trial 1 (skipping 1 completed)
+2026-02-16T13:05:37Z [INFO]   Current best: score=0.3995, wp_idx=0.416
+2026-02-16T13:05:37Z [INFO] Trial 2/15: lr=1.84e-04, term=-200, alive=0.4894166379629574
+2026-02-16T13:05:37Z [INFO] Launching training: automl_20260216_121537_stage1_flat_i1_1771218337
+2026-02-16T13:05:37Z [INFO]   HP: lr=1.84e-04, rollouts=24
+2026-02-16T13:05:37Z [INFO]   Reward: alive=0.4894166379629574, term=-200
+2026-02-16T13:05:37Z [INFO]   Steps: 5,000,000

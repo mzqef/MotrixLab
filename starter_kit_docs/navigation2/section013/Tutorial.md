@@ -15,15 +15,20 @@ Welcome! This tutorial covers the **Section 013** environment in Navigation2 —
 | **Distance** | ~6.3m (y=26.0 → y=32.33) |
 | **Episode** | 5000 steps (50s) |
 | **Points** | 25 pts |
-| **Status** | Default config — reward budget needs fixing before training |
+| **Status** | 已初始化 baseline |
 
 ### What Skills Does This Section Train?
 
 - Overcoming extreme obstacles (0.75m step — taller than the robot)
 - Steep slope climbing (21.8° — significantly steeper than Section 011's 15°)
-- Obstacle avoidance (3 gold balls, R=0.75m, ~2.5m spacing)
+- Stable traversal through 3 gold balls (controlled contact allowed when stable)
 - Precision navigation through narrow gaps (~1.0m usable gap between balls)
 - Height field traversal (mild undulation at y≈29.33)
+
+**Section3 scoring clarification**:
+- 不碰滚球通过随机地形：+10
+- 碰滚球且不摔倒、不出界通过随机地形：+15（更高）
+- 训练口径应为“稳定通过球区（可含受控接触）”，不是“必须避球”。
 
 ---
 
@@ -105,37 +110,42 @@ With a standing height of ~0.35m and max leg reach of ~0.4m, the robot cannot si
 pos = [0.0, 26.0, 1.8]  # Entry platform
 max_episode_steps = 5000  # 50 seconds
 
-# ⚠️ Reward budget BROKEN — needs fixing before training:
-alive_bonus = 0.3         # 0.3 × 5000 = 1,500 >> arrival(60)
-arrival_bonus = 60.0
-termination = -200.0
+# Baseline initialized:
+alive_bonus = 0.05
+arrival_bonus = 120.0
+termination = -120.0
 ```
 
 ---
 
-## 5. Reward Engineering — Step + Ramp + Balls
+## 5. Reward Engineering — Step + Ramp + Balls（当前已初始化基线）
 
-### 5.1 Reward Budget (Must Fix)
+### 5.1 Reward Budget（已修复）
 
 ```
 STANDING STILL for 5000 steps:
-  alive = 0.3 × 5000 = 1,500
-  Total standing ≈ 1,800+
+  alive = 0.05 × 5000 = 250
+  standing path remains baseline-only
 
 COMPLETING TASK:
-  arrival_bonus = 60
+  arrival_bonus + milestones + shaping
 
-⚠️ Ratio 25:1 — LAZY ROBOT GUARANTEED
+✅ Completing path dominates standing baseline
 ```
 
-**Fix template**:
+**当前已实现模板**:
 ```python
 alive_bonus = 0.05        # 0.05 × 5000 = 250
-arrival_bonus = 150.0     # > alive_budget
+arrival_bonus = 120.0
 height_progress = 10.0    # Higher than Section 011 (steeper ramp)
-step_milestone = 20.0     # One-time: successfully passing the step/ramp zone
-ball_gap_bonus = 15.0     # One-time per gap navigated
-termination = -100.0
+step_or_ramp_bonus = 25.0
+ball_zone_pass_bonus = 20.0
+celebration_bonus = 80.0
+ball_gap_alignment = 2.0
+ball_contact_reward = 4.0
+ball_unstable_contact_penalty = -8.0
+score_clear_factor = 0.3
+termination = -120.0
 ```
 
 ### 5.2 Steep Ramp Rewards (21.8°)
@@ -152,7 +162,7 @@ orientation = -0.02  # Lower than Section 011's -0.03 (steeper tilt is correct)
 lin_vel_z = -0.10    # Lower than Section 011's -0.15 (more z-velocity expected)
 ```
 
-### 5.3 Gold Ball Avoidance
+### 5.3 Gold Ball Stable Traversal (Not Mandatory Avoidance)
 
 ```python
 # Gap center reward: encourage robot to use gaps between balls
@@ -161,15 +171,18 @@ if 30.5 < robot_y < 32.0:  # In gold ball zone
     min_gap_dist = min(abs(robot_x - gc) for gc in gap_centers)
     gap_reward = gap_scale * max(0, 1.0 - min_gap_dist / 1.0)
 
-# Contact penalty for ball collision
-ball_contact = get_contact_forces_with_balls()
-if any(ball_contact > threshold):
-    reward -= ball_collision_penalty  # e.g., -10.0
+# Stable-contact reward + unstable-contact penalty
+ball_contact_proxy = proximity_to_ball_center()
+stable_factor = f(projected_gravity, gyro)  # [0, 1]
+reward += ball_contact_reward * ball_contact_proxy * stable_factor * in_ball_zone
+reward += ball_unstable_contact_penalty * ball_contact_proxy * (1 - stable_factor) * in_ball_zone
 ```
 
 ---
 
 ## 6. Training Workflow
+
+先做 smoke，再做视觉验证（capture_vlm）。
 
 ### This Section Uses Curriculum — Train After Section 012
 
@@ -229,8 +242,8 @@ uv run tensorboard --logdir runs/vbot_navigation_section013
 | Robot stands still at entry | alive_bonus dominates (lazy robot) | Fix reward budget |
 | Robot can't get past 0.75m step | Step too tall for direct climb | Focus on ramp route; verify ramp accessibility in XML |
 | Robot falls on 21.8° ramp | Orientation penalty too tight | Reduce orientation to -0.02, reduce lin_vel_z to -0.10 |
-| Robot stops before gold balls | Collision avoidance too strong vs forward reward | Balance ball_collision_penalty vs arrival_bonus |
-| Robot collides with gold balls | No avoidance signal | Add contact penalty, consider gap_reward |
+| Robot stops before gold balls | Model over-learns pure avoidance | Raise stable-contact reward; keep unstable-contact penalty |
+| Robot touches balls then falls | Contact without stability control | Strengthen unstable-contact penalty and posture stability shaping |
 | Robot reaches balls but can't find gap | No gap navigation signal | Add gap center bonus, consider extending observation |
 
 ---

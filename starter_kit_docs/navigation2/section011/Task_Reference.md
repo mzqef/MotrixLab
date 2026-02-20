@@ -1,391 +1,223 @@
-# Section 011 Task Reference — Slopes + Phase-Based Zones + Celebration Spin
+# Section 011 Task Reference: Slopes, Zones & Celebration
 
-> **This file contains task-specific concrete values** for Section 011 (Stage 2A — slopes, height field, ramp, high platform).
-> For abstract methodology, see `.github/copilot-instructions.md` and `.github/skills/`.
-> For full-course reference, see `starter_kit_docs/navigation2/long_course/Task_Reference.md`.
+> **Scope:** Concrete values for Stage 2A (Slopes, Height Field, Ramp, High Platform).
+> **Environment ID:** `vbot_navigation_section011` (Active v48-T14: KL-adaptive scheduler, LR=4.5e-4, entropy=0.00775, net=(512,256,128); episode 120 s/12000 steps with stagnation detection).
 
 ---
 
-## Environment ID
+## 1. Competition Scoring (20 pts Total)
 
-| Environment ID | Terrain | Status |
-|----------------|---------|--------|
-| `vbot_navigation_section011` | Section01: START→hfield→ramp→platform (spawn y=-2.5) | **ACTIVE** — v20: 69-dim obs (trunk_acc + raw PD torques), sensor-driven penalties, code cleanup |
+| Zone Type | Count | Points | Location (XY Center) | Detection Rule |
+| :--- | :---: | :---: | :--- | :--- |
+| **Smiley** | 3 | 4 each (12) | `(-3, 0)`, `(0, 0)`, `(3, 0)` | **Center-Contact**: Touch exact center (Radius **0.2m**) on height field ($y \approx 0$). |
+| **Red Packet** | 3 | 2 each (6) | `(-3, 4.4)`, `(0, 4.4)`, `(3, 4.4)` | **Center-Contact**: Touch exact center (Radius **0.2m**) on 15° ramp ($y \approx 4.4$). |
+| **Celebration** | 1 | 2 | High Platform $(0, 7.83)$ | Perform **3 jumps** ($z > 1.55$ then land $z < 1.50$) on top platform ($z > 1.0$). |
 
-## Competition Scoring — Section 1 (20 pts total)
+*   **Spawn:** Random on START platform ($y \in [-3.5, -1.5]$). Current fixed spawn: $y=-2.5$.
+*   **Rule Change:** Old 1.2m boundary detection replaced by strict 0.2m center-contact.
 
-Source: `MotrixArena_S1_计分规则讲解.md`
+---
 
-```
-Section 1 (20 pts):
-├── 3 × 笑脸区 (smiley zones)     = 3×4 = 12 pts
-│   ├── LEFT  smiley: center=(-3, 0), OBJ=V_ScorePoint_001a.obj
-│   ├── CENTER smiley: center=( 0, 0), OBJ=V_ScorePoint_001b.obj
-│   └── RIGHT smiley: center=( 3, 0), OBJ=V_ScorePoint_001c.obj
-│   (位于height field凹凸地形上, y≈0处, 机器人经过即可得分)
-├── 3 × 红包区 (red packet zones)  = 3×2 = 6 pts
-│   ├── LEFT  red pkt: center=(-3, 4.4), OBJ=V_ScorePoint_002a.obj
-│   ├── CENTER red pkt: center=( 0, 4.4), OBJ=V_ScorePoint_002b.obj
-│   └── RIGHT red pkt: center=( 3, 4.4), OBJ=V_ScorePoint_002c.obj
-│   (悬浮在"GO"字样上, 位于15°坡道上, y≈4.4处)
-└── 庆祝动作 (celebration)         = 2 pts
-    (在"2026"平台=高台顶部做出庆祝动作)
-```
+## 2. Terrain Specifications
 
-**关键规则:**
-- 笑脸区: "坑洼地形的趣味得分区有三个笑脸区域, 机器人经过笑脸时每经过一个+4分"
-- 红包区: "斜坡地形的趣味得分区有三个悬浮在'GO'字样上的祝福红包, 机器人经过一个红包得分+2分"
-- 庆祝: "在'2026'平台处做出庆祝动作+2分"
-- 起点: "初始点位置随机分布在'START'平台区域" (Adiban_001, y∈[-3.5, -1.5])
+| Element | Dimensions / Specs | Top Z | Notes |
+| :--- | :--- | :--- | :--- |
+| **Start Platform** | $5.0 \times 1.0$ box | 0.0 | Flat start. |
+| **Height Field** | $\pm 5m \times \pm 1.5m$ | 0.277 (max) | Bumpy terrain at $y \approx 0$. |
+| **Ramp** | $5.0 \times 2.5$ box | ~0.66 | Tilted **15°** around x-axis. |
+| **High Platform** | $5.0 \times 1.0$ box | **1.294** | Target for celebration. |
+| **Walls** | $x = \pm 5.25$ | 2.45 tall | Boundary limits. |
 
-### Scoring Zone Positions (from OBJ mesh vertex extraction)
+**Challenge Path:** Start $\to$ Bumps/Smileys $\to$ 15° Ramp/Red Packets $\to$ Platform Edge $\to$ Celebration Jumps.
 
-| Zone | OBJ File | XY Center | Bounding Box | Detection Radius |
-|------|----------|-----------|--------------|------------------|
-| Smiley LEFT | V_ScorePoint_001a.obj | (-3, 0) | x∈[-4,-2], y∈[-1,1] | 1.2m |
-| Smiley CENTER | V_ScorePoint_001b.obj | (0, 0) | x∈[-1,1], y∈[-1,1] | 1.2m |
-| Smiley RIGHT | V_ScorePoint_001c.obj | (3, 0) | x∈[2,4], y∈[-1,1] | 1.2m |
-| Red Pkt LEFT | V_ScorePoint_002a.obj | (-3, 4.4) | x∈[-4,-2], y∈[3.4,5.4] | 1.2m |
-| Red Pkt CENTER | V_ScorePoint_002b.obj | (0, 4.4) | x∈[-1,1], y∈[3.4,5.4] | 1.2m |
-| Red Pkt RIGHT | V_ScorePoint_002c.obj | (3, 4.4) | x∈[2,4], y∈[3.4,5.4] | 1.2m |
-| Celebration | High platform (Adiban_004) | (0, 7.83) | x∈[-2.5,2.5], z>1.0 | 1.5m |
+---
 
-### Scoring Tactics
+## 3. Phase-Based Collection Logic (v15+)
 
-| Element | Points | Location | Strategy |
-|---------|--------|----------|----------|
-| Smileys | 4 pts each (×3=12) | height field at y≈0, x=-3/0/3 | Robot passes through each zone (radius~1.2m) |
-| Red packets | 2 pts each (×3=6) | Ramp at y≈4.4, x=-3/0/3 | Touch/pass through on way up ramp |
-| Celebration | 2 pts | High platform y≈7.83, z>1.0 | Perform celebration spin at platform top |
-
-## Terrain Description — Section 01
-
-| Element | Center (x, y, z) | Size | Top z | Notes |
-|---------|-------------------|------|-------|-------|
-| Starting platform | (0, -2.5, -0.25) | 5.0×1.0×0.25 box | 0 | Flat start |
-| Central platform | (0, 0, -0.25) | 5.0×1.5×0.25 box | 0 | With hfield (±5m×±1.5m, h=0-0.277m) |
-| **Ramp (15°)** | (0, 4.48, 0.41) | 5.0×2.5×0.25 box | ~0.66 | Tilted ~15° around x-axis |
-| **High platform** | (0, 7.83, 1.04) | 5.0×1.0×0.25 box | **1.294** | Top of ramp |
-| Boundary walls | x=±5.25 | 0.25m thick, 2.45m tall | — | Left/right/rear |
-
-**Robot spawn (section011 CURRENT)**: y=-2.5, z=0.5 (START platform, competition-correct spawn). Target: 4-phase zone collection → celebration. Distance: ~10.3m.
-
-Challenge: height field bumps (max 0.277m at y≈0) + 3 smiley zones + 15° upslope + 3 red packet zones + platform edge transition + celebration at top.
-
-## Phase-Based Zone Collection System (v15 + Stage 1B relaxation)
+Robots progress through 4 phases. Target selection is **nearest uncollected zone** in the current phase.
 
 ```python
-# 4-phase zone collection matching competition scoring rules
-PHASE_SMILEYS = 0       # Collect smileys (any order, nearest-first)
-PHASE_RED_PACKETS = 1   # Collect red packets (gated on >=1 smiley, Stage 1B)
-PHASE_CLIMB = 2         # Reach high platform (gated on all red packets)
-PHASE_CELEBRATION = 3   # Celebration spin on platform
-
-# Target selection: nearest uncollected zone in current phase
-# Heading observation: wrap_angle(desired_heading - robot_heading)
-# wp_idx = smileys_collected + red_packets_collected + platform_reached (0-7)
-final_radius = 0.5      # platform target requires more precision
-
-# Phase completion bonus (30.0) awarded when:
-#   - All 3 smileys collected (phase 0 → 1)
-#   - All 3 red packets collected (phase 1 → 2)
-
-# Stage 1B CHANGES (critical for learning):
-#   - Phase 0→1 gate: np.any(smileys_reached) — only 1 smiley needed (was np.all)
-#   - Smiley collection: allowed in Phase 0 + Phase 1 (was Phase 0 only)
-#   - Zone approach: phase-independent (smileys attract in Phase 0+1, red packets in Phase 1+)
-# Rationale: strict "all 3" gate blocked 95% of robots from Phase 1.
-#   Relaxing to "any 1" unlocked the full course for learning.
+PHASE_SMILEYS = 0       # Collect smileys (Any order)
+PHASE_RED_PACKETS = 1   # Gate: >= 1 Smiley collected (Relaxed in Stage 1B)
+PHASE_CLIMB = 2         # Gate: All 3 Red Packets collected
+PHASE_CELEBRATION = 3   # Gate: Reached high platform
 ```
 
-## Celebration Spin State Machine
+*   **Stage 1B Critical Fix:** Phase 0$\to$1 transition requires only **1 smiley** (was all 3), enabling learning convergence.
+*   **Bonuses:** 25.0 pts awarded upon completing Smileys and Red Packets phases.
 
-```
-CELEB_IDLE(0) → CELEB_SPIN_RIGHT(1) → CELEB_SPIN_LEFT(2) → CELEB_HOLD(3) → CELEB_DONE(4)
-```
+---
 
-| Parameter | Value |
-|-----------|-------|
-| Spin angle per phase | 180° (π radians) |
-| Heading tolerance | 0.3 rad (≈17°) |
-| Speed limit during spin | 0.3 m/s |
-| Hold duration | 30 steps |
-| **Position anchor** | Robot XY recorded at CELEB_IDLE→SPIN_RIGHT transition (v14) |
-| **Drift penalty** | `clip(-0.5 × drift², -0.3, 0.0)` — capped at -0.3/step (Stage 1C fix; was `-2.0 × drift²` uncapped) |
+## 4. Celebration State Machine (v27: Multi-Jump)
 
-**Observation**: dim 53 encodes celebration progress:
-- 0.0 = navigating, 0.25 = spin_right, 0.5 = spin_left, 0.75 = hold, 1.0 = done
+Triggered when robot is on High Platform ($z > 1.0$).
 
-## Terrain Traversal Strategy — Slopes
+| Parameter | Value | Description |
+| :--- | :--- | :--- |
+| **Jump Threshold** | $z > 1.55$ | Detects airborne state. |
+| **Land Threshold** | $z < 1.50$ | Detects landing (counts 1 jump). |
+| **Required Jumps** | 3 | Total jumps needed for completion. |
+| **Rewards** | Jump: 10.0 (step)Per Jump: 25.0Completion: 80.0 | Continuous height reward + discrete bonuses. |
+| **Observation** | `celeb_progress` | Encodes progress: 0.0 $\to$ 0.33 $\to$ 0.67 $\to$ 1.0. |
 
-- **Height progress reward**: Reward z-axis gain (climbing) separately from Y-axis forward progress
-- **Slope-aware orientation**: Don't penalize pitch on 15° slope — robot SHOULD lean forward
-- **Platform edge**: Fall risk at ramp→platform transition; tilt termination at 65°
+---
 
-## Curriculum Stages
+## 5. Observation Space (69-Dim v20)
 
-```
-Stage 0: Baseline v15 (zone_approach=0, strict gate)
-├── Run: 26-02-14_01-30-51-285668_PPO
-├── Warm-start: section001 best checkpoint
-├── LR=2.5e-4, max_steps=80M (killed at 50M — plateau)
-├── Result: wp_idx=1.10 plateau — zone_approach=0 + strict gate blocked 95%
+Key inputs for policy:
+*   **Proprioception:** Linear/Angular velocity, Projected Gravity, Joint Pos/Vel (12 each), Foot Contact (4).
+*   **Navigation:** Position Error (2), Heading Error (1), Base Height (1).
+*   **Task State:** `celeb_progress` (1).
+*   **Advanced Sensors (v20):**
+    *   `trunk_acc_norm` (3): Impact detection.
+    *   `torques_normalized` (12): **Raw PD demand** (can exceed $\pm 1.0$), allowing policy to learn saturation avoidance.
 
-Stage 1: Enable zone_approach + reduce swing penalty
-├── Run: 26-02-14_03-49-43-914529_PPO
-├── zone_approach 0→3.0, swing_contact -0.05→-0.025, LR→1.5e-4
-├── Result: wp_idx_max 3→6 but mean still 1.10 — gate still blocking
+---
 
-Stage 1B: Phase gate relaxation (BREAKTHROUGH)
-├── Run: 26-02-14_05-06-31-614918_PPO
-├── Phase 0→1: np.any instead of np.all (1 smiley sufficient)
-├── Smileys collectible in Phase 0+1, zone approach phase-independent
-├── Result: wp_idx 1.10→2.37, reached 0%→4.3%, celeb_drift=-494 (issue)
+## 6. Termination & Safety
 
-Stage 1C: Celebration drift fix (COMPLETE)
-├── Run: 26-02-14_06-48-49-478937_PPO
-├── celeb_drift: clip(-0.5*d², -0.3, 0) — was -2.0*d² uncapped
-├── Result: wp_idx=2.90, reached=7.45%, net celeb=+66.1/ep
+**Hard Terminations (Immediate, No Grace):**
+*   Tilt $> 70^\circ$, Out-of-Bounds, Joint Velocity Overflow, Joint Accel $> 80$ rad/s², NaNs.
 
-Stage 2: Fresh LR restart (COMPLETE)
-├── Run: 26-02-14_09-21-25-795082_PPO
-├── LR: 1.0e-4 (0.67× warm-start reduction), no code/reward changes
-├── Result: wp_idx=3.10, reached=16.0%, net celeb=+162.4/ep
-├── Best checkpoint: agent_24000.pt
+**Soft Terminations (100-step Grace Period):**
+*   Base Contact $> 0.01$ (allows stabilization after spawn/bumps).
+*   Medium Tilt ($50^\circ - 70^\circ$).
 
-Stage 3: Smiley incentive boost (COMPLETE — CURRENT BEST)
-├── Run: 26-02-14_11-41-04-200078_PPO
-├── smiley_bonus: 40→150, score_clear: 0.6→0.3 + cap -100, LR: 7e-5
-├── Peak (iter 12500): wp_idx=3.76, reached=17.84%, celeb=7.88, term=62.4%
-├── ENTROPY COLLAPSE after iter 12500: wp_idx degraded 3.76→3.10
-├── Best checkpoint: agent_12000.pt (before collapse)
-├── Lesson: smiley count unchanged (0.91/ep) — geometric barrier, not reward magnitude
-```
+**Penalty:** On termination, **60%** of accumulated bonus is deducted (soft clear to encourage risk-taking).
 
-## Termination Strategy — Hard/Soft Split
+---
 
-Grace period only protects **soft** terminations. **Hard** terminations always fire immediately.
+## 7. Reward Architecture Highlights (v48-T14)
 
-| Category | Condition | Grace Protected? | Notes |
-|----------|-----------|-----------------|-------|
-| **HARD** | Severe tilt > 70° | ❌ Never | Robot clearly fallen/flipped |
-| **HARD** | Out-of-bounds (CourseBounds) | ❌ Never | Left the course entirely |
-| **HARD** | Joint velocity overflow | ❌ Never | Physics explosion |
-| **HARD** | Joint acceleration > 80 rad/s² | ❌ Never | Single-step Δvel safety net (v14) |
-| **HARD** | NaN in observations | ❌ Never | Simulation instability |
-| **SOFT** | Base contact sensor > 0.01 | ✅ Yes (100 steps) | May be bumpy landing from spawn |
-| **SOFT** | Medium tilt 50°-70° | ✅ Yes (100 steps) | May recover on uneven terrain |
+*   **cfg refactor (post-v35):** `VBotSection011EnvCfg.RewardConfig` now uses `dict(BASE_REWARD_SCALES)` directly — no inline override. Bonus keys (`smiley_bonus`, `red_packet_bonus`, etc.) accessed via `.get(key, 0.0)` default to zero.
+*   **Alive Bonus:** Segmented by posture.
+    *   Tilt $< 26^\circ$ ($g_z > 0.9$): **100%** bonus.
+    *   Tilt $26^\circ-45^\circ$: **50%** bonus.
+    *   Tilt $> 45^\circ$: **0%** bonus.
+*   **Key Gradients:** Strong `waypoint_approach` (**280.5**, was 166.5 in v47), `zone_approach` (**74.7**, was 35.06), and `height_progress` (27.0).
+*   **Key Penalty Changes (v48-T14 vs v47):** `lin_vel_z` **-0.027** (was -0.195, 7.2× lighter), `torque_saturation` **-0.012** (was -0.025, 2.1× lighter), `termination` **-150** (was -200), `swing_contact_penalty` **-0.003** (was -0.031, 10× lighter).
+*   **Active Config (v48-T14):**
+    *   Discount ($\gamma$): **0.999**, GAE ($\lambda$): **0.99**
+    *   LR: **4.513e-4** + KL-Adaptive scheduler (v48-T14: 4.5× higher than v47's 1e-4)
+    *   Entropy: **0.00775** (1.8× higher than v47's 0.00432)
+    *   Policy/Value net: **(512, 256, 128)** both (v47 had policy 256,128,64)
+    *   Episode: **120 s / 12000 steps** with stagnation detection (v44).
+    *   `max_env_steps` (rl_cfgs): **100 M**.
+    *   Source: `automl_20260220_071134` trial T14 (wp_idx_mean=0.484 @15M, best of 15 trials)
 
-### Grace Period Configuration
+---
 
-| Parameter | Value | Notes |
-|-----------|-------|-------|
-| `grace_period_steps` | 100 | 1 second of simulation time (dt=0.01) |
-| Purpose | Allow robot to land and stabilize after spawn | Only applies to soft terminations |
-| **Anti-exploit** | Hard terminations bypass grace | Prevents fallen robots from collecting free alive_bonus |
+## 8. Control System (PD)
 
-### Score Clear on Termination
+*   **Architecture:** Software PD over raw torque actuators.
+*   **Parameters:** $K_p=100$, $K_d=8$, Action Scale=$0.5$ rad.
+*   **Saturation:** Max theoretical torque (50 Nm) exceeds limits (17/34 Nm). Policy observes **unclipped** torque demand to learn soft control.
 
-When the robot is terminated (fall/OOB), a penalty of **60% of accumulated bonus** is applied (not 100%). This is softer than full clearing to avoid excessive risk-aversion where robots refuse to attempt difficult terrain.
+---
 
-```python
-score_clear_penalty = -0.6 × accumulated_bonus  # on termination only
-```
+## 9. Current Reward Scales (v48-T14 — Active in cfg.py)
 
-## Alive Bonus — Segmented by Upright Posture (v14)
+| Category | Parameter | Value | vs v47 | Notes |
+|----------|-----------|-------|--------|-------|
+| **Navigation** | `forward_velocity` | 3.163 | +10% | |
+| | `waypoint_approach` | **280.534** | **1.68×** | Strongest navigation pull — key change |
+| | `waypoint_facing` | 0.637 | ~same | |
+| | `zone_approach` | **74.727** | **2.13×** | Side-zone attraction |
+| | `position_tracking` | 0.259 | -33% | Lighter |
+| **Alive** | `alive_bonus` | 1.013 | -30% | |
+| | `alive_decay_horizon` | **2383** | **+59%** | Longer sustained motivation |
+| **Terrain** | `height_progress` | 26.965 | ~same | |
+| | `foot_clearance` | **0.219** | **+46%** | Stronger step-height reward |
+| | `foot_clearance_bump_boost` | 7.167 | -10% | |
+| **Bonuses** | `waypoint_bonus` | 50.046 | ~same | |
+| | `phase_bonus` | 13.067 | -48% | |
+| | `celebration_bonus` | **141.242** | **+77%** | Stronger end-game pull |
+| | `per_jump_bonus` | **59.641** | **+139%** | |
+| | `jump_reward` | 10.093 | ~same | |
+| **Penalties** | `lin_vel_z` | **-0.027** | **7.2× lighter** | KEY: bumps need vertical motion |
+| | `torque_saturation` | **-0.012** | **2.1× lighter** | KEY: less motor stress penalty |
+| | `termination` | **-150** | **1.3× lighter** | Sweet spot (-50 too lenient, -200 too harsh) |
+| | `swing_contact_penalty` | **-0.003** | **10× lighter** | KEY: less bump traversal penalty |
+| | `orientation` | -0.026 | ~same | |
+| | `impact_penalty` | -0.100 | +25% | Slightly heavier |
+| | `action_rate` | -0.007 | ~same | |
+| | `ang_vel_xy` | -0.038 | -16% | |
+| **Gait** | `stance_ratio` | 0.070 | +70% | |
+| | `swing_contact_bump_scale` | 0.210 | -41% | |
+| **Unchanged** | `height_approach` | 5.0 | same | Not in search |
+| | `height_oscillation` | -2.0 | same | Not in search |
+| | `torques` | -5e-6 | same | Not in search |
+| | `dof_vel` | -3e-5 | same | Not in search |
+| | `dof_acc` | -1.5e-7 | same | Not in search |
+| | `score_clear_factor` | 0.0 | same | Not in search |
+| | `slope_orientation` | 0.0 | same | Disabled |
 
-The alive_bonus uses a **segmented threshold** instead of continuous sqrt scaling:
+---
 
-```python
-# gz = clip(-projected_gravity[:, 2], 0, 1)
-# gz > 0.9 (tilt < 26°): full bonus
-# gz > 0.7 (tilt < 45°): half bonus  
-# gz < 0.7 (tilt > 45°): zero
-gz = np.clip(-projected_gravity[:, 2], 0.0, 1.0)
-upright_factor = np.where(gz > 0.9, 1.0, np.where(gz > 0.7, 0.5, 0.0))
-alive_bonus = scale × upright_factor
-```
+## 10. AutoML Search Space Status & Future Exploration Opportunities
 
-| Posture | gz | upright_factor | alive_bonus (×0.15) |
-|---------|----|---------------|---------------------|
-| Perfectly upright | 1.0 | 1.0 | 0.15 |
-| 15° tilt (on ramp) | 0.966 | 1.0 | 0.15 |
-| 26° tilt | 0.899 | 0.5 | 0.075 |
-| 45° tilt | 0.707 | 0.5 | 0.075 |
-| 46° tilt | 0.694 | 0.0 | 0.0 |
-| Lying on side (90°) | 0.0 | 0.0 | 0.0 |
+### v48 Search (completed 2026-02-20): What Was Searched
 
-**Rationale:** Sharp cliff at 45° aligns with 50° soft termination. Full bonus maintained on 15° ramp (gz=0.966>0.9).
+25 reward parameters + 2 HP parameters (LR, entropy) searched over 15 trials × 15M steps.
 
-## Current Reward Config (v20: v13 base + v14-v20 improvements)
+### What Was NOT Searched (Fixed Parameters)
 
-```python
-# ===== Navigation (v10 proven values) =====
-forward_velocity: 3.0
-waypoint_approach: 100.0
-waypoint_facing: 0.15
-position_tracking: 0.05
-alive_bonus: 0.15               # 0.15×4000=600 (segmented by upright posture)
+| Parameter | Fixed Value | Why Fixed | Explore? |
+|-----------|-------------|-----------|----------|
+| `height_approach` | 5.0 | v35 proven | LOW — secondary signal |
+| `height_oscillation` | -2.0 | v35 proven | LOW — rarely triggers |
+| `torques` | -5e-6 | v35 proven | LOW — negligible penalty magnitude |
+| `dof_vel` | -3e-5 | v35 proven | LOW — negligible |
+| `dof_acc` | -1.5e-7 | v35 proven | LOW — negligible |
+| `slope_orientation` | 0.0 | Disabled | MAYBE — could help ramp phase |
+| `score_clear_factor` | 0.0 | Disabled | LOW |
+| `discount_factor` | 0.999 | Curriculum-proven (Stage 13) | LOW — already optimal |
+| `lambda_param` | 0.99 | Curriculum-proven (Stage 15) | LOW — already optimal |
+| `rollouts` | 24 | v23b-T7 proven | MAYBE — try 32/48 |
+| `learning_epochs` | 6 | v23b-T7 proven | MAYBE — try 4/8 |
+| `mini_batches` | 16 | v23b-T7 proven | LOW |
+| `grad_norm_clip` | 1.0 | Standard | MAYBE — try 0.5 |
+| `ratio_clip` | 0.2 | Standard PPO | LOW |
+| `value_clip` | 0.2 | Standard PPO | LOW |
 
-# ===== One-time Bonuses =====
-waypoint_bonus: 100.0           # platform arrival
-smiley_bonus: 150.0             # Stage 3: 3×150=450
-red_packet_bonus: 20.0          # 3×20=60
-celebration_bonus: 100.0
-phase_completion_bonus: 30.0    # v15: completing all smileys / all red packets
+### Known Search Space Boundary Issues
 
-# ===== Zone Attraction =====
-zone_approach: 5.0              # v16: stronger lateral pull for all-smiley collection
+| Parameter | v48 Range | T14 Value | At Boundary? | Action |
+|-----------|-----------|-----------|-------------|--------|
+| `entropy_loss_scale` | [3e-3, 6e-3] | **0.00775** | **YES — EXCEEDED upper bound** | Widen to [3e-3, 1.5e-2] |
+| `waypoint_approach` | [80, 300] | 280.5 | Near upper bound (93%) | Widen to [80, 500] |
+| `learning_rate` | [3e-4, 5e-4] | 4.5e-4 | 90th percentile | Widen to [2e-4, 8e-4] |
+| `celebration_bonus` | [40, 200] | 141.2 | Interior (71%) | OK |
+| `per_jump_bonus` | [10, 80] | 59.6 | Interior (71%) | OK |
+| `zone_approach` | [20, 80] | 74.7 | Near upper bound (91%) | Widen to [20, 150] |
+| `lin_vel_z` | [-0.2, -0.02] | -0.027 | Near lighter bound (96%) | Widen to [-0.2, -0.005] |
+| `swing_contact_penalty` | [-0.06, -0.003] | -0.003 | **AT lower bound** | Widen to [-0.06, -0.0005] |
+| `termination` | {-200,-150,-100,-50} | -150 | Interior | Consider {-175,-150,-125,-100} narrower |
 
-# ===== Terrain / Height =====
-height_progress: 12.0
-traversal_bonus: 30.0           # milestone for ramp traversal
+### Recommended Future Search Directions (Priority Order)
 
-# ===== Foot / Gait =====
-foot_clearance: 0.02
-foot_clearance_bump_boost: 2.5  # v19: stronger lift cue in bump area (y ∈ [-1.5, 1.5])
-stance_ratio: 0.08              # Stage 7B: minimal unconditional stance
+**Search A — Boundary Expansion (HIGH priority):**
+The Bayesian optimizer hit boundaries on entropy, waypoint_approach, zone_approach, lin_vel_z, and swing_contact_penalty. The true optimum may lie beyond these bounds. A focused search with widened ranges should be the FIRST next AutoML run.
 
-# ===== Celebration (v16: jump) =====
-jump_reward: 8.0                # continuous z elevation during celebration
+**Search B — Long-Horizon Validation (HIGH priority):**
+T14 was validated at 15M steps only. At 50M+ steps, behavior can diverge. Run a 5-trial search at 30M steps/trial to test if T14's config still leads at longer horizons, or if lighter penalties cause late-training bouncing/instability.
 
-# ===== Swing Contact Penalty =====
-swing_contact_penalty: -0.025   # Stage 1: halved (was -0.05)
-swing_contact_bump_scale: 0.6   # v19: reduce swing penalty in bump area
+**Search C — Reward Components Not Yet Searched (MEDIUM priority):**
+- `slope_orientation` currently disabled (0.0) — could help ramp traversal stability. Search [0.0, 0.1].
+- `score_clear_factor` currently 0.0 — search [0.0, 0.5] to test whether partial score deduction on fall improves risk management.
+- `stagnation_min_distance` and `stagnation_window_steps` are env-level, not searchable via reward — but could be explored manually.
 
-# ===== v20: Sensor-Driven Penalties =====
-impact_penalty: -0.02           # trunk accelerometer impact (>15 m/s²)
-torque_saturation: -0.01        # joint torque saturation (>90% forcerange)
+**Search D — PPO Dynamics (LOW priority):**
+- `rollouts`: 24 is fixed but untested at 32/48 with v48's reward landscape.
+- `learning_epochs`: 6 is fixed — try 4 (less overfitting per batch) or 8.
+- These interact with LR/entropy, so joint search is preferred.
 
-# ===== Stability Penalties =====
-orientation: -0.015
-lin_vel_z: -0.06
-ang_vel_xy: -0.01
-torques: -5e-6
-dof_vel: -3e-5
-dof_acc: -1.5e-7
-action_rate: -0.005
-termination: -100.0             # STRONG fall deterrent
-```
+**Search E — Warm-Start HP Search (MEDIUM priority):**
+All 15 trials in v48 trained from scratch. A separate search using warm-start from the v47 50M checkpoint would test a different optimization landscape — the reward weights that work for cold-start may differ from those optimal for fine-tuning.
 
-**Removed zero-weight keys (v20 cleanup):** `spin_progress`, `spin_hold`, `feet_contact_pattern`, `lateral_velocity`, `body_balance`, `fine_position_tracking`, `heading_tracking`, `distance_progress`, `approach_scale`, `arrival_bonus`, `stop_scale`, `zero_ang_bonus`, `near_target_speed`, `departure_penalty` — all were legacy 0.0 entries, never active.
+### Bayesian Convergence Warning
 
-**Disabled but kept as 0.0:** `height_approach`, `height_oscillation`, `slope_orientation` — v17 experiments, may be re-enabled.
-
-### v14/v15 Code Improvements (formula-level, not scale changes)
-
-| Change | Version | Description | Impact |
-|--------|---------|-------------|--------|
-| **Quadratic swing penalty** | v14 | `np.square(foot_vel)/10.0` vs linear `foot_vel/10.0` | Heavier at high velocity (10× at vel=10 rad/s) |
-| **Segmented alive bonus** | v14 | gz>0.9:100%, gz>0.7:50%, else:0% (was sqrt) | Sharp cliff at 45° tilt instead of gradual |
-| **Celebration position anchor** | v14 | `celeb_anchor_xy` + drift penalty `clip(-0.5×drift², -0.3, 0)` | Stage 1C: capped (was `-2.0×drift²` uncapped → -494/ep) |
-| **Joint accel termination** | v14 | Hard terminate if Δvel > 80 rad/s per step | Physics explosion safety net |
-| **Phase-based zone collection** | v15 | 4-phase gated collection (smileys→red packets→platform→celeb) | Matches competition rules, nearest-uncollected targeting |
-| **Relaxed phase gate** | Stage 1B | Phase 0→1: `np.any(smileys_reached)` (was `np.all`) | Only 1 smiley needed; smileys collectible in Phase 0+1 |
-| **Zone approach phase-indep** | Stage 1B | Smileys attract Phase 0+1, red packets Phase 1+ | No longer gated by current phase |
-| **Drift penalty cap** | Stage 1C | `clip(-0.5×drift², -0.3, 0.0)` per step | Was `-2.0×drift²` uncapped → -494/ep exploding penalty |
-| **Heading observation fix** | v15 | `wrap_angle(desired_heading - robot_heading)` | Was always pointing East, now points toward target |
-| **Phase completion bonuses** | v15 | 30.0 reward per phase completed | Incentivizes completing each zone type fully |
-
-### Reward Budget Audit (v15: v13 config + v14/v15 code)
-
-```
-STANDING STILL for 4000 steps:
-  alive_bonus: 0.15 × 4000 × 1.0 = 600
-  passive signals: ~320
-  Total: ~920
-
-COMPLETING COURSE in ~2500 steps:
-  alive_bonus: 0.15 × 2500 = 375
-  forward_velocity (3.0): ~600
-  waypoint_approach (100): ~400
-  waypoint_bonus: 100 (platform only, was 3×100)
-  smiley_bonus: 3 × 40 = 120
-  red_packet_bonus: 3 × 20 = 60
-  phase_completion: 2 × 30 = 60 (smileys done + red packets done)
-  celebration_bonus: 100
-  height_progress: ~100
-  traversal_bonus: ~60
-  spin rewards: ~200
-  Total: ~2,175
-
-RATIO: 2175/920 = 2.4:1 ✅
-```
-
-## PD Control System
-
-### Architecture
-
-VBot uses software PD control over `<motor>` type XML actuators (raw torque). No cascaded PD issue.
-
-```python
-# _compute_torques()
-action_scaled = actions * action_scale  # [-0.5, 0.5] rad deviation
-target_pos = default_angles + action_scaled
-torques = kp * (target_pos - current_pos) - kv * current_vel
-torques = clip(torques, -torque_limits, torque_limits)
-```
-
-### PD Parameters
-
-| Parameter | Value | Notes |
-|-----------|-------|-------|
-| kp | 100.0 | Position gain (N·m/rad) |
-| kv | 8.0 | Velocity damping (N·m·s/rad) |
-| action_scale | 0.5 | Max deviation from default angles (rad) |
-| torque_limits | [17, 17, 34]×4 | Aligned with XML `forcerange` |
-| Action filter α | configurable | Exponential smoothing on raw actions |
-
-### Torque Limits (XML forcerange — binding constraint)
-
-| Joint | XML forcerange | Joint actuatorfrcrange | Notes |
-|-------|---------------|----------------------|-------|
-| Hip (FR/FL/RR/RL) | ±17 Nm | ±17 Nm | Abduction/adduction |
-| Thigh (FR/FL/RR/RL) | ±17 Nm | ±17 Nm | Flexion/extension |
-| Calf (FR/FL/RR/RL) | ±34 Nm | ±34 Nm | Knee flexion/extension |
-
-### Saturation Regime
-
-Max PD torque = kp × action_scale = 100 × 0.5 = 50 Nm, but clipped to 17 Nm (hip/thigh) or 34 Nm (calf). For large actions, the controller operates as a bang-bang at torque limits. Fine control only for small action magnitudes.
-
-## PPO Hyperparameters (v13: Back to Basics)
-
-| Parameter | v12 Value | v13 Value | Rationale |
-|-----------|-----------|-----------|----------|
-| learning_rate | 5e-4 | **1.5e-4** | Stage 1: 0.6× of v13 (warm-start LR reduction) |
-| lr_scheduler | linear | linear | — |
-| rollouts | 32 | **24** | v10 proven |
-| learning_epochs | 4 | **8** | v10 proven (more learning per rollout) |
-| mini_batches | 16 | **32** | v10 proven (less noisy gradients) |
-| entropy_loss_scale | 0.01 | **0.005** | v10 proven (less random exploration) |
-| ratio_clip | 0.2 | 0.2 | — |
-| value_clip | 0.2 | 0.2 | — |
-| max_env_steps | 80M | **50M** | Stage 1: reduced for faster iteration |
-| discount_factor | 0.99 | 0.99 | — |
-| lambda_param | 0.95 | 0.95 | — |
-| grad_norm_clip | 1.0 | 1.0 | — |
-| num_envs | 2048 | 2048 | — |
-| checkpoint_interval | 500 | 500 | — |
-| policy_net | (256,256,256) | **(256,128,64)** | v10 proven |
-| value_net | (512,256,128) | (512,256,128) | — |
-
-## Episode Configuration
-
-| Parameter | Value |
-|-----------|-------|
-| max_episode_seconds | 40.0 |
-| max_episode_steps | 4000 |
-| grace_period_steps | 100 (hard/soft split) |
-| action_scale | 0.5 |
-| sim_dt | 0.01 |
-| sim_substeps | 4 |
-
-## Key Files
-
-| File | Purpose |
-|------|---------|
-| `starter_kit/navigation2/vbot/cfg.py` | Environment config + reward scales for section011 |
-| `starter_kit/navigation2/vbot/vbot_section011_np.py` | Section 01 environment implementation |
-| `starter_kit/navigation2/vbot/rl_cfgs.py` | PPO hyperparameters for all navigation2 sections |
-| `starter_kit/navigation2/vbot/xmls/scene_section011.xml` | Section 01 MJCF scene |
-| `starter_kit/navigation2/vbot/xmls/0126_C_section01.xml` | Section 01 collision model |
+The v48 search converged heavily after ~8/15 trials — most guided trials shared nearly identical core params. For future searches:
+- Use more random seeds (e.g., `--random-trials 5` instead of 3)
+- Or use a different optimizer (random search with 20+ trials) to ensure broader exploration
+- Or split into focused sub-searches (e.g., penalties-only, bonuses-only, HP-only)

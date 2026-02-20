@@ -105,15 +105,75 @@ See `Task_Reference.md` in this folder for full reward config, PPO hyperparamete
 
 ---
 
-## 6. Next Steps
+## 6. Architecture Redesign — Bridge-Priority State Machine (v1.0)
 
-1. ⬜ **Fix reward budget** — Apply anti-laziness trifecta (alive=0.05, arrival≥200, add stair/bridge milestones)
-2. ⬜ **Design stair-specific rewards** — Knee lift bonus, foot slip penalty, height progress
-3. ⬜ **Design bridge-specific rewards** — Lateral deviation penalty, narrow path stability
-4. ⬜ **Evaluate warm-start strategy** — Option A: from section011 best, Option B: fresh from Nav1
-5. ⬜ **VLM visual analysis** — Capture frames of section011 policy on section012 terrain to assess transfer
-6. ⬜ **AutoML reward weight search** — Tune stair/bridge/obstacle reward scales
-7. ⬜ **Scoring zone analysis** — Identify section02 scoring zones from competition docs
+**Date**: Session 2, February 2026
+
+### Motivation
+
+The original section012 env was a single-target 54-dim environment with broken reward budget (alive=0.3 >> arrival=80). It lacked:
+- Multi-phase navigation (no state machine)
+- Bridge-specific routing (no left/right route commitment)
+- Competition scoring alignment (no hongbao zones, no celebration)
+- Warm-start compatibility (54-dim vs section011's 69-dim obs)
+
+### Changes Made
+
+| File | Change | Status |
+|------|--------|--------|
+| `cfg.py` | Complete rewrite of `VBotSection012EnvCfg` — added ScoringZones, BridgeNav, CourseBounds, new RewardConfig | ✅ Done |
+| `vbot_section012_np.py` | Full rewrite (~900 lines) — 7-phase state machine, 69-dim obs, bridge sub-WPs, celebration jump, gait rewards, trunk_acc/torque sensing | ✅ Done |
+| `rl_cfgs.py` | Aligned PPO config with section011 for warm-start (γ=0.999, λ=0.99, lr=5e-5) | ✅ Done |
+| `automl.py` | Added REWARD_SEARCH_SPACE_SECTION012 (~35 params) + section012 scoring branch (max_wp=9.0) | ✅ Done |
+
+### Bridge-Priority Strategy
+
+Fixed left route: entry → left stairs → arch bridge → left stairs down → under-bridge collect → exit → celebrate.
+
+7 navigation phases with 9 total waypoints (3 bridge sub-WPs + 2 under-bridge targets):
+```
+Phase 0: WAVE_TO_STAIR    → [-3, 12.3]
+Phase 1: CLIMB_STAIR      → [-3, 14.5] z>2.3
+Phase 2: CROSS_BRIDGE     → 3 sub-WPs (entry/mid/exit), z>2.3
+Phase 3: DESCEND_STAIR    → [-3, 23.2]
+Phase 4: COLLECT_UNDER    → nearest-uncollected under-bridge hongbao
+Phase 5: REACH_EXIT       → [0, 24.33] r=0.8
+Phase 6: CELEBRATION      → jump sequence
+```
+
+### Reward Budget (Fixed)
+
+```
+Standing: 0.05 × 3000 (conditional) ≈ 150
+Completing: milestones(370) + approach(200) + alive(150) ≈ 720+
+Ratio: 4.8:1 in favor of completing ✅
+```
+
+### 69-dim Observation Layout
+
+Fully aligned with section011 v20 for warm-start checkpoint loading:
+- 3 linvel + 3 gyro + 3 gravity + 12 joint_pos + 12 joint_vel + 12 last_actions
+- 2 pos_error + 1 heading_error + 1 base_height + 1 celeb_progress + 4 foot_contact
+- 3 trunk_acc + 12 torques_normalized = **69 total**
+
+### Key Design Decisions
+
+1. **Bridge-priority over right route**: Bridge has +10 pts (crossing) + +10 pts (hongbao) = 20 pts guaranteed. Right route only offers gentler stairs but obstacle dodging risk.
+2. **Sequential phase enforcement**: State machine prevents phase-skipping exploits.
+3. **Score-clear on termination**: 30% of accumulated milestones deducted on fall — prevents fall-reset farming.
+4. **Celebration jump ported from section011**: Same IDLE→JUMP→DONE sub-state machine.
+5. **Conditional alive bonus**: Only awarded when robot is upright (not fallen) — prevents lazy standing.
+
+---
+
+## 7. Next Steps
+
+1. ⬜ **Smoke test** — Verify env creates, steps, obs shape (69), reward computes without errors
+2. ⬜ **From-scratch baseline** — Run 5M step smoke test to verify learning signal exists
+3. ⬜ **Warm-start from section011** — Load best section011 checkpoint, verify no shape mismatch
+4. ⬜ **VLM visual analysis** — `capture_vlm.py --env vbot_navigation_section012` on initial policy
+5. ⬜ **AutoML reward search** — `automl.py --hp-trials 15` to tune milestone/penalty weights
+6. ⬜ **Curriculum bridge focus** — If stairs prove too hard from scratch, add intermediate env with only stairs (no bridge)
 
 ---
 

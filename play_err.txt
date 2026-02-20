@@ -1,0 +1,29 @@
+Motphys profiler initialized: disabled
+I0216 13:46:05.253841 23756 play.py:130] DeviceSupports(torch=True, torch_gpu=True, jax=False, jax_gpu=False)
+I0216 13:46:05.254372 23756 play.py:148] Using specified policy: D:\MotrixLab\runs\vbot_navigation_section011\26-02-16_13-07-52-353372_PPO\checkpoints\best_agent.pt
+[skrl:WARNING] Using `from skrl.envs.torch import ...` is deprecated and will be removed in future versions.
+W0216 13:46:05.417759 23756 torch.py:5] Using `from skrl.envs.torch import ...` is deprecated and will be removed in future versions.
+[skrl:WARNING]  - Import loaders using `from skrl.envs.loaders.torch import ...`
+W0216 13:46:05.417759 23756 torch.py:6]  - Import loaders using `from skrl.envs.loaders.torch import ...`
+[skrl:WARNING]  - Import wrappers using `from skrl.envs.wrappers.torch import ...`
+W0216 13:46:05.417759 23756 torch.py:7]  - Import wrappers using `from skrl.envs.wrappers.torch import ...`
+[skrl:INFO] Seed: 42
+I0216 13:46:05.626451 23756 __init__.py:82] Seed: 42
+2026-02-16T05:46:07.217903Z  WARN bevy_asset::server::loaders: Duplicate AssetLoader registered for Asset type `bevy_image::image::Image` with extensions `["png", "jpg", "jpeg"]`. Loader must be specified in a .meta file in order to load assets of this type with these extensions.
+I0216 13:46:11.530806 23756 ppo.py:379] torch.compile applied to model (mode=reduce-overhead)
+Traceback (most recent call last):
+  File "D:\MotrixLab\scripts\play.py", line 178, in <module>
+    app.run(main)
+  File "D:\MotrixLab\.venv\lib\site-packages\absl\app.py", line 308, in run
+    _run_main(main, args)
+  File "D:\MotrixLab\.venv\lib\site-packages\absl\app.py", line 254, in _run_main
+    sys.exit(main(argv))
+  File "D:\MotrixLab\scripts\play.py", line 174, in main
+    trainer.play(policy_path)
+  File "D:\MotrixLab\motrix_rl\src\motrix_rl\skrl\torch\train\ppo.py", line 234, in play
+    env.render()
+  File "D:\MotrixLab\motrix_rl\src\motrix_rl\skrl\torch\wrap_np.py", line 126, in render
+    self._renderer.render()
+  File "D:\MotrixLab\motrix_envs\src\motrix_envs\np\renderer.py", line 61, in render
+    self._render.sync(data=self._env.state.data if self._sync_render_data else None)
+motrixsim.render.RenderClosedError: Render app is closed

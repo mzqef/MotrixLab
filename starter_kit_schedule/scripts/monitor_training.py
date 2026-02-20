@@ -136,6 +136,8 @@ def monitor(run_dir: str, env_name: str = ""):
         ("Reward Total/ foot_clearance (mean)", "Foot Clearance"),
         ("Reward Total/ termination (mean)", "Termination"),
         ("Reward Total/ score_clear_penalty (mean)", "Score Clear"),
+        ("metrics / bump_entry_frac (mean)", "Bump Entry %"),
+        ("metrics / max_y_progress (mean)", "Max Y Progress"),
     ]
 
     print(f"\n{'Metric':<22} {'First':>11} {'Latest':>11} {'Trend':>5} {'Steps':>10}")

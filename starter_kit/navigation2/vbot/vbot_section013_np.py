@@ -21,7 +21,7 @@ from motrix_envs import registry
 from motrix_envs.np.env import NpEnv, NpEnvState
 from motrix_envs.math.quaternion import Quaternion
 
-from .cfg import VBotSection013EnvCfg
+from .cfg import VBotSection013EnvCfg, TerrainScaleHelper
 
 
 def generate_repeating_array(num_period, num_reset, period_counter):
@@ -88,10 +88,19 @@ class VBotSection013Env(NpEnv):
         
         # 初始位置生成参数：从配置文件读取
         self.spawn_center = np.array(cfg.init_state.pos, dtype=np.float32)  # 从配置读取
-        self.spawn_range = 0.1  # 随机生成范围：±0.1m（0.2m×0.2m区域）
+        pr = cfg.init_state.pos_randomization_range
+        self.spawn_x_range = (pr[0], pr[2])  # (x_min, x_max) 随机偏移
+        self.spawn_y_range = (pr[1], pr[3])  # (y_min, y_max) 随机偏移
     
         # 导航统计计数器
         self.navigation_stats_step = 0
+
+        # Section013 地形关键区间与目标点（基于 0126_C_section03.xml）
+        self._ball_centers = np.array([[3.0, 31.23], [0.0, 31.23], [-3.0, 31.23]], dtype=np.float32)
+        self._gap_centers_x = np.array([-1.5, 1.5], dtype=np.float32)
+        self._step_ramp_pass_y = 29.0
+        self._ball_zone_enter_y = 30.4
+        self._ball_zone_exit_y = 31.9
     
     def _init_buffer(self):
         """初始化缓存和参数"""
@@ -112,6 +121,13 @@ class VBotSection013Env(NpEnv):
         
         self._init_dof_pos[-self._num_action:] = self.default_angles
         self.action_filter_alpha = 0.3
+        # 多地形动态action_scale (基于TerrainZone表)
+        self._terrain_scale = TerrainScaleHelper(self._cfg.control_config)
+
+    def _update_dynamic_action_scale(self, info: dict, data: mtx.SceneData) -> np.ndarray:
+        root_pos, _, _ = self._extract_root_state(data)
+        probe_y = root_pos[:, 1]
+        return self._terrain_scale.update(info, probe_y, data.shape[0])
     
     def _find_target_marker_dof_indices(self):
         """查找target_marker在dof_pos中的索引位置"""
@@ -217,13 +233,16 @@ class VBotSection013Env(NpEnv):
         
         state.info["current_actions"] = state.info["filtered_actions"]
 
-        state.data.actuator_ctrls = self._compute_torques(state.info["filtered_actions"], state.data)
+        current_scale = self._update_dynamic_action_scale(state.info, state.data)
+        state.data.actuator_ctrls = self._compute_torques(state.info["filtered_actions"], state.data, current_scale)
         
         return state
     
-    def _compute_torques(self, actions, data):
+    def _compute_torques(self, actions, data, current_scale=None):
         """计算PD控制力矩（VBot使用motor执行器，需要力矩控制）"""
-        action_scaled = actions * self._cfg.control_config.action_scale
+        if current_scale is None:
+            current_scale = self._cfg.control_config.action_scale
+        action_scaled = actions * current_scale[:, np.newaxis] if np.ndim(current_scale) > 0 else actions * current_scale
         target_pos = self.default_angles + action_scaled
         
         # 获取当前关节状态
@@ -231,11 +250,15 @@ class VBotSection013Env(NpEnv):
         current_vel = self.get_dof_vel(data)  # [num_envs, 12]
         
         # PD控制器：tau = kp * (target - current) - kv * vel
-        kp = 80.0   # 位置增益
-        kv = 6.0    # 速度增益
+        # PD控制: kp=100 与section011对齐，提供足够关节刚度支撑爬坡/跨越0.75m台阶
+        # kp×action_scale=50Nm 虽超过hip forcerange(17Nm), 但高kp对地形姿态稳定至关重要
+        kp, kv = 100.0, 8.0
         
         pos_error = target_pos - current_pos
         torques = kp * pos_error - kv * current_vel
+        
+        # v20: 保存raw PD输出 (unclipped), 供obs和reward使用
+        self._raw_torques = torques.copy()
         
         # 限制力矩范围（与XML中的forcerange一致）
         # hip/thigh: ±17 N·m, calf: ±34 N·m
@@ -351,6 +374,21 @@ class VBotSection013Env(NpEnv):
         root_pos, root_quat, root_vel = self._extract_root_state(data)
         joint_pos = self.get_dof_pos(data)
         joint_vel = self.get_dof_vel(data)
+
+        # --- NaN安全防护 ---
+        nan_mask = (
+            np.any(~np.isfinite(joint_vel), axis=1)
+            | np.any(~np.isfinite(joint_pos), axis=1)
+            | np.any(~np.isfinite(root_pos), axis=1)
+        )
+        if np.any(nan_mask):
+            joint_vel = np.where(nan_mask[:, np.newaxis], 0.0, joint_vel)
+            joint_pos = np.where(nan_mask[:, np.newaxis], self.default_angles, joint_pos)
+            root_vel = np.where(nan_mask[:, np.newaxis], 0.0, root_vel)
+            root_pos = np.where(nan_mask[:, np.newaxis], np.array([[0.0, 26.0, 1.8, 0.0, 0.0, 0.0]]), root_pos)
+            root_quat = np.where(nan_mask[:, np.newaxis], np.array([[1.0, 0.0, 0.0, 0.0]]), root_quat)
+            state.info["nan_terminated"] = nan_mask
+
         joint_pos_rel = joint_pos - self.default_angles
         
         # 传感器数据
@@ -447,28 +485,40 @@ class VBotSection013Env(NpEnv):
         # 计算终止条件（必须在奖励之前）
         terminated_state = self._compute_terminated(state, projected_gravity, joint_vel)
         terminated = terminated_state.terminated
+
+        # 达到目标后成功截断（用于庆祝完成判定）
+        speed_xy = np.linalg.norm(base_lin_vel[:, :2], axis=1)
+        reach_and_stopped = np.logical_and(reached_all, speed_xy < 0.15)
+        reach_stop_count = state.info.get("reach_stop_count", np.zeros(self._num_envs, dtype=np.int32))
+        reach_stop_count = np.where(reach_and_stopped, reach_stop_count + 1, 0)
+        state.info["reach_stop_count"] = reach_stop_count
+        celebration_done = reach_stop_count >= 30
         
         # 计算奖励
         reward = self._compute_reward(data, state.info, velocity_commands,
                                        base_lin_vel, gyro, projected_gravity,
                                        joint_vel, distance_to_target, heading_diff,
                                        position_error, reached_all, terminated,
-                                       robot_heading)
+                           robot_heading, robot_position, root_pos[:, 2],
+                           speed_xy, celebration_done)
         
         state.obs = obs
         state.reward = reward
         state.terminated = terminated
         
-        # 达到目标后成功截断
-        speed_xy = np.linalg.norm(base_lin_vel[:, :2], axis=1)
-        reach_and_stopped = np.logical_and(reached_all, speed_xy < 0.15)
-        reach_stop_count = state.info.get("reach_stop_count", np.zeros(self._num_envs, dtype=np.int32))
-        reach_stop_count = np.where(reach_and_stopped, reach_stop_count + 1, 0)
-        state.info["reach_stop_count"] = reach_stop_count
-        self._success_truncate = reach_stop_count >= 50
+        self._success_truncate = celebration_done
+        passed_count = (
+            state.info.get("step_or_ramp_passed", np.zeros(self._num_envs, dtype=bool)).astype(np.float32)
+            + state.info.get("ball_zone_passed", np.zeros(self._num_envs, dtype=bool)).astype(np.float32)
+            + celebration_done.astype(np.float32)
+        )
+        ball_contact_proxy = state.info.get("ball_contact_proxy", np.zeros(self._num_envs, dtype=np.float32))
         state.info["metrics"] = {
             "distance_to_target": distance_to_target,
             "reached_fraction": reached_all.astype(np.float32),
+            "milestone_progress": passed_count / 3.0,
+            "ball_collision_risk": ball_contact_proxy,
+            "celebration_done_fraction": celebration_done.astype(np.float32),
         }
         return state
     
@@ -509,11 +559,89 @@ class VBotSection013Env(NpEnv):
                          base_lin_vel: np.ndarray, gyro: np.ndarray, projected_gravity: np.ndarray,
                          joint_vel: np.ndarray, distance_to_target: np.ndarray, heading_diff: np.ndarray,
                          position_error: np.ndarray, reached_all: np.ndarray,
-                         terminated: np.ndarray, robot_heading: np.ndarray = None) -> np.ndarray:
+                         terminated: np.ndarray, robot_heading: np.ndarray = None,
+                         robot_xy: np.ndarray = None, current_z: np.ndarray = None,
+                         speed_xy: np.ndarray = None, celebration_done: np.ndarray = None) -> np.ndarray:
         """导航任务奖励计算（高度场/滚球地形）"""
         scales = self._cfg.reward_config.scales
+        n = self._num_envs
+
+        if robot_xy is None:
+            robot_xy = np.zeros((n, 2), dtype=np.float32)
+        if current_z is None:
+            current_z = np.zeros(n, dtype=np.float32)
+        if speed_xy is None:
+            speed_xy = np.linalg.norm(base_lin_vel[:, :2], axis=1)
+        if celebration_done is None:
+            celebration_done = np.zeros(n, dtype=bool)
+
         term_scale = scales.get("termination", -100.0)
-        termination_penalty = np.where(terminated, term_scale, 0.0)
+
+        # 里程碑状态
+        step_or_ramp_passed = info.get("step_or_ramp_passed", np.zeros(n, dtype=bool))
+        ball_zone_passed = info.get("ball_zone_passed", np.zeros(n, dtype=bool))
+        celebration_rewarded = info.get("celebration_rewarded", np.zeros(n, dtype=bool))
+
+        passed_step_now = (robot_xy[:, 1] > self._step_ramp_pass_y) & (~step_or_ramp_passed)
+        step_or_ramp_passed = step_or_ramp_passed | (robot_xy[:, 1] > self._step_ramp_pass_y)
+        step_or_ramp_bonus = np.where(passed_step_now, scales.get("step_or_ramp_bonus", 30.0), 0.0)
+
+        passed_ball_now = (robot_xy[:, 1] > self._ball_zone_exit_y) & (~ball_zone_passed)
+        ball_zone_passed = ball_zone_passed | (robot_xy[:, 1] > self._ball_zone_exit_y)
+        ball_zone_pass_bonus = np.where(passed_ball_now, scales.get("ball_zone_pass_bonus", 20.0), 0.0)
+
+        celebration_now = celebration_done & (~celebration_rewarded)
+        celebration_rewarded = celebration_rewarded | celebration_done
+        celebration_bonus = np.where(celebration_now, scales.get("celebration_bonus", 80.0), 0.0)
+
+        info["step_or_ramp_passed"] = step_or_ramp_passed
+        info["ball_zone_passed"] = ball_zone_passed
+        info["celebration_rewarded"] = celebration_rewarded
+
+        # 滚球区连续 shaping
+        in_ball_zone = (robot_xy[:, 1] > self._ball_zone_enter_y) & (robot_xy[:, 1] < self._ball_zone_exit_y)
+        dist_to_gaps = np.minimum(
+            np.abs(robot_xy[:, 0] - self._gap_centers_x[0]),
+            np.abs(robot_xy[:, 0] - self._gap_centers_x[1]),
+        )
+        ball_gap_alignment = scales.get("ball_gap_alignment", 2.0) * np.where(
+            in_ball_zone,
+            np.clip(1.0 - dist_to_gaps / 1.5, 0.0, 1.0),
+            0.0,
+        )
+
+        diff = robot_xy[:, np.newaxis, :] - self._ball_centers[np.newaxis, :, :]
+        dist_to_balls = np.linalg.norm(diff, axis=2)
+        nearest_ball_dist = np.min(dist_to_balls, axis=1)
+        ball_contact_proxy = np.where(
+            in_ball_zone,
+            np.clip(1.0 - nearest_ball_dist / 1.0, 0.0, 1.0),
+            0.0,
+        )
+        info["ball_contact_proxy"] = ball_contact_proxy
+
+        # Section3规则修正：受控接触可得更高分（15>10）
+        # 稳定接触给正向奖励，失稳接触才惩罚
+        in_ball_zone_f = in_ball_zone.astype(np.float32)
+        tilt_level = np.linalg.norm(projected_gravity[:, :2], axis=1)
+        tilt_stable = np.clip(1.0 - tilt_level / 0.6, 0.0, 1.0)
+        ang_speed = np.linalg.norm(gyro, axis=1)
+        ang_stable = np.clip(1.0 - ang_speed / 3.0, 0.0, 1.0)
+        stable_factor = np.clip(0.7 * tilt_stable + 0.3 * ang_stable, 0.0, 1.0)
+
+        stable_ball_contact_reward = (
+            scales.get("ball_contact_reward", 4.0)
+            * ball_contact_proxy
+            * stable_factor
+            * in_ball_zone_f
+        )
+        unstable_ball_contact_penalty = (
+            scales.get("ball_unstable_contact_penalty", -8.0)
+            * ball_contact_proxy
+            * (1.0 - stable_factor)
+            * in_ball_zone_f
+        )
+
         position_tracking = np.exp(-distance_to_target / 5.0)
         fine_position_tracking = np.where(distance_to_target < 1.5, np.exp(-distance_to_target / 0.3), 0.0)
         target_bearing = np.arctan2(position_error[:, 1], position_error[:, 0])
@@ -534,18 +662,24 @@ class VBotSection013Env(NpEnv):
         alive_bonus = np.where(ever_reached, 0.0, 1.0)
         steps = info.get("steps", np.zeros(self._num_envs, dtype=np.float32)).astype(np.float32)
         max_steps = float(self._cfg.max_episode_steps)
+        # Run4: 温和time_decay (floor 0.5), 配合高bonus提供完成激励而不强制加速
         time_decay = np.clip(1.0 - 0.5 * steps / max_steps, 0.5, 1.0)
         info["ever_reached"] = info.get("ever_reached", np.zeros(self._num_envs, dtype=bool))
         first_time_reach = np.logical_and(reached_all, ~info["ever_reached"])
         info["ever_reached"] = np.logical_or(info["ever_reached"], reached_all)
         arrival_bonus = np.where(first_time_reach, scales.get("arrival_bonus", 50.0), 0.0)
-        speed_xy = np.linalg.norm(base_lin_vel[:, :2], axis=1)
         stop_base = scales.get("stop_scale", 2.0) * (
             0.8 * np.exp(-(speed_xy / 0.2) ** 2) + 1.2 * np.exp(-(np.abs(gyro[:, 2]) / 0.1) ** 4)
         )
         zero_ang_mask = np.abs(gyro[:, 2]) < 0.05
         zero_ang_bonus = np.where(np.logical_and(reached_all, zero_ang_mask), scales.get("zero_ang_bonus", 6.0), 0.0)
         stop_bonus = np.where(reached_all, stop_base + zero_ang_bonus, 0.0)
+
+        last_z = info.get("last_z", current_z.copy())
+        z_delta = current_z - last_z
+        info["last_z"] = current_z.copy()
+        height_progress = scales.get("height_progress", 8.0) * np.maximum(z_delta, 0.0)
+
         orientation_penalty = np.square(projected_gravity[:, 0]) + np.square(projected_gravity[:, 1])
         lin_vel_z_penalty = np.square(base_lin_vel[:, 2])
         ang_vel_xy_penalty = np.sum(np.square(gyro[:, :2]), axis=1)
@@ -564,12 +698,33 @@ class VBotSection013Env(NpEnv):
             + scales.get("dof_vel", -5e-5) * dof_vel_penalty
             + scales.get("dof_acc", -2.5e-7) * dof_acc_penalty
             + scales.get("action_rate", -0.01) * action_rate_penalty
-            + termination_penalty
+            + unstable_ball_contact_penalty
         )
+
+        # 累积一次性奖金（终止清分）
+        accumulated_bonus = info.get("accumulated_bonus", np.zeros(n, dtype=np.float32))
+        one_time_bonus = arrival_bonus + step_or_ramp_bonus + ball_zone_pass_bonus + celebration_bonus
+        one_time_bonus = np.where(terminated, 0.0, one_time_bonus)
+        accumulated_bonus = accumulated_bonus + one_time_bonus
+        info["accumulated_bonus"] = accumulated_bonus
+
+        score_clear_factor = scales.get("score_clear_factor", 0.3)
+        score_clear_penalty = np.where(terminated, np.maximum(-score_clear_factor * accumulated_bonus, -120.0), 0.0)
+        termination_penalty = np.where(terminated, term_scale, 0.0) + score_clear_penalty
+
+        # Run8: 温和距离门控(Run5证实有效) + 近距离boost approach
+        # Run9: 回归Run5证实有效的close_factor + approach在gate内
+        # 唯一改变: arrival_bonus从2000提升至5000, 完成预算比12:1
+        close_factor = np.where(
+            distance_to_target < 2.0,
+            0.2 + 0.8 * np.minimum(distance_to_target / 2.0, 1.0),  # smooth 0.2→1.0
+            1.0,
+        )
+
         reward = np.where(
             reached_all,
-            stop_bonus + arrival_bonus + penalties,
-            time_decay * (
+            stop_bonus + penalties,
+            close_factor * time_decay * (
                 scales.get("position_tracking", 1.5) * position_tracking
                 + scales.get("fine_position_tracking", 5.0) * fine_position_tracking
                 + scales.get("heading_tracking", 0.8) * heading_tracking
@@ -579,6 +734,14 @@ class VBotSection013Env(NpEnv):
                 + approach_reward
             ) + penalties
         )
+
+        reward = reward + one_time_bonus + ball_gap_alignment + height_progress + stable_ball_contact_reward
+
+        # 终止步清零正向奖励：仅保留终止相关惩罚
+        reward = np.where(terminated, termination_penalty, reward)
+
+        reward = np.where(np.isfinite(reward), reward, -50.0)
+
         info["Reward"] = {
             "position_tracking": scales.get("position_tracking", 1.5) * position_tracking,
             "heading_tracking": scales.get("heading_tracking", 0.8) * heading_tracking,
@@ -586,6 +749,16 @@ class VBotSection013Env(NpEnv):
             "approach_reward": approach_reward,
             "arrival_bonus": arrival_bonus,
             "stop_bonus": stop_bonus,
+            "step_or_ramp_bonus": step_or_ramp_bonus,
+            "ball_zone_pass_bonus": ball_zone_pass_bonus,
+            "celebration_bonus": celebration_bonus,
+            "ball_gap_alignment": ball_gap_alignment,
+            "height_progress": height_progress,
+            "ball_contact_proxy": ball_contact_proxy,
+            "stable_factor": stable_factor,
+            "stable_ball_contact_reward": stable_ball_contact_reward,
+            "unstable_ball_contact_penalty": unstable_ball_contact_penalty,
+            "score_clear_penalty": score_clear_penalty,
             "penalties": penalties,
             "termination": termination_penalty,
         }
@@ -595,14 +768,10 @@ class VBotSection013Env(NpEnv):
         cfg: VBotSection013EnvCfg = self._cfg
         num_envs = data.shape[0]
         
-        # 在高台中央小范围内随机生成位置
-        # X, Y: 在spawn_center周围 ±spawn_range 范围内随机
-        random_xy = np.random.uniform(
-            low=-self.spawn_range,
-            high=self.spawn_range,
-            size=(num_envs, 2)
-        )
-        robot_init_xy = self.spawn_center[:2] + random_xy  # [num_envs, 2]
+        # 在丙午大吉平台区域内随机生成起始位置（竞赛要求随机）
+        random_x = np.random.uniform(self.spawn_x_range[0], self.spawn_x_range[1], size=(num_envs,))
+        random_y = np.random.uniform(self.spawn_y_range[0], self.spawn_y_range[1], size=(num_envs,))
+        robot_init_xy = self.spawn_center[:2] + np.column_stack([random_x, random_y])  # [num_envs, 2]
         terrain_heights = np.full(num_envs, self.spawn_center[2], dtype=np.float32)  # 使用配置的高度
         
         
@@ -759,8 +928,7 @@ class VBotSection013Env(NpEnv):
             ],
             axis=-1,
         )
-        print(f"obs.shape:{obs.shape}")
-        assert obs.shape == (num_envs, 54)  # 54 + 1 = 55维
+        assert obs.shape == (num_envs, 54)  # 54维
         
         info = {
             "pose_commands": pose_commands,
@@ -771,6 +939,13 @@ class VBotSection013Env(NpEnv):
             "ever_reached": np.zeros(num_envs, dtype=bool),
             "min_distance": distance_to_target.copy(),
             "initial_distance": distance_to_target.copy(),
+            "last_z": terrain_heights.copy(),
+            "accumulated_bonus": np.zeros(num_envs, dtype=np.float32),
+            "step_or_ramp_passed": np.zeros(num_envs, dtype=bool),
+            "ball_zone_passed": np.zeros(num_envs, dtype=bool),
+            "celebration_rewarded": np.zeros(num_envs, dtype=bool),
+            "ball_contact_proxy": np.zeros(num_envs, dtype=np.float32),
+            "reach_stop_count": np.zeros(num_envs, dtype=np.int32),
             # 新增：与locomotion一致的字段
             "last_dof_vel": np.zeros((num_envs, self._num_action), dtype=np.float32),  # 上一步关节速度
             "contacts": np.zeros((num_envs, self.num_foot_check), dtype=np.bool_),  # 足部接触状态

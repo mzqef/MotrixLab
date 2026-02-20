@@ -1,0 +1,18 @@
+automl_id: automl_20260216_114640
+best_results: {}
+budget_hours: 4.0
+current_hp_config: {}
+current_iteration: 0
+current_phase: curriculum
+current_reward_config: {}
+current_stage: stage1_flat
+curriculum_progress:
+  stage1_flat: pending
+  stage2a_waves: pending
+  stage2b_stairs: pending
+  stage2c_obstacles: pending
+elapsed_hours: 0.0
+hp_search_history: []
+mode: hp-search
+start_time: '2026-02-16T11:46:40.713301'
+status: running

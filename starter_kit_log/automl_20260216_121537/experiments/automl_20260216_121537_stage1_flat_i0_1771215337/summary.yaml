@@ -1,0 +1,103 @@
+campaign_id: automl_20260216_121537
+config:
+  algorithm: PPO
+  environment: vbot_navigation_section011
+  hyperparameters:
+    check_point_interval: 20
+    discount_factor: 0.999
+    entropy_loss_scale: 0.004866272462666853
+    learning_epochs: 8
+    learning_rate: 0.0003803005686992157
+    max_env_steps: 5000000
+    mini_batches: 32
+    policy_hidden_layer_sizes:
+    - 256
+    - 128
+    - 64
+    rollouts: 24
+    seed: 42
+    value_hidden_layer_sizes:
+    - 512
+    - 512
+    - 256
+config_id: automl_20260216_121537_stage1_flat_i0_1771215337
+execution:
+  completed_at: '2026-02-16T12:27:33.820812Z'
+  duration_hours: 0.19804300864537558
+  started_at: '2026-02-16T12:15:37.902593Z'
+  status: completed
+experiment_id: automl_20260216_121537_stage1_flat_i0_1771215337
+results:
+  final_metrics:
+    episode_reward_mean: 2.6995623409748077
+    success_rate: 0.3880218466122945
+    wp_idx_mean: 0.41603902479012805
+  reward_components:
+    active_components:
+    - forward_velocity
+    - alive_bonus
+    - waypoint_approach
+    - zone_approach
+    - height_progress
+    - position_tracking
+    - waypoint_facing
+    - termination
+    - orientation
+    - lin_vel_z
+    - ang_vel_xy
+    - action_rate
+    - impact_penalty
+    - torque_saturation
+    - swing_contact_penalty
+    - stance_ratio
+    - foot_clearance
+    - foot_clearance_bump_boost
+    - swing_contact_bump_scale
+    active_count: 19
+    efficiency:
+      action_rate: -0.01965146525687992
+      torque_saturation: -0.017888279167282917
+    gait:
+      stance_ratio: 0.035951127321895586
+    navigation:
+      alive_bonus: 1.841359084160403
+      forward_velocity: 1.7961079262697757
+      position_tracking: 0.6252935622822233
+      waypoint_approach: 126.82138208691711
+      waypoint_facing: 0.23208984476369698
+      zone_approach: 43.06555453966707
+    stability:
+      ang_vel_xy: -0.025886960015978212
+      impact_penalty: -0.04361768347315445
+      lin_vel_z: -0.12864214868778362
+      orientation: -0.007309966625362513
+      swing_contact_bump_scale: 0.30556538609768713
+      swing_contact_penalty: -0.06128808539873229
+    termination:
+      termination: -150
+    terrain:
+      foot_clearance: 0.05142283572827118
+      foot_clearance_bump_boost: 3.966153150905756
+      height_progress: 26.845333127661082
+  reward_scales:
+    action_rate: -0.01965146525687992
+    alive_bonus: 1.841359084160403
+    ang_vel_xy: -0.025886960015978212
+    foot_clearance: 0.05142283572827118
+    foot_clearance_bump_boost: 3.966153150905756
+    forward_velocity: 1.7961079262697757
+    height_progress: 26.845333127661082
+    impact_penalty: -0.04361768347315445
+    lin_vel_z: -0.12864214868778362
+    orientation: -0.007309966625362513
+    position_tracking: 0.6252935622822233
+    stance_ratio: 0.035951127321895586
+    swing_contact_bump_scale: 0.30556538609768713
+    swing_contact_penalty: -0.06128808539873229
+    termination: -150
+    torque_saturation: -0.017888279167282917
+    waypoint_approach: 126.82138208691711
+    waypoint_facing: 0.23208984476369698
+    zone_approach: 43.06555453966707
+  run_dir: runs\vbot_navigation_section011\26-02-16_12-15-44-972114_PPO
+trial_index: 0

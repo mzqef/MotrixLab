@@ -138,6 +138,27 @@ def evaluate_run(run_dir, primary_metric="Reward / Instantaneous reward (mean)")
             key = metric_tag.split("/")[1].strip().replace(" (mean)", "")
             result[f"final_{key}"] = sum(final_metric) / len(final_metric)
 
+    # Episode length from "Episode / Total timesteps (mean)"
+    ep_len_data = read_tb_scalars(run_dir, "Episode / Total timesteps (mean)")
+    if ep_len_data:
+        _, ep_len_values = zip(*ep_len_data)
+        n_ep = max(1, len(ep_len_values) // 5)
+        result["final_episode_length"] = sum(list(ep_len_values[-n_ep:])) / n_ep
+
+    # Termination rate proxy from "Reward Instant / termination (mean)".
+    # termination reward fires once per terminated episode with a negative value;
+    # its mean across envs is negative when episodes terminate.
+    # We normalize by the configured termination penalty to get a rate ∈ [0, 1].
+    term_data = read_tb_scalars(run_dir, "Reward Instant / termination (mean)")
+    if term_data:
+        _, term_values = zip(*term_data)
+        n_term = max(1, len(term_values) // 5)
+        final_term = sum(list(term_values[-n_term:])) / n_term
+        # If mean termination reward is negative, episodes are terminating.
+        # Crude rate: abs(mean_reward / penalty_per_event). Clamp to [0, 1].
+        # With penalty=-100, a mean of -5 → ~5% termination rate.
+        result["final_termination_reward"] = final_term
+
     return result
 
 

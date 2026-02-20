@@ -13,31 +13,14 @@ __pycache__/
 .vscode/
 *.swp
 
-# AI assistants
-.claude/
-
-# Build / docs
-docs/build/
-docs/source/user_guide/
-docs/source/index.md
-node_modules/
-
 # Training outputs — checkpoints & TensorBoard events (large)
-runs/
-logs/
 
-# AutoML logs — track metadata, ignore console log
-starter_kit_log/automl_console.log
-# Track everything else in starter_kit_log/ (configs, summaries, reports, index)
 
 # MuJoCo XML scene files & assets (large, not needed in repo)
 starter_kit/navigation1/*/xmls/
 starter_kit/navigation2/*/xmls/
 starter_kit/navigation2/vbot/阶段二-world_0202_clean/
 
-# AutoML runtime state (changes every run, track for history)
-# starter_kit_schedule/progress/ — tracked (contains automl_state.yaml)
-starter_kit_schedule/checkpoints/
 
 # OS
 .DS_Store

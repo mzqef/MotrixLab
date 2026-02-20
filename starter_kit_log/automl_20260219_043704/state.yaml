@@ -1,0 +1,1057 @@
+automl_id: automl_20260219_043704
+best_results: {}
+budget_hours: 8.0
+current_hp_config:
+  discount_factor: 0.999
+  entropy_loss_scale: 0.004318625492723052
+  grad_norm_clip: 1.0
+  lambda_param: 0.99
+  learning_epochs: 6
+  learning_rate: 0.0003568963889028796
+  mini_batches: 16
+  policy_hidden_layer_sizes:
+  - 256
+  - 128
+  - 64
+  ratio_clip: 0.2
+  rollouts: 24
+  value_hidden_layer_sizes:
+  - 512
+  - 256
+  - 128
+current_iteration: 19
+current_phase: curriculum
+current_reward_config:
+  action_rate: -0.02448689389681762
+  alive_bonus: 1.1292056510815327
+  ang_vel_xy: -0.05
+  celebration_bonus: 183.34589845274004
+  foot_clearance: 0.023882146916554232
+  foot_clearance_bump_boost: 4.215807664084188
+  forward_velocity: 4.399968677446016
+  height_progress: 22.7296804676697
+  impact_penalty: -0.08484325732052053
+  jump_reward: 21.2872652259492
+  lin_vel_z: -0.06267035353786735
+  orientation: -0.02593483240546509
+  per_jump_bonus: 77.47643390220918
+  position_tracking: 0.5974897313970874
+  stance_ratio: 0.014962397680159813
+  swing_contact_bump_scale: 0.20496693571244579
+  swing_contact_penalty: -0.02649824740385367
+  termination: -200
+  torque_saturation: -0.01634851670887629
+  waypoint_approach: 146.90185740583465
+  waypoint_facing: 0.10583200878707301
+  zone_approach: 90.61967240116707
+current_stage: stage1_flat
+curriculum_progress:
+  stage1_flat: pending
+  stage2a_waves: pending
+  stage2b_stairs: pending
+  stage2c_obstacles: pending
+elapsed_hours: 8.776442174166666
+hp_search_history:
+- hp_config:
+    discount_factor: 0.999
+    entropy_loss_scale: 0.005179377691662447
+    grad_norm_clip: 1.0
+    lambda_param: 0.99
+    learning_epochs: 6
+    learning_rate: 0.00039912555414613546
+    mini_batches: 16
+    policy_hidden_layer_sizes:
+    - 256
+    - 128
+    - 64
+    ratio_clip: 0.2
+    rollouts: 24
+    value_hidden_layer_sizes:
+    - 512
+    - 256
+    - 128
+  metrics:
+    episode_length_mean: 2053.9126727764424
+    episode_reward_mean: 2.7096171038491383
+    episode_reward_std: 0.2408313751220703
+    success_rate: 0.22542121899979456
+    termination_rate: 0.00037391500680574347
+    wp_idx_mean: 0.24570768220084055
+  reward_config:
+    action_rate: -0.02448689389681762
+    alive_bonus: 1.1292056510815327
+    ang_vel_xy: -0.047018950985507964
+    celebration_bonus: 183.34589845274004
+    foot_clearance: 0.023882146916554232
+    foot_clearance_bump_boost: 4.215807664084188
+    forward_velocity: 4.399968677446016
+    height_progress: 22.7296804676697
+    impact_penalty: -0.08484325732052053
+    jump_reward: 24.962311344710166
+    lin_vel_z: -0.06267035353786735
+    orientation: -0.034513713826979264
+    per_jump_bonus: 76.73808472107075
+    position_tracking: 0.5974897313970874
+    stance_ratio: 0.014962397680159813
+    swing_contact_bump_scale: 0.20496693571244579
+    swing_contact_penalty: -0.02649824740385367
+    termination: -200
+    torque_saturation: -0.01634851670887629
+    waypoint_approach: 128.6127745704428
+    waypoint_facing: 0.10583200878707301
+    zone_approach: 89.56400366337346
+  score: 0.2409971187584108
+  trial: 0
+- hp_config:
+    discount_factor: 0.999
+    entropy_loss_scale: 0.004214932181832189
+    grad_norm_clip: 1.0
+    lambda_param: 0.99
+    learning_epochs: 6
+    learning_rate: 0.0004485851774304539
+    mini_batches: 16
+    policy_hidden_layer_sizes:
+    - 256
+    - 128
+    - 64
+    ratio_clip: 0.2
+    rollouts: 24
+    value_hidden_layer_sizes:
+    - 512
+    - 256
+    - 128
+  metrics:
+    episode_length_mean: 1625.3845966045674
+    episode_reward_mean: 3.772669110979353
+    episode_reward_std: 0.4870610237121582
+    success_rate: 0.00011050212145034623
+    termination_rate: 2.0373829153998356e-05
+    wp_idx_mean: 0.0
+  reward_config:
+    action_rate: -0.017318626782513082
+    alive_bonus: 1.5698448999811054
+    ang_vel_xy: -0.03835582305769851
+    celebration_bonus: 191.10154175358963
+    foot_clearance: 0.09415771379196317
+    foot_clearance_bump_boost: 4.4506110256458875
+    forward_velocity: 2.401967157552574
+    height_progress: 65.08786831829933
+    impact_penalty: -0.09601104411718392
+    jump_reward: 11.067983305624573
+    lin_vel_z: -0.055935604071604667
+    orientation: -0.050158150035627715
+    per_jump_bonus: 20.13308323762564
+    position_tracking: 0.24627130020708213
+    stance_ratio: 0.03355787728779835
+    swing_contact_bump_scale: 0.47255288765909176
+    swing_contact_penalty: -0.07002834512248357
+    termination: -100
+    torque_saturation: -0.016277626899164933
+    waypoint_approach: 187.16083935432528
+    waypoint_facing: 0.16850862970892938
+    zone_approach: 142.51465741654025
+  score: 0.21769991718490647
+  trial: 1
+- hp_config:
+    discount_factor: 0.999
+    entropy_loss_scale: 0.0034859479097277698
+    grad_norm_clip: 1.0
+    lambda_param: 0.99
+    learning_epochs: 6
+    learning_rate: 0.00035834625583788934
+    mini_batches: 16
+    policy_hidden_layer_sizes:
+    - 256
+    - 128
+    - 64
+    ratio_clip: 0.2
+    rollouts: 24
+    value_hidden_layer_sizes:
+    - 512
+    - 256
+    - 128
+  metrics:
+    episode_length_mean: 1504.4949481670674
+    episode_reward_mean: 3.0355626004082814
+    episode_reward_std: 0.143937349319458
+    success_rate: 0.20938460103103093
+    termination_rate: 0.00046915057159605477
+    wp_idx_mean: 0.20171333423682622
+  reward_config:
+    action_rate: -0.007195627638309814
+    alive_bonus: 0.8224618483520287
+    ang_vel_xy: -0.028574658407348696
+    celebration_bonus: 75.62821467391181
+    foot_clearance: 0.023484071617432916
+    foot_clearance_bump_boost: 4.257249104282581
+    forward_velocity: 4.331733331143049
+    height_progress: 60.51814879169941
+    impact_penalty: -0.07076356809752463
+    jump_reward: 10.994235871392187
+    lin_vel_z: -0.17587770506630085
+    orientation: -0.015962087632565576
+    per_jump_bonus: 50.845596230703144
+    position_tracking: 0.3217197486285368
+    stance_ratio: 0.0028619627296686493
+    swing_contact_bump_scale: 0.45638236800985543
+    swing_contact_penalty: -0.036061146995236444
+    termination: -150
+    torque_saturation: -0.03585394490970033
+    waypoint_approach: 162.89889388421165
+    waypoint_facing: 0.0763962349011678
+    zone_approach: 125.6276298522764
+  score: 0.23411091240596113
+  trial: 2
+- hp_config:
+    discount_factor: 0.999
+    entropy_loss_scale: 0.003466664783947951
+    grad_norm_clip: 1.0
+    lambda_param: 0.99
+    learning_epochs: 6
+    learning_rate: 0.0004559086109759977
+    mini_batches: 16
+    policy_hidden_layer_sizes:
+    - 256
+    - 128
+    - 64
+    ratio_clip: 0.2
+    rollouts: 24
+    value_hidden_layer_sizes:
+    - 512
+    - 256
+    - 128
+  metrics:
+    episode_length_mean: 1742.430673452524
+    episode_reward_mean: 3.0071880647114346
+    episode_reward_std: 0.2517681121826172
+    success_rate: 0.15691888172711646
+    termination_rate: 0.0005214733204671315
+    wp_idx_mean: 0.10134874710014888
+  reward_config:
+    action_rate: -0.010529653509649272
+    alive_bonus: 0.4579737056288321
+    ang_vel_xy: -0.028604437516757366
+    celebration_bonus: 128.97920079670266
+    foot_clearance: 0.04341575405572711
+    foot_clearance_bump_boost: 2.1986227455624325
+    forward_velocity: 3.365992566852575
+    height_progress: 53.303876445517886
+    impact_penalty: -0.08496248220584539
+    jump_reward: 14.897416921223394
+    lin_vel_z: -0.18915563600891466
+    orientation: -0.055256943040280414
+    per_jump_bonus: 77.78939944269203
+    position_tracking: 0.3507383113393133
+    stance_ratio: 0.03656344435149524
+    swing_contact_bump_scale: 0.32863097458003043
+    swing_contact_penalty: -0.04585571811450656
+    termination: -150
+    torque_saturation: -0.005651584033850007
+    waypoint_approach: 279.519909974823
+    waypoint_facing: 0.24040175896402893
+    zone_approach: 156.58275095158768
+  score: 0.22621122826227869
+  trial: 3
+- hp_config:
+    discount_factor: 0.999
+    entropy_loss_scale: 0.004381396141367683
+    grad_norm_clip: 1.0
+    lambda_param: 0.99
+    learning_epochs: 6
+    learning_rate: 0.0004220321158241476
+    mini_batches: 16
+    policy_hidden_layer_sizes:
+    - 256
+    - 128
+    - 64
+    ratio_clip: 0.2
+    rollouts: 24
+    value_hidden_layer_sizes:
+    - 512
+    - 256
+    - 128
+  metrics:
+    episode_length_mean: 1759.6742412860576
+    episode_reward_mean: 2.693118929862976
+    episode_reward_std: 0.4735989570617676
+    success_rate: 0.015514152656708444
+    termination_rate: 8.460318869245904e-05
+    wp_idx_mean: 0.0007569395321687418
+  reward_config:
+    action_rate: -0.005859521842199667
+    alive_bonus: 1.2004876903110675
+    ang_vel_xy: -0.041540043102946185
+    celebration_bonus: 94.75640417636097
+    foot_clearance: 0.09477506383093935
+    foot_clearance_bump_boost: 1.072932844185713
+    forward_velocity: 3.1432033656150953
+    height_progress: 43.97532341513836
+    impact_penalty: -0.057418443905569154
+    jump_reward: 18.74809916356849
+    lin_vel_z: -0.10765136001366303
+    orientation: -0.016495929224627323
+    per_jump_bonus: 11.11956979499336
+    position_tracking: 0.6250998785638375
+    stance_ratio: 0.00316546379896252
+    swing_contact_bump_scale: 0.3807478680437395
+    swing_contact_penalty: -0.015291445986386376
+    termination: -200
+    torque_saturation: -0.011330987954174955
+    waypoint_approach: 135.6047376395671
+    waypoint_facing: 0.058507801537405604
+    zone_approach: 139.53545764323383
+  score: 0.21643756847229817
+  trial: 4
+- hp_config:
+    discount_factor: 0.999
+    entropy_loss_scale: 0.0031982689290693113
+    grad_norm_clip: 1.0
+    lambda_param: 0.99
+    learning_epochs: 6
+    learning_rate: 0.00042562839031584583
+    mini_batches: 16
+    policy_hidden_layer_sizes:
+    - 256
+    - 128
+    - 64
+    ratio_clip: 0.2
+    rollouts: 24
+    value_hidden_layer_sizes:
+    - 512
+    - 256
+    - 128
+  metrics:
+    episode_length_mean: 1927.7774658203125
+    episode_reward_mean: 2.7895103182111467
+    episode_reward_std: 0.18416833877563477
+    success_rate: 0.175953565963677
+    termination_rate: 0.0003548015893570015
+    wp_idx_mean: 0.13978380390575953
+  reward_config:
+    action_rate: -0.02448689389681762
+    alive_bonus: 1.1292056510815327
+    ang_vel_xy: -0.04148120054283871
+    celebration_bonus: 199.6526272888617
+    foot_clearance: 0.023882146916554232
+    foot_clearance_bump_boost: 4.215807664084188
+    forward_velocity: 4.399968677446016
+    height_progress: 22.7296804676697
+    impact_penalty: -0.08484325732052053
+    jump_reward: 25.0
+    lin_vel_z: -0.059160515494954005
+    orientation: -0.034513713826979264
+    per_jump_bonus: 72.51297609868705
+    position_tracking: 0.5974897313970874
+    stance_ratio: 0.014962397680159813
+    swing_contact_bump_scale: 0.20496693571244579
+    swing_contact_penalty: -0.02649824740385367
+    termination: -200
+    torque_saturation: -0.01634851670887629
+    waypoint_approach: 116.92520317231428
+    waypoint_facing: 0.10583200878707301
+    zone_approach: 89.56400366337346
+  score: 0.2305365941283198
+  trial: 5
+- hp_config:
+    discount_factor: 0.999
+    entropy_loss_scale: 0.004717003213917937
+    grad_norm_clip: 1.0
+    lambda_param: 0.99
+    learning_epochs: 6
+    learning_rate: 0.00028704074946131133
+    mini_batches: 16
+    policy_hidden_layer_sizes:
+    - 256
+    - 128
+    - 64
+    ratio_clip: 0.2
+    rollouts: 24
+    value_hidden_layer_sizes:
+    - 512
+    - 256
+    - 128
+  metrics:
+    episode_length_mean: 1811.6344369741587
+    episode_reward_mean: 2.5378493581499373
+    episode_reward_std: 0.18781781196594238
+    success_rate: 0.30436048763138907
+    termination_rate: 0.00039368452770369394
+    wp_idx_mean: 0.17831830999680928
+  reward_config:
+    action_rate: -0.02448689389681762
+    alive_bonus: 0.9534511483068104
+    ang_vel_xy: -0.047018950985507964
+    celebration_bonus: 183.34589845274004
+    foot_clearance: 0.023882146916554232
+    foot_clearance_bump_boost: 4.215807664084188
+    forward_velocity: 4.399968677446016
+    height_progress: 22.7296804676697
+    impact_penalty: -0.08484325732052053
+    jump_reward: 23.591111840681968
+    lin_vel_z: -0.06267035353786735
+    orientation: -0.034513713826979264
+    per_jump_bonus: 76.73808472107075
+    position_tracking: 0.5046636446016294
+    stance_ratio: 0.014962397680159813
+    swing_contact_bump_scale: 0.20496693571244579
+    swing_contact_penalty: -0.03278232039607844
+    termination: -100
+    torque_saturation: -0.013651770006305686
+    waypoint_approach: 128.6127745704428
+    waypoint_facing: 0.10816194732587245
+    zone_approach: 89.56400366337346
+  score: 0.23287780582726564
+  trial: 6
+- hp_config:
+    discount_factor: 0.999
+    entropy_loss_scale: 0.00425650718306534
+    grad_norm_clip: 1.0
+    lambda_param: 0.99
+    learning_epochs: 6
+    learning_rate: 0.0004501982409328513
+    mini_batches: 16
+    policy_hidden_layer_sizes:
+    - 256
+    - 128
+    - 64
+    ratio_clip: 0.2
+    rollouts: 24
+    value_hidden_layer_sizes:
+    - 512
+    - 256
+    - 128
+  metrics:
+    episode_length_mean: 1832.2464693509614
+    episode_reward_mean: 2.779971616608756
+    episode_reward_std: 0.16093206405639648
+    success_rate: 0.1865476103765624
+    termination_rate: 0.00034941116214862893
+    wp_idx_mean: 0.2515152618288994
+  reward_config:
+    action_rate: -0.025
+    alive_bonus: 1.1292056510815327
+    ang_vel_xy: -0.047018950985507964
+    celebration_bonus: 183.34589845274004
+    foot_clearance: 0.023882146916554232
+    foot_clearance_bump_boost: 4.215807664084188
+    forward_velocity: 4.399968677446016
+    height_progress: 22.7296804676697
+    impact_penalty: -0.08484325732052053
+    jump_reward: 24.962311344710166
+    lin_vel_z: -0.06267035353786735
+    orientation: -0.034513713826979264
+    per_jump_bonus: 76.73808472107075
+    position_tracking: 0.613356319739289
+    stance_ratio: 0.014962397680159813
+    swing_contact_bump_scale: 0.20496693571244579
+    swing_contact_penalty: -0.02649824740385367
+    termination: -200
+    torque_saturation: -0.01634851670887629
+    waypoint_approach: 128.6127745704428
+    waypoint_facing: 0.10583200878707301
+    zone_approach: 89.56400366337346
+  score: 0.24029659003262913
+  trial: 7
+- hp_config:
+    discount_factor: 0.999
+    entropy_loss_scale: 0.008694288312576088
+    grad_norm_clip: 1.0
+    lambda_param: 0.99
+    learning_epochs: 6
+    learning_rate: 0.0005553138832885963
+    mini_batches: 16
+    policy_hidden_layer_sizes:
+    - 256
+    - 128
+    - 64
+    ratio_clip: 0.2
+    rollouts: 24
+    value_hidden_layer_sizes:
+    - 512
+    - 256
+    - 128
+  metrics:
+    episode_length_mean: 2016.299072265625
+    episode_reward_mean: 2.776874440056937
+    episode_reward_std: 0.17981362342834473
+    success_rate: 0.1401235977453845
+    termination_rate: 0.000247431518509984
+    wp_idx_mean: 0.10895163725529398
+  reward_config:
+    action_rate: -0.02448689389681762
+    alive_bonus: 1.1292056510815327
+    ang_vel_xy: -0.05
+    celebration_bonus: 200.0
+    foot_clearance: 0.023882146916554232
+    foot_clearance_bump_boost: 4.215807664084188
+    forward_velocity: 4.410151713324154
+    height_progress: 24.39942239329124
+    impact_penalty: -0.08484325732052053
+    jump_reward: 24.962311344710166
+    lin_vel_z: -0.05243177310486862
+    orientation: -0.034513713826979264
+    per_jump_bonus: 76.73808472107075
+    position_tracking: 0.5974897313970874
+    stance_ratio: 0.014498161050021996
+    swing_contact_bump_scale: 0.20496693571244579
+    swing_contact_penalty: -0.02649824740385367
+    termination: -200
+    torque_saturation: -0.01634851670887629
+    waypoint_approach: 128.6127745704428
+    waypoint_facing: 0.10583200878707301
+    zone_approach: 100.92688182765119
+  score: 0.22822306952320648
+  trial: 8
+- hp_config:
+    discount_factor: 0.999
+    entropy_loss_scale: 0.002908851612755133
+    grad_norm_clip: 1.0
+    lambda_param: 0.99
+    learning_epochs: 6
+    learning_rate: 0.0005026408521317451
+    mini_batches: 16
+    policy_hidden_layer_sizes:
+    - 256
+    - 128
+    - 64
+    ratio_clip: 0.2
+    rollouts: 24
+    value_hidden_layer_sizes:
+    - 512
+    - 256
+    - 128
+  metrics:
+    episode_length_mean: 1776.447735126202
+    episode_reward_mean: 2.640393001692636
+    episode_reward_std: 0.1103050708770752
+    success_rate: 0.21842850851161139
+    termination_rate: 0.0004013713316193649
+    wp_idx_mean: 0.1127570564193385
+  reward_config:
+    action_rate: -0.02448689389681762
+    alive_bonus: 1.1292056510815327
+    ang_vel_xy: -0.047018950985507964
+    celebration_bonus: 155.78537814802428
+    foot_clearance: 0.023882146916554232
+    foot_clearance_bump_boost: 3.287325588849922
+    forward_velocity: 4.399968677446016
+    height_progress: 22.7296804676697
+    impact_penalty: -0.1
+    jump_reward: 24.962311344710166
+    lin_vel_z: -0.07156899507701303
+    orientation: -0.034513713826979264
+    per_jump_bonus: 76.73808472107075
+    position_tracking: 0.4628129103679045
+    stance_ratio: 0.015967214492294077
+    swing_contact_bump_scale: 0.2177668438031848
+    swing_contact_penalty: -0.02649824740385367
+    termination: -200
+    torque_saturation: -0.01634851670887629
+    waypoint_approach: 128.6127745704428
+    waypoint_facing: 0.09561428684174059
+    zone_approach: 89.56400366337346
+  score: 0.2267736081776816
+  trial: 9
+- hp_config:
+    discount_factor: 0.999
+    entropy_loss_scale: 0.0033250382326866297
+    grad_norm_clip: 1.0
+    lambda_param: 0.99
+    learning_epochs: 6
+    learning_rate: 0.0004799076989338914
+    mini_batches: 16
+    policy_hidden_layer_sizes:
+    - 256
+    - 128
+    - 64
+    ratio_clip: 0.2
+    rollouts: 24
+    value_hidden_layer_sizes:
+    - 512
+    - 256
+    - 128
+  metrics:
+    episode_length_mean: 1992.195828951322
+    episode_reward_mean: 2.6596781526293074
+    episode_reward_std: 0.1512439250946045
+    success_rate: 0.23737306041376932
+    termination_rate: 0.0002677190144147192
+    wp_idx_mean: 0.1980384492448398
+  reward_config:
+    action_rate: -0.025
+    alive_bonus: 1.1292056510815327
+    ang_vel_xy: -0.05
+    celebration_bonus: 183.34589845274004
+    foot_clearance: 0.023882146916554232
+    foot_clearance_bump_boost: 4.215807664084188
+    forward_velocity: 4.5
+    height_progress: 22.7296804676697
+    impact_penalty: -0.09069140674011256
+    jump_reward: 24.962311344710166
+    lin_vel_z: -0.06446846067117515
+    orientation: -0.034513713826979264
+    per_jump_bonus: 76.73808472107075
+    position_tracking: 0.5974897313970874
+    stance_ratio: 0.014962397680159813
+    swing_contact_bump_scale: 0.2238359602000247
+    swing_contact_penalty: -0.02649824740385367
+    termination: -200
+    torque_saturation: -0.01634851670887629
+    waypoint_approach: 128.6127745704428
+    waypoint_facing: 0.10583200878707301
+    zone_approach: 89.56400366337346
+  score: 0.23610632100605655
+  trial: 10
+- hp_config:
+    discount_factor: 0.999
+    entropy_loss_scale: 0.004318625492723052
+    grad_norm_clip: 1.0
+    lambda_param: 0.99
+    learning_epochs: 6
+    learning_rate: 0.0003568963889028796
+    mini_batches: 16
+    policy_hidden_layer_sizes:
+    - 256
+    - 128
+    - 64
+    ratio_clip: 0.2
+    rollouts: 24
+    value_hidden_layer_sizes:
+    - 512
+    - 256
+    - 128
+  metrics:
+    episode_length_mean: 2109.0889986478364
+    episode_reward_mean: 2.7624188320977345
+    episode_reward_std: 0.22446942329406738
+    success_rate: 0.2672776941742216
+    termination_rate: 0.00032513177155383996
+    wp_idx_mean: 0.24926896073988505
+  reward_config:
+    action_rate: -0.02448689389681762
+    alive_bonus: 1.1292056510815327
+    ang_vel_xy: -0.05
+    celebration_bonus: 183.34589845274004
+    foot_clearance: 0.023882146916554232
+    foot_clearance_bump_boost: 4.215807664084188
+    forward_velocity: 4.399968677446016
+    height_progress: 22.7296804676697
+    impact_penalty: -0.08484325732052053
+    jump_reward: 21.2872652259492
+    lin_vel_z: -0.06267035353786735
+    orientation: -0.02593483240546509
+    per_jump_bonus: 77.47643390220918
+    position_tracking: 0.5974897313970874
+    stance_ratio: 0.014962397680159813
+    swing_contact_bump_scale: 0.20496693571244579
+    swing_contact_penalty: -0.02649824740385367
+    termination: -200
+    torque_saturation: -0.01634851670887629
+    waypoint_approach: 146.90185740583465
+    waypoint_facing: 0.10583200878707301
+    zone_approach: 90.61967240116707
+  score: 0.24178802104870872
+  trial: 11
+- hp_config:
+    discount_factor: 0.999
+    entropy_loss_scale: 0.004577363026875882
+    grad_norm_clip: 1.0
+    lambda_param: 0.99
+    learning_epochs: 6
+    learning_rate: 0.0004410016266962995
+    mini_batches: 16
+    policy_hidden_layer_sizes:
+    - 256
+    - 128
+    - 64
+    ratio_clip: 0.2
+    rollouts: 24
+    value_hidden_layer_sizes:
+    - 512
+    - 256
+    - 128
+  metrics:
+    episode_length_mean: 2001.0624060997595
+    episode_reward_mean: 2.4672549622399464
+    episode_reward_std: 0.20838522911071777
+    success_rate: 0.3319093521152224
+    termination_rate: 0.00034040178571428573
+    wp_idx_mean: 0.24210565962961741
+  reward_config:
+    action_rate: -0.02448689389681762
+    alive_bonus: 1.1292056510815327
+    ang_vel_xy: -0.05
+    celebration_bonus: 200.0
+    foot_clearance: 0.023882146916554232
+    foot_clearance_bump_boost: 4.215807664084188
+    forward_velocity: 4.399968677446016
+    height_progress: 22.7296804676697
+    impact_penalty: -0.08484325732052053
+    jump_reward: 21.2872652259492
+    lin_vel_z: -0.06267035353786735
+    orientation: -0.02112986076442567
+    per_jump_bonus: 77.47643390220918
+    position_tracking: 0.5974897313970874
+    stance_ratio: 0.014962397680159813
+    swing_contact_bump_scale: 0.20496693571244579
+    swing_contact_penalty: -0.02649824740385367
+    termination: -150
+    torque_saturation: -0.01634851670887629
+    waypoint_approach: 131.1284930491853
+    waypoint_facing: 0.10583200878707301
+    zone_approach: 73.4742816818876
+  score: 0.23985430942821073
+  trial: 12
+- hp_config:
+    discount_factor: 0.999
+    entropy_loss_scale: 0.003610179270967901
+    grad_norm_clip: 1.0
+    lambda_param: 0.99
+    learning_epochs: 6
+    learning_rate: 0.00048556025546685276
+    mini_batches: 16
+    policy_hidden_layer_sizes:
+    - 256
+    - 128
+    - 64
+    ratio_clip: 0.2
+    rollouts: 24
+    value_hidden_layer_sizes:
+    - 512
+    - 256
+    - 128
+  metrics:
+    episode_length_mean: 1905.6371413010818
+    episode_reward_mean: 2.9529727527073453
+    episode_reward_std: 0.2138378620147705
+    success_rate: 0.22505000020776475
+    termination_rate: 0.00045216087251901625
+    wp_idx_mean: 0.2393931778413909
+  reward_config:
+    action_rate: -0.02448689389681762
+    alive_bonus: 1.1292056510815327
+    ang_vel_xy: -0.04862906620827298
+    celebration_bonus: 183.34589845274004
+    foot_clearance: 0.023882146916554232
+    foot_clearance_bump_boost: 4.215807664084188
+    forward_velocity: 4.277856705578703
+    height_progress: 24.96214620875683
+    impact_penalty: -0.09030737412408545
+    jump_reward: 21.2872652259492
+    lin_vel_z: -0.07450008288738533
+    orientation: -0.02593483240546509
+    per_jump_bonus: 77.47643390220918
+    position_tracking: 0.5974897313970874
+    stance_ratio: 0.014962397680159813
+    swing_contact_bump_scale: 0.17411897923740421
+    swing_contact_penalty: -0.02649824740385367
+    termination: -200
+    torque_saturation: -0.01634851670887629
+    waypoint_approach: 147.12139821832756
+    waypoint_facing: 0.10583200878707301
+    zone_approach: 86.62338719725977
+  score: 0.2399551119778861
+  trial: 13
+- hp_config:
+    discount_factor: 0.999
+    entropy_loss_scale: 0.003736344672760857
+    grad_norm_clip: 1.0
+    lambda_param: 0.99
+    learning_epochs: 6
+    learning_rate: 0.0003631826686567373
+    mini_batches: 16
+    policy_hidden_layer_sizes:
+    - 256
+    - 128
+    - 64
+    ratio_clip: 0.2
+    rollouts: 24
+    value_hidden_layer_sizes:
+    - 512
+    - 256
+    - 128
+  metrics:
+    episode_length_mean: 1815.0362079326924
+    episode_reward_mean: 2.843305843217032
+    episode_reward_std: 0.32611727714538574
+    success_rate: 0.27265397139957975
+    termination_rate: 0.0004761191111590181
+    wp_idx_mean: 0.1796861184494836
+  reward_config:
+    action_rate: -0.02448689389681762
+    alive_bonus: 1.1292056510815327
+    ang_vel_xy: -0.04860775449714155
+    celebration_bonus: 183.34589845274004
+    foot_clearance: 0.029464245856702456
+    foot_clearance_bump_boost: 4.215807664084188
+    forward_velocity: 4.5
+    height_progress: 20.0
+    impact_penalty: -0.09020501544008652
+    jump_reward: 21.2872652259492
+    lin_vel_z: -0.05043737548628817
+    orientation: -0.02593483240546509
+    per_jump_bonus: 59.131782143824125
+    position_tracking: 0.5478006543630664
+    stance_ratio: 0.014962397680159813
+    swing_contact_bump_scale: 0.20496693571244579
+    swing_contact_penalty: -0.030551691534861872
+    termination: -200
+    torque_saturation: -0.017019178935568997
+    waypoint_approach: 146.90185740583465
+    waypoint_facing: 0.12395969760762654
+    zone_approach: 90.61967240116707
+  score: 0.23362050373409082
+  trial: 14
+- hp_config:
+    discount_factor: 0.999
+    entropy_loss_scale: 0.0041200554994039185
+    grad_norm_clip: 1.0
+    lambda_param: 0.99
+    learning_epochs: 6
+    learning_rate: 0.00029494197338499273
+    mini_batches: 16
+    policy_hidden_layer_sizes:
+    - 256
+    - 128
+    - 64
+    ratio_clip: 0.2
+    rollouts: 24
+    value_hidden_layer_sizes:
+    - 512
+    - 256
+    - 128
+  metrics:
+    episode_length_mean: 1715.9936147836538
+    episode_reward_mean: 2.723198277609689
+    episode_reward_std: 0.1813032627105713
+    success_rate: 0.21700682916811534
+    termination_rate: 0.00040023868637425563
+    wp_idx_mean: 0.2621507463710649
+  reward_config:
+    action_rate: -0.025
+    alive_bonus: 0.8636652394776354
+    ang_vel_xy: -0.05
+    celebration_bonus: 183.34589845274004
+    foot_clearance: 0.020938431015891955
+    foot_clearance_bump_boost: 4.215807664084188
+    forward_velocity: 4.399968677446016
+    height_progress: 22.7296804676697
+    impact_penalty: -0.08629133382886556
+    jump_reward: 21.2872652259492
+    lin_vel_z: -0.05016938883203997
+    orientation: -0.02593483240546509
+    per_jump_bonus: 77.47643390220918
+    position_tracking: 0.6647734546177039
+    stance_ratio: 0.012317011052302573
+    swing_contact_bump_scale: 0.1828598745232635
+    swing_contact_penalty: -0.02649824740385367
+    termination: -200
+    torque_saturation: -0.01634851670887629
+    waypoint_approach: 144.47608417127879
+    waypoint_facing: 0.08300838002708699
+    zone_approach: 90.61967240116707
+  score: 0.240433878216227
+  trial: 15
+- hp_config:
+    discount_factor: 0.999
+    entropy_loss_scale: 0.004512432414056237
+    grad_norm_clip: 1.0
+    lambda_param: 0.99
+    learning_epochs: 6
+    learning_rate: 0.00040213969132299297
+    mini_batches: 16
+    policy_hidden_layer_sizes:
+    - 256
+    - 128
+    - 64
+    ratio_clip: 0.2
+    rollouts: 24
+    value_hidden_layer_sizes:
+    - 512
+    - 256
+    - 128
+  metrics:
+    episode_length_mean: 1836.857881986178
+    episode_reward_mean: 2.5333243438175748
+    episode_reward_std: 0.16750454902648926
+    success_rate: 0.01851152296044997
+    termination_rate: 0.00012951539363712072
+    wp_idx_mean: 0.0010107491034432314
+  reward_config:
+    action_rate: -0.02448689389681762
+    alive_bonus: 1.28319911893655
+    ang_vel_xy: -0.05
+    celebration_bonus: 183.34589845274004
+    foot_clearance: 0.023882146916554232
+    foot_clearance_bump_boost: 5.0
+    forward_velocity: 3.3485450196472177
+    height_progress: 22.7296804676697
+    impact_penalty: -0.08484325732052053
+    jump_reward: 20.953189210907624
+    lin_vel_z: -0.06267035353786735
+    orientation: -0.02593483240546509
+    per_jump_bonus: 80.0
+    position_tracking: 0.5974897313970874
+    stance_ratio: 0.015484821916624295
+    swing_contact_bump_scale: 0.20496693571244579
+    swing_contact_penalty: -0.02649824740385367
+    termination: -200
+    torque_saturation: -0.01908334426330508
+    waypoint_approach: 146.90185740583465
+    waypoint_facing: 0.10583200878707301
+    zone_approach: 69.34980959811227
+  score: 0.21661496264521252
+  trial: 16
+- hp_config:
+    discount_factor: 0.999
+    entropy_loss_scale: 0.006727174030751645
+    grad_norm_clip: 1.0
+    lambda_param: 0.99
+    learning_epochs: 6
+    learning_rate: 0.00042403730002983956
+    mini_batches: 16
+    policy_hidden_layer_sizes:
+    - 256
+    - 128
+    - 64
+    ratio_clip: 0.2
+    rollouts: 24
+    value_hidden_layer_sizes:
+    - 512
+    - 256
+    - 128
+  metrics:
+    episode_length_mean: 2176.8991980919473
+    episode_reward_mean: 2.637321983064924
+    episode_reward_std: 0.27344250679016113
+    success_rate: 0.055100846370416026
+    termination_rate: 0.00015912305430642196
+    wp_idx_mean: 0.021971620486250946
+  reward_config:
+    action_rate: -0.025
+    alive_bonus: 1.1292056510815327
+    ang_vel_xy: -0.05
+    celebration_bonus: 183.34589845274004
+    foot_clearance: 0.025215759690742558
+    foot_clearance_bump_boost: 4.215807664084188
+    forward_velocity: 4.399968677446016
+    height_progress: 22.7296804676697
+    impact_penalty: -0.08484325732052053
+    jump_reward: 21.2872652259492
+    lin_vel_z: -0.06267035353786735
+    orientation: -0.02593483240546509
+    per_jump_bonus: 77.47643390220918
+    position_tracking: 0.5974897313970874
+    stance_ratio: 0.014962397680159813
+    swing_contact_bump_scale: 0.20496693571244579
+    swing_contact_penalty: -0.02649824740385367
+    termination: -200
+    torque_saturation: -0.013570549824658232
+    waypoint_approach: 146.90185740583465
+    waypoint_facing: 0.10583200878707301
+    zone_approach: 90.61967240116707
+  score: 0.22088866124563794
+  trial: 17
+- hp_config:
+    discount_factor: 0.999
+    entropy_loss_scale: 0.004840155696459398
+    grad_norm_clip: 1.0
+    lambda_param: 0.99
+    learning_epochs: 6
+    learning_rate: 0.0004458489261901241
+    mini_batches: 16
+    policy_hidden_layer_sizes:
+    - 256
+    - 128
+    - 64
+    ratio_clip: 0.2
+    rollouts: 24
+    value_hidden_layer_sizes:
+    - 512
+    - 256
+    - 128
+  metrics:
+    episode_length_mean: 2075.465566781851
+    episode_reward_mean: 1.9463042616844177
+    episode_reward_std: 0.7112644910812378
+    success_rate: 0.029788609261491468
+    termination_rate: 7.150178043437856e-05
+    wp_idx_mean: 0.0006864944277497541
+  reward_config:
+    action_rate: -0.02448689389681762
+    alive_bonus: 1.1292056510815327
+    ang_vel_xy: -0.05
+    celebration_bonus: 183.34589845274004
+    foot_clearance: 0.026910589666598445
+    foot_clearance_bump_boost: 4.018303334602013
+    forward_velocity: 4.399968677446016
+    height_progress: 22.7296804676697
+    impact_penalty: -0.08484325732052053
+    jump_reward: 21.2872652259492
+    lin_vel_z: -0.06267035353786735
+    orientation: -0.02593483240546509
+    per_jump_bonus: 77.47643390220918
+    position_tracking: 0.5974897313970874
+    stance_ratio: 0.014962397680159813
+    swing_contact_bump_scale: 0.19827550299881955
+    swing_contact_penalty: -0.026513113866155402
+    termination: -100
+    torque_saturation: -0.012449698232853131
+    waypoint_approach: 146.90185740583465
+    waypoint_facing: 0.08843115575501156
+    zone_approach: 88.56626159160432
+  score: 0.21691371387081673
+  trial: 18
+- hp_config:
+    discount_factor: 0.999
+    entropy_loss_scale: 0.003956652559208891
+    grad_norm_clip: 1.0
+    lambda_param: 0.99
+    learning_epochs: 6
+    learning_rate: 0.000502051305170489
+    mini_batches: 16
+    policy_hidden_layer_sizes:
+    - 256
+    - 128
+    - 64
+    ratio_clip: 0.2
+    rollouts: 24
+    value_hidden_layer_sizes:
+    - 512
+    - 256
+    - 128
+  metrics:
+    episode_length_mean: 1997.960965670072
+    episode_reward_mean: 2.6086339269365584
+    episode_reward_std: 0.15779972076416016
+    success_rate: 0.2677967133266585
+    termination_rate: 0.000373915010797126
+    wp_idx_mean: 0.13468309438654355
+  reward_config:
+    action_rate: -0.02103889812137699
+    alive_bonus: 0.9008564368804528
+    ang_vel_xy: -0.05
+    celebration_bonus: 183.34589845274004
+    foot_clearance: 0.023882146916554232
+    foot_clearance_bump_boost: 3.471178891326902
+    forward_velocity: 4.399968677446016
+    height_progress: 22.7296804676697
+    impact_penalty: -0.07067847987317434
+    jump_reward: 17.489286682844245
+    lin_vel_z: -0.06267035353786735
+    orientation: -0.027658951405646896
+    per_jump_bonus: 77.47643390220918
+    position_tracking: 0.5974897313970874
+    stance_ratio: 0.01180095387026077
+    swing_contact_bump_scale: 0.19890951149879024
+    swing_contact_penalty: -0.02649824740385367
+    termination: -200
+    torque_saturation: -0.01634851670887629
+    waypoint_approach: 146.90185740583465
+    waypoint_facing: 0.10380329404118385
+    zone_approach: 90.61967240116707
+  score: 0.230136028223045
+  trial: 19
+mode: hp-search
+start_time: '2026-02-19T14:17:53.128941'
+status: completed

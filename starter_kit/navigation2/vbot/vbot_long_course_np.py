@@ -27,7 +27,7 @@ from motrix_envs import registry
 from motrix_envs.np.env import NpEnv, NpEnvState
 from motrix_envs.math.quaternion import Quaternion
 
-from .cfg import VBotLongCourseEnvCfg
+from .cfg import VBotLongCourseEnvCfg, TerrainScaleHelper
 
 
 # 航点列表：引导机器人穿越三段地形（左路线：楼梯→桥→楼梯下）
@@ -127,6 +127,13 @@ class VBotLongCourseEnv(NpEnv):
 
         self._init_dof_pos[-self._num_action:] = self.default_angles
         self.action_filter_alpha = 0.3
+        # 多地形动态action_scale (基于TerrainZone表)
+        self._terrain_scale = TerrainScaleHelper(cfg.control_config)
+
+    def _update_dynamic_action_scale(self, info: dict, data: mtx.SceneData) -> np.ndarray:
+        root_pos, _, _ = self._extract_root_state(data)
+        probe_y = root_pos[:, 1]
+        return self._terrain_scale.update(info, probe_y, data.shape[0])
 
     def _find_target_marker_dof_indices(self):
         self._target_marker_dof_start = 0
@@ -217,19 +224,23 @@ class VBotLongCourseEnv(NpEnv):
             )
 
         state.info["current_actions"] = state.info["filtered_actions"]
-        state.data.actuator_ctrls = self._compute_torques(state.info["filtered_actions"], state.data)
+        current_scale = self._update_dynamic_action_scale(state.info, state.data)
+        state.data.actuator_ctrls = self._compute_torques(state.info["filtered_actions"], state.data, current_scale)
         return state
 
-    def _compute_torques(self, actions, data):
-        action_scaled = actions * self._cfg.control_config.action_scale
+    def _compute_torques(self, actions, data, current_scale=None):
+        if current_scale is None:
+            current_scale = self._cfg.control_config.action_scale
+        action_scaled = actions * current_scale[:, np.newaxis] if np.ndim(current_scale) > 0 else actions * current_scale
         target_pos = self.default_angles + action_scaled
 
         current_pos = self.get_dof_pos(data)
         current_vel = self.get_dof_vel(data)
 
-        kp = 80.0
-        kv = 6.0
+        kp = 100.0
+        kv = 8.0
         torques = kp * (target_pos - current_pos) - kv * current_vel
+        self._raw_torques = torques.copy()
 
         torque_limits = np.array([17, 17, 34] * 4, dtype=np.float32)
         torques = np.clip(torques, -torque_limits, torque_limits)

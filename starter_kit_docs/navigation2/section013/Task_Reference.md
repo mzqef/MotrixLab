@@ -10,7 +10,7 @@
 
 | Environment ID | Terrain | Status |
 |----------------|---------|--------|
-| `vbot_navigation_section013` | Section03: entry → 0.75m step → 21.8° ramp → hfield → 3 gold balls → final platform | **PLANNED** — default config, not yet trained |
+| `vbot_navigation_section013` | Section03: entry → 0.75m step → 21.8° ramp → hfield → 3 gold balls → final platform | **INITIALIZED** — baseline config initialized |
 
 ## Competition Scoring — Section 3 (25 pts total)
 
@@ -23,7 +23,12 @@ Section 3 (25 pts):
 └── Final celebration: 5 pts
 ```
 
-**Note**: Exact scoring zone positions for Section 3 need to be extracted from scene XML / OBJ files. This is a TODO.
+**Rule clarification (important)**:
+- Pass random terrain **without** touching rolling balls: **+10**
+- Pass random terrain **with ball contact but no fall / no out-of-bounds**: **+15** (higher)
+- Therefore, training target is **stable traversal**; controlled contact is allowed and can be beneficial.
+
+**Note**: Exact scoring zone positions for Section 3 still need extraction from scene XML / OBJ files.
 
 ## Terrain Description — Section 03
 
@@ -73,38 +78,52 @@ Y: 24.3  26.3  27.6  29.3  31.2  32.3  34.3
 
 ## Current Reward Config
 
+## 当前实现口径
+
+- 单目标主线：从入口平台导航到最终平台中心（固定终点）。
+- 三里程碑：
+  - 通过 step/ramp 区域（`step_or_ramp_bonus`）
+  - 通过 ball 区域（`ball_zone_pass_bonus`）
+  - 终点停稳并庆祝（`arrival_bonus` + `stop_scale`/`zero_ang_bonus` + `celebration_bonus`）
+
+## 连续shaping映射Section3得分
+
+- `ball_gap_alignment`：在滚球区对齐可通行缝隙，提供连续导航梯度，服务于“滚球通过”得分。
+- `ball_contact_reward`：在滚球区内，若接触代理信号存在且姿态稳定，则给予稳定接触奖励。
+- `ball_unstable_contact_penalty`：在滚球区内，若接触伴随不稳定姿态/角速度，则施加惩罚。
+- `height_progress`：强化坡道/台阶阶段的连续爬升信号，覆盖step+ramp关键地形。
+- `termination` + `score_clear_factor`：将失败终止与清分机制绑定，防止通过后摔倒导致策略投机。
+
 ```python
 position_tracking: 1.5
 fine_position_tracking: 5.0
 heading_tracking: 0.8
-forward_velocity: 1.5
+forward_velocity: 1.8
 distance_progress: 2.0
-alive_bonus: 0.3              # ⚠️ BROKEN — 0.3×5000=1500 >> arrival(60)
+alive_bonus: 0.05
 approach_scale: 8.0
-arrival_bonus: 60.0            # ⚠️ Too low relative to alive budget
+arrival_bonus: 120.0
+step_or_ramp_bonus: 25.0
+ball_zone_pass_bonus: 20.0
+celebration_bonus: 80.0
+ball_gap_alignment: 2.0
+ball_contact_reward: 4.0
+ball_unstable_contact_penalty: -8.0
+height_progress: 10.0
 stop_scale: 1.5
 zero_ang_bonus: 6.0
-orientation: -0.05
-lin_vel_z: -0.3
+orientation: -0.03
+lin_vel_z: -0.12
 ang_vel_xy: -0.03
 torques: -1e-5
 dof_vel: -5e-5
 dof_acc: -2.5e-7
 action_rate: -0.01
-termination: -200.0
+score_clear_factor: 0.3
+termination: -120.0
 ```
 
-**Budget audit**: Standing (1,800+) >> Completing (60). Ratio 25:1. **Lazy robot guaranteed.**
-
-### TODO: Fix Needed
-
-Recommended targets:
-- `alive_bonus: 0.05` → budget = 0.05 × 5000 = 250
-- `arrival_bonus: 150.0` → exceeds alive budget
-- Add height_progress (steeper = higher scale than Section 011)
-- Add step traversal milestone bonus
-- Add gold ball gap navigation reward
-- Add contact penalty for gold ball collision
+**Budget audit**: Standing budget is constrained; completion path combines arrival + milestones + shaping and now dominates standing.
 
 ## PPO Hyperparameters
 
@@ -147,12 +166,12 @@ Stage 2C: Section 013 (gold balls + steep ramp + high step)
 - **Height progress reward**: Scale higher than Section 011 (more climbing effort per meter).
 - **Orientation penalty**: Must be relaxed further for 21.8° (body tilt = 22°).
 
-### Gold Ball Avoidance
+### Gold Ball Stable Traversal
 
-- **Gaps at x ≈ {-1.5, 1.5}**: ~2.5m ball-to-ball, usable gap ~1.0m after subtracting radii.
-- **Observation extension**: Consider adding ball positions to obs (if visible in simulation).
-- **Prefer edges**: Gaps near x=±1.5 have more clearance.
-- **Pause & proceed**: Wait for safe window (if balls roll — need to verify in simulation).
+- **Gaps at x ≈ {-1.5, 1.5}**: provide robust pass channels; keep `ball_gap_alignment`.
+- **Controlled contact allowed**: Section3 rewards stable pass with contact higher (15 > 10).
+- **Reward principle**: reward stable contact, penalize unstable contact; do not treat all contact as failure.
+- **Primary objective**: pass the ball zone stably and continue to final platform.
 
 ## Predicted Exploits
 
@@ -160,7 +179,7 @@ Stage 2C: Section 013 (gold balls + steep ramp + high step)
 |---------|-------------|------------|
 | **Step-base camper** | Robot stands before the 0.75m step | Y-axis milestones + large arrival bonus |
 | **Ramp-avoiding idle** | Robot stays on entry platform | forward_velocity + conditional alive_bonus |
-| **Ball-zone avoider** | Robot stops before gold balls | Balance collision penalty vs forward progress |
+| **Ball-zone avoider** | Robot stops before gold balls to avoid contact | Increase stable-contact upside and keep unstable-contact penalty |
 | **Gap camping** | Robot sits in gap between balls | Arrival bonus must dominate passive rewards |
 
 ## Key Files

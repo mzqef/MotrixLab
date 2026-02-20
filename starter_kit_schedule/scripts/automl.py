@@ -63,13 +63,13 @@ class HPConfig:
     """Hyperparameter configuration — aligned with rl_cfgs.py VBotSection001PPOConfig."""
     learning_rate: float = 5e-4       # Curriculum: 较高初始LR
     entropy_loss_scale: float = 0.005  # v13: v10 proven
-    policy_hidden_layer_sizes: List[int] = field(default_factory=lambda: [256, 128, 64])
-    value_hidden_layer_sizes: List[int] = field(default_factory=lambda: [512, 256, 128])  # v13: asymmetric value net
+    policy_hidden_layer_sizes: List[int] = field(default_factory=lambda: [256, 128, 64])  # section011: fixed smaller policy
+    value_hidden_layer_sizes: List[int] = field(default_factory=lambda: [512, 256, 128])  # section011: fixed larger value net (v21 proven)
     rollouts: int = 24                # v13: v10 proven
     learning_epochs: int = 8          # v13: v10 proven
     mini_batches: int = 32            # v13: v10 proven
-    discount_factor: float = 0.99
-    lambda_param: float = 0.95
+    discount_factor: float = 0.999   # section011 Stage 11-15: γ=0.999 was biggest lever
+    lambda_param: float = 0.99       # section011 Stage 15: λ=0.99 proven
     ratio_clip: float = 0.2
     grad_norm_clip: float = 1.0
 
@@ -122,15 +122,16 @@ class EvalMetrics:
         Section011 (navigation2): wp_idx_mean (waypoint progression) is primary,
         since success_rate is always 0 (no single-target reached_fraction metric).
         """
-        if "section011" in env_name or "section01" in env_name:
-            # Section011: waypoint-based progression scoring
-            # wp_idx_mean ∈ [0, 3], normalize to [0, 1]
-            wp_progress = min(self.wp_idx_mean / 3.0, 1.0)
+        if "section011" in env_name or "section012" in env_name or "section01" in env_name:
+            # Section011/012: waypoint-based progression scoring
+            # section011: wp_idx ∈ [0, 7], section012: wp_idx ∈ [0, 9]
+            max_wp = 9.0 if "section012" in env_name else 7.0
+            wp_progress = min(self.wp_idx_mean / max_wp, 1.0)
             score = (
-                0.50 * wp_progress +                                   # waypoint progression = primary
-                0.25 * (1.0 - self.termination_rate) +                  # survival matters
-                0.15 * min(self.episode_reward_mean / 10.0, 1.0) +     # reward as proxy
-                0.10 * min(self.episode_length_mean / 4000.0, 1.0)     # longer episodes = exploring further
+                0.65 * wp_progress +                                   # zone collection = THE competition metric
+                0.20 * (1.0 - self.termination_rate) +                  # survival (fall = reset = wasted training)
+                0.10 * min(self.episode_reward_mean / 50.0, 1.0) +     # reward proxy (50 = ~1 smiley zone bonus)
+                0.05 * min(self.episode_length_mean / 8000.0, 1.0)     # ep_len (max realistic 12000 at 15M steps)
             )
         else:
             # Section001 / nav1: original reached-fraction scoring
@@ -167,7 +168,7 @@ class AutoMLConfig:
     hp_method: str = "bayesian"  # bayesian | random | grid
     hp_trials_per_stage: int = 20
     hp_warmup_trials: int = 5
-    hp_eval_steps: int = 5_000_000  # 5M steps per trial: fast iteration for recipe search
+    hp_eval_steps: int = 15_000_000  # v37: 15M steps — zones start appearing ~10M, Bayesian gets real signal
 
     # (Reward weights are searched jointly with HP — no separate reward search phase)
 
@@ -180,7 +181,7 @@ class AutoMLConfig:
 
     # Training settings
     full_train_steps: int = 50_000_000
-    checkpoint_interval: int = 500
+    checkpoint_interval: int = 1000
     num_envs: int = 2048
     seed: int = 42
 
@@ -221,19 +222,23 @@ class AutoMLState:
 # =============================================================================
 
 HP_SEARCH_SPACE = {
-    "learning_rate": {"type": "loguniform", "low": 1.5e-4, "high": 5e-4},  # v13: narrowed around v10's 2.5e-4
-    "entropy_loss_scale": {"type": "loguniform", "low": 3e-3, "high": 1.2e-2},  # v13: centered on v10's 0.005
+    # v24 Round: HPs NARROWED to T7 winner (automl_20260216_135420)
+    # Focus this round on REWARD engineering, not HP tuning.
+    # T7 optimal: lr=4.24e-4, entropy=4.11e-3, epochs=6, rollouts=24, mini_batches=16
+    "learning_rate": {"type": "loguniform", "low": 3e-4, "high": 5e-4},  # v24: narrow around T7's 4.24e-4
+    "entropy_loss_scale": {"type": "loguniform", "low": 3e-3, "high": 6e-3},  # v24: narrow around T7's 4.11e-3
+    # Network sizes FIXED — v47: larger policy net (512,256,128) matching value net
     "policy_hidden_layer_sizes": {
         "type": "categorical",
-        "choices": [[256, 128, 64], [256, 256, 256], [512, 256, 128]],
+        "choices": [[512, 256, 128]],  # v47: larger policy net
     },
     "value_hidden_layer_sizes": {
         "type": "categorical",
-        "choices": [[512, 256, 128], [256, 128, 64], [512, 512, 256]],  # v10: asymmetric (512,256,128) proven
+        "choices": [[512, 256, 128]],  # FIXED: larger value net (v21 proven)
     },
-    "rollouts": {"type": "choice", "values": [20, 24, 32]},  # v13: centered on v10's 24
-    "learning_epochs": {"type": "choice", "values": [6, 8, 10]},  # v13: centered on v10's 8
-    "mini_batches": {"type": "choice", "values": [16, 32, 48]},  # v13: centered on v10's 32
+    "rollouts": {"type": "choice", "values": [24]},          # v24: FIXED at T7's 24
+    "learning_epochs": {"type": "choice", "values": [6]},     # v24: FIXED at T7's 6
+    "mini_batches": {"type": "choice", "values": [16]},       # v24: FIXED at T7's 16
 }
 
 # --- Section001 (flat ground navigation) ---
@@ -262,49 +267,102 @@ REWARD_SEARCH_SPACE_SECTION001 = {
     "termination": {"type": "choice", "values": [-150, -100, -75, -50]},   # Round6: lighter range
 }
 
-# --- Section011 (bumps/slope/high-platform with waypoint navigation) ---
-# v13: BACK TO BASICS — Navigation-focused rewards only, ALL gait rewards DISABLED
-# v14: Code improvements (quadratic swing, segmented alive, celeb anchor, accel termination)
+# --- Section011 whole-task v37: 覆盖全课程 (bump→坡道→高台→庆祝) ---
+# Root cause why v36 failed: 5M steps → wp_idx=0 for ALL trials → Bayesian完全盲人
+# Bayesian只能区分"不摔倒"配置, 无法区分"收集区域"配置. 必须用更长trial.
+#
+# v48 design:
+#   - 15M steps/trial: bump zone interactions appear from ~5M, Bayesian gets real signal by 10M
+#   - Ranges centered on v47 proven config (bumped facing, clearance, penalty lightening)
+#   - Key insight: lin_vel_z=-0.195 is too harsh for bump traversal (penalizes vertical motion)
+#   - torque_saturation=-0.025 accumulates to -1317 at 50M — largest single penalty
+#   - Search space explores LIGHTER penalties to let robot climb bumps aggressively
+#   - waypoint_facing boosted range [0.3,1.2] centered on v47=0.61
+#   - foot_clearance range [0.05,0.3] centered on v47=0.15
+#   - Added alive_decay_horizon and waypoint_bonus to search
 REWARD_SEARCH_SPACE_SECTION011 = {
-    # === Navigation core (v13: v10 proven ranges, centered on v10 values) ===
-    "forward_velocity": {"type": "uniform", "low": 1.5, "high": 5.0},     # v10=3.0
-    "waypoint_approach": {"type": "uniform", "low": 50.0, "high": 180.0},  # v10=100.0
-    "waypoint_facing": {"type": "uniform", "low": 0.05, "high": 0.3},     # v10=0.15
-    # === Survival (MUST NOT dominate — v10 ratio proven) ===
-    "alive_bonus": {"type": "uniform", "low": 0.05, "high": 0.25},        # v10=0.15
-    "position_tracking": {"type": "uniform", "low": 0.01, "high": 0.1},   # v10=0.05
-    # === One-time bonuses (waypoint/zone/celebration) ===
-    "waypoint_bonus": {"type": "uniform", "low": 50.0, "high": 200.0},    # v10=100.0
-    "smiley_bonus": {"type": "uniform", "low": 20.0, "high": 80.0},       # v10=40.0
-    "red_packet_bonus": {"type": "uniform", "low": 10.0, "high": 40.0},   # v10=20.0
-    "phase_completion_bonus": {"type": "uniform", "low": 15.0, "high": 100.0},  # v15=30.0 (phase transition reward)
-    "celebration_bonus": {"type": "uniform", "low": 50.0, "high": 200.0}, # v10=100.0
-    # === Zone attraction (v15: lateral attraction to side zones) ===
-    "zone_approach": {"type": "uniform", "low": 0.0, "high": 20.0},       # v15=0.0 (disabled by default)
+    # ===== 导航核心 (Navigation core) =====
+    "forward_velocity": {"type": "uniform", "low": 1.5, "high": 5.0},       # v47=2.875
+    "waypoint_approach": {"type": "uniform", "low": 80.0, "high": 300.0},   # v47=166.5
+    "zone_approach": {"type": "uniform", "low": 20.0, "high": 80.0},        # v47=35.06
+    "height_progress": {"type": "uniform", "low": 15.0, "high": 50.0},      # v47=28.30
+    "position_tracking": {"type": "uniform", "low": 0.1, "high": 0.8},      # v47=0.384
+    "waypoint_facing": {"type": "uniform", "low": 0.3, "high": 1.2},        # v47=0.61 (boosted to fix turning-back)
+    # ===== 存活奖励 =====
+    "alive_bonus": {"type": "uniform", "low": 0.5, "high": 2.5},            # v47=1.446
+    "alive_decay_horizon": {"type": "uniform", "low": 800.0, "high": 3000.0},  # v47=1500; anti-oscillation vs exploration
+    # ===== 一次性奖金 =====
+    "waypoint_bonus": {"type": "uniform", "low": 20.0, "high": 100.0},      # v47=50.0
+    "phase_bonus": {"type": "uniform", "low": 10.0, "high": 50.0},          # v47=25.0
+    # ===== 庆祝 & 跳跃奖励 =====
+    "per_jump_bonus": {"type": "uniform", "low": 10.0, "high": 80.0},       # v47=25.0
+    "celebration_bonus": {"type": "uniform", "low": 40.0, "high": 200.0},   # v47=80.0
+    "jump_reward": {"type": "uniform", "low": 5.0, "high": 25.0},           # v47=10.0
+    # ===== 惩罚 (WIDER range — explore LIGHTER penalties for bump traversal) =====
+    "termination": {"type": "choice", "values": [-200, -150, -100, -50]},   # v47=-200; explore lighter
+    "orientation": {"type": "uniform", "low": -0.05, "high": -0.005},       # v47=-0.027
+    "lin_vel_z": {"type": "uniform", "low": -0.2, "high": -0.02},           # v47=-0.195; KEY: explore much lighter
+    "ang_vel_xy": {"type": "uniform", "low": -0.05, "high": -0.005},        # v47=-0.045
+    "action_rate": {"type": "uniform", "low": -0.02, "high": -0.002},       # v47=-0.008
+    "impact_penalty": {"type": "uniform", "low": -0.1, "high": -0.005},     # v47=-0.080
+    "torque_saturation": {"type": "uniform", "low": -0.03, "high": -0.003}, # v47=-0.025; KEY: explore lighter
+    "swing_contact_penalty": {"type": "uniform", "low": -0.06, "high": -0.003},  # v47=-0.031
+    # ===== 步态 & 地形 =====
+    "stance_ratio": {"type": "uniform", "low": 0.0, "high": 0.08},          # v47=0.041
+    "foot_clearance": {"type": "uniform", "low": 0.05, "high": 0.3},        # v47=0.15 (boosted for bumps)
+    "foot_clearance_bump_boost": {"type": "uniform", "low": 4.0, "high": 15.0},  # v47=8.0 (boosted)
+    "swing_contact_bump_scale": {"type": "uniform", "low": 0.1, "high": 0.6},    # v47=0.356
+}
+
+# --- Section012 (stairs/bridge/obstacles, 60pt section, bridge-priority) ---
+# Bridge-priority navigation: wave → left-stair → bridge(3WP) → descend → under-bridge → exit → celebrate
+# Ranges centered on cfg.py defaults, similar structure to section011
+REWARD_SEARCH_SPACE_SECTION012 = {
+    # === Navigation core ===
+    "forward_velocity": {"type": "uniform", "low": 1.5, "high": 5.0},       # cfg=3.0
+    "waypoint_approach": {"type": "uniform", "low": 50.0, "high": 180.0},   # cfg=100.0
+    "waypoint_facing": {"type": "uniform", "low": 0.05, "high": 0.3},       # cfg=0.15
+    "alive_bonus": {"type": "uniform", "low": 0.02, "high": 0.15},          # cfg=0.05
+    "position_tracking": {"type": "uniform", "low": 0.01, "high": 0.1},     # cfg=0.05
+    # === One-time bonuses (milestone/competition-aligned) ===
+    "wave_traversal_bonus": {"type": "uniform", "low": 15.0, "high": 60.0}, # cfg=30.0
+    "stair_top_bonus": {"type": "uniform", "low": 10.0, "high": 50.0},      # cfg=25.0
+    "bridge_crossing_bonus": {"type": "uniform", "low": 25.0, "high": 100.0},  # cfg=50.0
+    "stair_down_bonus": {"type": "uniform", "low": 10.0, "high": 40.0},     # cfg=20.0
+    "bridge_hongbao_bonus": {"type": "uniform", "low": 15.0, "high": 60.0}, # cfg=30.0
+    "under_bridge_bonus": {"type": "uniform", "low": 8.0, "high": 30.0},    # cfg=15.0
+    "stone_hongbao_bonus": {"type": "uniform", "low": 3.0, "high": 20.0},   # cfg=8.0
+    "celebration_bonus": {"type": "uniform", "low": 40.0, "high": 150.0},   # cfg=80.0
+    "phase_completion_bonus": {"type": "uniform", "low": 8.0, "high": 30.0},  # cfg=15.0
+    # === Zone attraction ===
+    "zone_approach": {"type": "uniform", "low": 0.0, "high": 15.0},         # cfg=5.0
     # === Terrain adaptation ===
-    "height_progress": {"type": "uniform", "low": 5.0, "high": 25.0},     # v10=12.0
-    "traversal_bonus": {"type": "uniform", "low": 15.0, "high": 60.0},    # v10=30.0
-    "foot_clearance": {"type": "uniform", "low": 0.01, "high": 0.06},     # v10=0.02
-    # === Celebration spin ===
-    "spin_progress": {"type": "uniform", "low": 2.0, "high": 8.0},        # v10=4.0
-    "spin_hold": {"type": "uniform", "low": 3.0, "high": 12.0},           # v10=6.0
-    # === Gait quality: ALL DISABLED (v13 lesson — dilutes navigation) ===
-    # "feet_contact_pattern": 0.0  — NOT searched, fixed at 0.0
-    # "stance_ratio": 0.0          — NOT searched, fixed at 0.0
-    # "lateral_velocity": 0.0      — NOT searched, fixed at 0.0
-    # "body_balance": 0.0          — NOT searched, fixed at 0.0
-    # === Stability penalties (v10 ranges — terrain-appropriate) ===
-    "orientation": {"type": "uniform", "low": -0.04, "high": -0.005},      # v10=-0.015
-    "lin_vel_z": {"type": "uniform", "low": -0.15, "high": -0.02},        # v10=-0.06
-    "ang_vel_xy": {"type": "uniform", "low": -0.03, "high": -0.003},      # v10=-0.01
-    "action_rate": {"type": "uniform", "low": -0.015, "high": -0.002},    # v10=-0.005
-    "swing_contact_penalty": {"type": "uniform", "low": -0.15, "high": -0.02},  # v10=-0.05
-    # === Termination (v13: -100 proven as strong deterrent) ===
+    "height_progress": {"type": "uniform", "low": 5.0, "high": 25.0},       # cfg=12.0
+    "traversal_bonus": {"type": "uniform", "low": 10.0, "high": 40.0},      # cfg=20.0
+    "foot_clearance": {"type": "uniform", "low": 0.01, "high": 0.06},       # cfg=0.02
+    "foot_clearance_stair_boost": {"type": "uniform", "low": 1.0, "high": 5.0},  # cfg=3.0
+    # === Celebration (jump-based) ===
+    "jump_reward": {"type": "uniform", "low": 3.0, "high": 15.0},           # cfg=8.0
+    # === Gait quality ===
+    "stance_ratio": {"type": "uniform", "low": 0.0, "high": 0.2},           # cfg=0.08
+    "swing_contact_penalty": {"type": "uniform", "low": -0.08, "high": -0.005},  # cfg=-0.025
+    "swing_contact_stair_scale": {"type": "uniform", "low": 0.2, "high": 1.0},   # cfg=0.5
+    # === v20: Sensor-driven penalties ===
+    "impact_penalty": {"type": "uniform", "low": -0.08, "high": -0.005},    # cfg=-0.02
+    "torque_saturation": {"type": "uniform", "low": -0.05, "high": -0.002}, # cfg=-0.01
+    # === Stability penalties ===
+    "orientation": {"type": "uniform", "low": -0.04, "high": -0.005},       # cfg=-0.015
+    "lin_vel_z": {"type": "uniform", "low": -0.15, "high": -0.02},          # cfg=-0.06
+    "ang_vel_xy": {"type": "uniform", "low": -0.03, "high": -0.003},        # cfg=-0.01
+    "action_rate": {"type": "uniform", "low": -0.015, "high": -0.002},      # cfg=-0.005
+    # === Termination ===
     "termination": {"type": "choice", "values": [-150, -100, -75]},
+    "score_clear_factor": {"type": "uniform", "low": 0.1, "high": 0.5},     # cfg=0.3
 }
 
 # Registry: env name pattern → search space
 _REWARD_SEARCH_SPACES = {
+    "section012": REWARD_SEARCH_SPACE_SECTION012,
     "section011": REWARD_SEARCH_SPACE_SECTION011,
     "section001": REWARD_SEARCH_SPACE_SECTION001,
 }
@@ -375,11 +433,20 @@ REWARD_COMPONENT_CATEGORIES = {
     # Section011 terrain
     "height_progress": "terrain",
     "traversal_bonus": "terrain",
-    # Section011 celebration
-    "spin_progress": "navigation",
-    "spin_hold": "navigation",
+    # Section011 celebration (v20: jump-based, no spin)
+    "jump_reward": "navigation",
+    "phase_completion_bonus": "navigation",
+    # Section011 gait quality
+    "stance_ratio": "gait",
+    "foot_clearance_bump_boost": "terrain",
+    # Section011 velocity-heading alignment (v22: anti-crab-walking)
+    "vel_heading_alignment": "gait",
+    "heading_command_shaping": "gait",
     # Section011 stability
     "swing_contact_penalty": "stability",
+    "swing_contact_bump_scale": "stability",
+    "impact_penalty": "stability",
+    "torque_saturation": "efficiency",
 }
 
 
@@ -628,17 +695,33 @@ class AutoMLPipeline:
         search_space = get_reward_search_space(self.config.environment)
         logger.info(f"  Reward search space: {len(search_space)} parameters")
 
+        # Resume support: reconstruct best from existing history
         best_hp = None
         best_reward = None
         best_score = -float("inf")
+        start_trial = len(self.state.hp_search_history)  # skip already-completed trials
 
-        for trial in range(self.config.hp_trials_per_stage):
+        # Rebuild best from history (for Bayesian suggestions on resume)
+        for entry in self.state.hp_search_history:
+            s = entry.get("score", -float("inf"))
+            if s > best_score:
+                best_score = s
+                best_hp = HPConfig(**entry["hp_config"])
+                best_reward = entry["reward_config"]
+
+        if start_trial > 0:
+            logger.info(f"  Resuming from trial {start_trial} (skipping {start_trial} completed)")
+            if best_hp:
+                logger.info(f"  Current best: score={best_score:.4f}, wp_idx={self.state.hp_search_history[-1]['metrics'].get('wp_idx_mean', 0):.3f}")
+
+        for trial in range(start_trial, self.config.hp_trials_per_stage):
             if not self.check_budget():
                 break
 
             self.state.current_iteration = trial
 
             # Sample or use Bayesian acquisition
+            # Use warmup count relative to total trials completed (not just this session)
             if trial < self.config.hp_warmup_trials or self.config.hp_method == "random":
                 hp_config = sample_hp_config()
                 reward_config = sample_reward_config(self.config.environment)
@@ -677,6 +760,7 @@ class AutoMLPipeline:
 
             self.update_elapsed_time()
             self.save_state()
+            logger.info(f"  Trial {trial+1} complete. {self.config.hp_trials_per_stage - trial - 1} remaining.")
 
         if best_hp:
             logger.info(f"Unified search complete. Best lr: {best_hp.learning_rate:.2e}, term: {best_reward.get('termination', '?')}")
@@ -700,13 +784,13 @@ class AutoMLPipeline:
 
         # Perturb learning rate in log space
         lr = hp_dict["learning_rate"]
-        lr = lr * np.exp(np.random.normal(0, 0.3))
+        lr = float(lr * np.exp(np.random.normal(0, 0.3)))
         lr = max(1e-5, min(1e-3, lr))
         hp_dict["learning_rate"] = lr
 
         # Perturb entropy
         ent = hp_dict["entropy_loss_scale"]
-        ent = ent * np.exp(np.random.normal(0, 0.3))
+        ent = float(ent * np.exp(np.random.normal(0, 0.3)))
         ent = max(1e-4, min(1e-2, ent))
         hp_dict["entropy_loss_scale"] = ent
 
@@ -793,9 +877,10 @@ class AutoMLPipeline:
             "seed": self.config.seed,
             # Ensure TensorBoard data is written: check_point_interval should fit
             # within total iterations = max_steps / (num_envs * rollouts)
+            # Use //3 to get ~3 checkpoints per HP trial (reduces disk bloat)
             "check_point_interval": max(1, min(
                 self.config.checkpoint_interval,
-                max_steps // (self.config.num_envs * hp_config.rollouts) // 5,  # at least 5 data points
+                max_steps // (self.config.num_envs * hp_config.rollouts) // 3,  # at least 3 data points
             )),
         }
 
@@ -872,11 +957,18 @@ class AutoMLPipeline:
             logger.warning(f"Evaluation returned status={eval_result.get('status')}")
             return EvalMetrics()
 
+        # Derive termination rate from termination reward signal.
+        # termination_reward is negative; divide by configured penalty to approximate rate.
+        term_penalty = abs(reward_scales.get("termination", -100))
+        raw_term_reward = eval_result.get("final_termination_reward", 0.0)
+        termination_rate = min(abs(raw_term_reward) / max(term_penalty, 1.0), 1.0) if raw_term_reward < 0 else 0.0
+
         metrics = EvalMetrics(
             episode_reward_mean=eval_result.get("final_reward", 0.0),
             episode_reward_std=eval_result.get("stability", 0.0),
+            episode_length_mean=eval_result.get("final_episode_length", 0.0),
             success_rate=eval_result.get("final_reached_fraction", 0.0),
-            termination_rate=0.0,
+            termination_rate=termination_rate,
             wp_idx_mean=eval_result.get("final_wp_idx_mean", 0.0),
         )
 

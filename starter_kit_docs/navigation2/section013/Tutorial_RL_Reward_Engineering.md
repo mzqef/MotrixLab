@@ -2,7 +2,7 @@
 
 **Case Study: VBot navigating Section 03 of the MotrixArena S1 obstacle course**
 
-> This tutorial covers reward engineering specific to Section 013 — the 0.75m high step, 21.8° steep ramp, and 3 gold ball obstacle avoidance.
+> This tutorial covers reward engineering specific to Section 013 — the 0.75m high step, 21.8° steep ramp, and stable traversal through 3 gold balls.
 
 > **Prerequisite**: Read `starter_kit_docs/navigation1/Tutorial_RL_Reward_Engineering.md` for foundational lessons.
 > For slope-specific rewards, see `starter_kit_docs/navigation2/section011/Tutorial_RL_Reward_Engineering.md`.
@@ -24,46 +24,51 @@
 **Unique challenges**:
 - 0.75m step is 2.14× robot height — may require ramp route or extreme locomotion
 - 21.8° ramp is 1.45× steeper than Section 011's 15° slope
-- 3 gold balls (R=0.75m) with ~1.0m usable gaps — precision navigation required
+- 3 gold balls (R=0.75m) with ~1.0m usable gaps — precision navigation + stability under possible contact
+
+**Section3 rule clarification**:
+- 不碰滚球通过随机地形：+10
+- 碰滚球且不摔倒、不出界通过随机地形：+15（更高）
+- 因此奖励口径应是“稳定通过（可含受控接触）”，不是“必须避球”。
 
 ---
 
-## 2. Reward Budget Audit (CRITICAL — Not Yet Fixed)
+## 2. Reward Budget Audit (CRITICAL — 当前已实现)
 
-### Current Config (BROKEN)
+### 当前配置（已实现）
 
 ```
-STANDING STILL for 5000 steps (alive=0.3):
-  alive = 0.3 × 5000 = 1,500
-  position_tracking ≈ 0.2/step → 1,000
-  heading_tracking ≈ 0.5/step → 2,500
-  Total standing ≈ 5,000+
+STANDING STILL for 5000 steps (alive=0.05):
+  alive = 0.05 × 5000 = 250
+  other shaping/track terms are constrained by no-progress/no-milestone condition
+  Total standing = controlled baseline
 
 COMPLETING TASK:
-  arrival_bonus = 60
+  arrival_bonus = 120
+  milestones = step_or_ramp(25) + ball_zone_pass(20) + celebration(80)
+  continuous shaping includes forward/distance/height/ball-gap terms
 
-⚠️ STANDING (5,000) >> ARRIVAL (60) — Ratio: 83:1
-LAZY ROBOT ABSOLUTELY GUARANTEED
+✅ completion path (arrival + milestones + shaping) > standing
 ```
 
-### Required Fix
+### 当前已实现口径
 
 ```python
-# Target anti-laziness config for section013:
 alive_bonus = 0.05          # 0.05 × 5000 = 250
-arrival_bonus = 150.0       # > alive_budget
-termination = -100.0
+arrival_bonus = 120.0
+step_or_ramp_bonus = 25.0
+ball_zone_pass_bonus = 20.0
+celebration_bonus = 80.0
+ball_gap_alignment = 2.0
+ball_contact_reward = 4.0
+ball_unstable_contact_penalty = -8.0
+height_progress = 10.0
+score_clear_factor = 0.3
+termination = -120.0
 
-# Add terrain-specific rewards:
-height_progress = 10.0       # Higher than Section 011 (steeper = more effort)
-step_milestone = 20.0        # One-time: past the 0.75m step zone
-ramp_top_milestone = 15.0    # One-time: reached ramp top
-ball_gap_bonus = 15.0        # One-time per gap navigated (×2 gaps = 30)
-ball_collision_penalty = -10.0  # Per-step penalty for ball contact
-
-# Relaxed stability (steeper terrain):
-orientation = -0.02          # Relaxed from -0.05 (21.8° natural tilt)
-lin_vel_z = -0.10            # Relaxed from -0.3 (steep climbing)
+forward_velocity = 1.8
+orientation = -0.03
+lin_vel_z = -0.12
 ```
 
 ### Fixed Budget Projection
@@ -71,16 +76,15 @@ lin_vel_z = -0.10            # Relaxed from -0.3 (steep climbing)
 ```
 STANDING STILL for 5000 steps:
   alive = 0.05 × 5000 = 250
-  Total standing ≈ 700
+  Total standing = baseline (no milestone accumulation)
 
 COMPLETING TASK:
-  arrival_bonus = 150
-  step_milestone = 20
-  ramp_top_milestone = 15
-  ball_gap_bonus = 2 × 15 = 30
-  height_progress ≈ 20-40
-  forward ≈ 100-200
-  Total completing ≈ 335-455 + navigation rewards
+  arrival_bonus = 120
+  step_or_ramp_bonus = 25
+  ball_zone_pass_bonus = 20
+  celebration_bonus = 80
+  shaping (forward + distance + height + ball_gap_alignment) > 0
+  Total completing = 245 + shaping (and dominates standing baseline)
 
 ✅ COMPLETING > STANDING — incentive aligned
 ```
@@ -120,7 +124,7 @@ ang_vel_xy_penalty = -0.02 * angular_velocity     # Keep similar to Section 011
 
 ---
 
-## 4. Gold Ball Obstacle Avoidance
+## 4. Gold Ball Stable Traversal
 
 ### 4.1 Gap Navigation Strategy
 
@@ -133,18 +137,20 @@ Gap 2: x ≈ +1.5 (between CENTER and RIGHT balls)
 
 Each gap is ~1.0m usable width (3.0m spacing - 2×0.75m radius ≈ 1.5m, minus robot clearance).
 
-### 4.2 Option A: Contact Penalty Only (Simple)
+### 4.2 Recommended: Stable Contact Reward + Unstable Contact Penalty
 
 ```python
-# No observation change — just penalize collisions
-ball_contacts = get_contact_forces_with_gold_balls()
-collision_penalty = ball_collision_scale * np.where(ball_contacts > threshold, -1.0, 0.0)
+# No observation change — use contact proxy + stability decomposition
+ball_contact_proxy = proximity_to_ball_center()
+stable_factor = f(projected_gravity, gyro)  # [0, 1]
+stable_contact_reward = ball_contact_reward * ball_contact_proxy * stable_factor * in_ball_zone
+unstable_contact_penalty = ball_unstable_contact_penalty * ball_contact_proxy * (1 - stable_factor) * in_ball_zone
 ```
 
-**Pro**: Doesn't change observation space, maintains warm-start compatibility.
-**Con**: Robot must discover avoidance behavior purely from negative signal.
+**Pro**: Matches official scoring (15>10), keeps warm-start compatibility, and avoids over-penalizing useful contact.
+**Con**: Requires careful calibration of stable/unstable scales to avoid reckless collision exploits.
 
-### 4.3 Option B: Gap Center Reward (Guided)
+### 4.3 Gap Alignment Reward (Keep)
 
 ```python
 # Reward approaching gap centers when in ball zone
@@ -171,7 +177,7 @@ extended_obs = np.concatenate([base_obs, ball_positions_rel.flatten()])
 
 ### 4.5 Recommendation
 
-Start with **Option A + B combined**: Contact penalty prevents collisions, gap reward guides the path. If results are poor, consider Option C with fresh training.
+Use **stable-contact decomposition + gap alignment**: keep `ball_gap_alignment` for path guidance, reward stable contact in ball zone, and penalize unstable contact. Consider observation extension only if this shaping still underperforms.
 
 ---
 
