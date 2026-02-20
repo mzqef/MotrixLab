@@ -222,11 +222,11 @@ class AutoMLState:
 # =============================================================================
 
 HP_SEARCH_SPACE = {
-    # v24 Round: HPs NARROWED to T7 winner (automl_20260216_135420)
-    # Focus this round on REWARD engineering, not HP tuning.
+    # v49 Round: Boundaries expanded from v48-T14 analysis
+    # T14 optimal: lr=4.51e-4, entropy=7.75e-3 (EXCEEDED old upper of 6e-3)
     # T7 optimal: lr=4.24e-4, entropy=4.11e-3, epochs=6, rollouts=24, mini_batches=16
-    "learning_rate": {"type": "loguniform", "low": 3e-4, "high": 5e-4},  # v24: narrow around T7's 4.24e-4
-    "entropy_loss_scale": {"type": "loguniform", "low": 3e-3, "high": 6e-3},  # v24: narrow around T7's 4.11e-3
+    "learning_rate": {"type": "loguniform", "low": 2e-4, "high": 8e-4},  # v49: widened (T14=4.5e-4 was at 90th pctile)
+    "entropy_loss_scale": {"type": "loguniform", "low": 3e-3, "high": 1.5e-2},  # v49: widened (T14=7.75e-3 EXCEEDED old upper 6e-3)
     # Network sizes FIXED — v47: larger policy net (512,256,128) matching value net
     "policy_hidden_layer_sizes": {
         "type": "categorical",
@@ -282,12 +282,12 @@ REWARD_SEARCH_SPACE_SECTION001 = {
 #   - Added alive_decay_horizon and waypoint_bonus to search
 REWARD_SEARCH_SPACE_SECTION011 = {
     # ===== 导航核心 (Navigation core) =====
-    "forward_velocity": {"type": "uniform", "low": 1.5, "high": 5.0},       # v47=2.875
-    "waypoint_approach": {"type": "uniform", "low": 80.0, "high": 300.0},   # v47=166.5
-    "zone_approach": {"type": "uniform", "low": 20.0, "high": 80.0},        # v47=35.06
-    "height_progress": {"type": "uniform", "low": 15.0, "high": 50.0},      # v47=28.30
-    "position_tracking": {"type": "uniform", "low": 0.1, "high": 0.8},      # v47=0.384
-    "waypoint_facing": {"type": "uniform", "low": 0.3, "high": 1.2},        # v47=0.61 (boosted to fix turning-back)
+    "forward_velocity": {"type": "uniform", "low": 1.5, "high": 5.0},       # v47=2.875, T14=3.163
+    "waypoint_approach": {"type": "uniform", "low": 80.0, "high": 500.0},   # v49: widened (T14=280.5 was at 93% of old 300 upper)
+    "zone_approach": {"type": "uniform", "low": 20.0, "high": 150.0},       # v49: widened (T14=74.7 was at 91% of old 80 upper)
+    "height_progress": {"type": "uniform", "low": 15.0, "high": 50.0},      # v47=28.30, T14=26.97
+    "position_tracking": {"type": "uniform", "low": 0.1, "high": 0.8},      # v47=0.384, T14=0.259
+    "waypoint_facing": {"type": "uniform", "low": 0.3, "high": 1.2},        # v47=0.61, T14=0.637
     # ===== 存活奖励 =====
     "alive_bonus": {"type": "uniform", "low": 0.5, "high": 2.5},            # v47=1.446
     "alive_decay_horizon": {"type": "uniform", "low": 800.0, "high": 3000.0},  # v47=1500; anti-oscillation vs exploration
@@ -301,17 +301,20 @@ REWARD_SEARCH_SPACE_SECTION011 = {
     # ===== 惩罚 (WIDER range — explore LIGHTER penalties for bump traversal) =====
     "termination": {"type": "choice", "values": [-200, -150, -100, -50]},   # v47=-200; explore lighter
     "orientation": {"type": "uniform", "low": -0.05, "high": -0.005},       # v47=-0.027
-    "lin_vel_z": {"type": "uniform", "low": -0.2, "high": -0.02},           # v47=-0.195; KEY: explore much lighter
-    "ang_vel_xy": {"type": "uniform", "low": -0.05, "high": -0.005},        # v47=-0.045
-    "action_rate": {"type": "uniform", "low": -0.02, "high": -0.002},       # v47=-0.008
-    "impact_penalty": {"type": "uniform", "low": -0.1, "high": -0.005},     # v47=-0.080
-    "torque_saturation": {"type": "uniform", "low": -0.03, "high": -0.003}, # v47=-0.025; KEY: explore lighter
-    "swing_contact_penalty": {"type": "uniform", "low": -0.06, "high": -0.003},  # v47=-0.031
+    "lin_vel_z": {"type": "uniform", "low": -0.2, "high": -0.005},          # v49: widened lighter end (T14=-0.027 was at 96% of old -0.02 bound)
+    "ang_vel_xy": {"type": "uniform", "low": -0.05, "high": -0.005},        # v47=-0.045, T14=-0.038
+    "action_rate": {"type": "uniform", "low": -0.02, "high": -0.002},       # v47=-0.008, T14=-0.007
+    "impact_penalty": {"type": "uniform", "low": -0.1, "high": -0.005},     # v47=-0.080, T14=-0.100
+    "torque_saturation": {"type": "uniform", "low": -0.03, "high": -0.003}, # v47=-0.025, T14=-0.012
+    "swing_contact_penalty": {"type": "uniform", "low": -0.06, "high": -0.0005},  # v49: widened (T14=-0.003 was AT old lower bound)
     # ===== 步态 & 地形 =====
     "stance_ratio": {"type": "uniform", "low": 0.0, "high": 0.08},          # v47=0.041
     "foot_clearance": {"type": "uniform", "low": 0.05, "high": 0.3},        # v47=0.15 (boosted for bumps)
     "foot_clearance_bump_boost": {"type": "uniform", "low": 4.0, "high": 15.0},  # v47=8.0 (boosted)
-    "swing_contact_bump_scale": {"type": "uniform", "low": 0.1, "high": 0.6},    # v47=0.356
+    "swing_contact_bump_scale": {"type": "uniform", "low": 0.1, "high": 0.6},    # v47=0.356, T14=0.210
+    # ===== v49 新惩罚 (Anti-local-optimum penalties) =====
+    "drag_foot_penalty": {"type": "uniform", "low": -0.08, "high": -0.005},   # v49: per-dragging-leg penalty (default=-0.02, bump区×2)
+    "stagnation_penalty": {"type": "uniform", "low": -2.0, "high": -0.1},     # v49: linear ramp from 50% stagnation window (default=-0.5)
 }
 
 # --- Section012 (stairs/bridge/obstacles, 60pt section, bridge-priority) ---
@@ -447,6 +450,9 @@ REWARD_COMPONENT_CATEGORIES = {
     "swing_contact_bump_scale": "stability",
     "impact_penalty": "stability",
     "torque_saturation": "efficiency",
+    # Section011 v49: anti-local-optimum penalties
+    "drag_foot_penalty": "stability",
+    "stagnation_penalty": "stability",
 }
 
 

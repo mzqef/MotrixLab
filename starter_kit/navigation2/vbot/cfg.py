@@ -197,9 +197,9 @@ class VBotStairsEnvCfg(EnvCfg):
     max_dof_vel: float = 100.0
 
     grace_period_steps: int = 100  # 前100步(1秒) 仅保护base_contact和中等倾斜; 严重倾斜/OOB/NaN始终终止
-    stagnation_window_steps: int = 1000   # 10秒窗口: 若10秒内未移动足够距离则截断
-    stagnation_min_distance: float = 0.5  # 10秒内至少走0.5m才算"在动"
-    stagnation_grace_steps: int = 500     # 前5秒不检测停滞(给机器人起步时间)
+    stagnation_window_steps: int = 600   # 6秒窗口: 若6秒内未移动足够距离则截断
+    stagnation_min_distance: float = 0.6  # 6秒内至少走0.6m才算"在动"
+    stagnation_grace_steps: int = 300     # 前3秒不检测停滞(给机器人起步时间)
 
     noise_config: NoiseConfig = field(default_factory=NoiseConfig)
     control_config: ControlConfig = field(default_factory=ControlConfig)
