@@ -1,0 +1,131 @@
+campaign_id: automl_20260220_211535
+config:
+  algorithm: PPO
+  environment: vbot_navigation_section011
+  hyperparameters:
+    check_point_interval: 101
+    discount_factor: 0.999
+    entropy_loss_scale: 0.010842572554670598
+    learning_epochs: 6
+    learning_rate: 0.0006435264630477997
+    max_env_steps: 15000000
+    mini_batches: 16
+    policy_hidden_layer_sizes:
+    - 512
+    - 256
+    - 128
+    rollouts: 24
+    seed: 42
+    value_hidden_layer_sizes:
+    - 512
+    - 256
+    - 128
+config_id: automl_20260220_211535_vbot_navigation_section011_i1_1771595094
+execution:
+  completed_at: '2026-02-20T22:13:02.774500Z'
+  duration_hours: 0.468522366616461
+  started_at: '2026-02-20T21:44:54.113377Z'
+  status: completed
+experiment_id: automl_20260220_211535_vbot_navigation_section011_i1_1771595094
+results:
+  final_metrics:
+    episode_reward_mean: 2.2189885718481883
+    success_rate: 0.09834965052349227
+    wp_idx_mean: 0.09493375356708254
+  reward_components:
+    active_components:
+    - forward_velocity
+    - waypoint_approach
+    - zone_approach
+    - height_progress
+    - position_tracking
+    - waypoint_facing
+    - alive_bonus
+    - alive_decay_horizon
+    - waypoint_bonus
+    - phase_bonus
+    - per_jump_bonus
+    - celebration_bonus
+    - jump_reward
+    - termination
+    - orientation
+    - lin_vel_z
+    - ang_vel_xy
+    - action_rate
+    - impact_penalty
+    - torque_saturation
+    - swing_contact_penalty
+    - stance_ratio
+    - foot_clearance
+    - foot_clearance_bump_boost
+    - swing_contact_bump_scale
+    - drag_foot_penalty
+    - stagnation_penalty
+    - crouch_penalty
+    active_count: 28
+    efficiency:
+      action_rate: -0.015464036409108723
+      torque_saturation: -0.02757650361873409
+    gait:
+      stance_ratio: 0.04940962850546505
+    navigation:
+      alive_bonus: 1.3780385591660522
+      celebration_bonus: 42.60007508297601
+      forward_velocity: 2.0861098098405995
+      jump_reward: 24.905030351404548
+      position_tracking: 0.287101645357584
+      waypoint_approach: 256.2183900639717
+      waypoint_bonus: 72.18385575595285
+      waypoint_facing: 0.536063471990916
+      zone_approach: 78.47719678619046
+    other:
+      alive_decay_horizon: 1994.2366037633017
+      per_jump_bonus: 19.9055342699229
+      phase_bonus: 30.282023293413012
+    stability:
+      ang_vel_xy: -0.03713164707935601
+      crouch_penalty: -2.160169292613472
+      drag_foot_penalty: -0.22298551981583442
+      impact_penalty: -0.02185664587635909
+      lin_vel_z: -0.16920688932896638
+      orientation: -0.02041592029268481
+      stagnation_penalty: -0.3308296800289201
+      swing_contact_bump_scale: 0.40946206043222355
+      swing_contact_penalty: -0.028186263686027745
+    termination:
+      termination: -100
+    terrain:
+      foot_clearance: 0.056858112263155916
+      foot_clearance_bump_boost: 13.634468812443233
+      height_progress: 46.81461729533065
+  reward_scales:
+    action_rate: -0.015464036409108723
+    alive_bonus: 1.3780385591660522
+    alive_decay_horizon: 1994.2366037633017
+    ang_vel_xy: -0.03713164707935601
+    celebration_bonus: 42.60007508297601
+    crouch_penalty: -2.160169292613472
+    drag_foot_penalty: -0.22298551981583442
+    foot_clearance: 0.056858112263155916
+    foot_clearance_bump_boost: 13.634468812443233
+    forward_velocity: 2.0861098098405995
+    height_progress: 46.81461729533065
+    impact_penalty: -0.02185664587635909
+    jump_reward: 24.905030351404548
+    lin_vel_z: -0.16920688932896638
+    orientation: -0.02041592029268481
+    per_jump_bonus: 19.9055342699229
+    phase_bonus: 30.282023293413012
+    position_tracking: 0.287101645357584
+    stagnation_penalty: -0.3308296800289201
+    stance_ratio: 0.04940962850546505
+    swing_contact_bump_scale: 0.40946206043222355
+    swing_contact_penalty: -0.028186263686027745
+    termination: -100
+    torque_saturation: -0.02757650361873409
+    waypoint_approach: 256.2183900639717
+    waypoint_bonus: 72.18385575595285
+    waypoint_facing: 0.536063471990916
+    zone_approach: 78.47719678619046
+  run_dir: runs\vbot_navigation_section011\26-02-20_21-44-59-748169_PPO
+trial_index: 1

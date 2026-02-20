@@ -1023,6 +1023,9 @@ class VBotSection011Env(NpEnv):
         # torque_penalty: 使用clipped扭矩 (物理引擎实际施加的力矩)
         clipped_torques = self._get_actuator_torques(data)
         torque_penalty = np.sum(np.square(np.clip(clipped_torques, -200.0, 200.0)), axis=1)
+        # joint_pos_rel: deviation from default standing angles (computed here since not passed via args)
+        _joint_pos = self.get_dof_pos(data)
+        dof_pos_penalty = np.sum(np.square(_joint_pos - self.default_angles), axis=1)
         safe_joint_vel = np.clip(joint_vel, -100.0, 100.0)
         dof_vel_penalty = np.sum(np.square(safe_joint_vel), axis=1)
         last_dof_vel = info.get("last_dof_vel", np.zeros_like(joint_vel))
@@ -1046,7 +1049,7 @@ class VBotSection011Env(NpEnv):
         last_z = info.get("last_z", current_z.copy())
         z_delta = current_z - last_z
         info["last_z"] = current_z.copy()
-        height_progress = scales.get("height_progress", 8.0) * np.maximum(z_delta, 0.0)
+        height_progress = scales.get("height_progress", 0.0) * np.maximum(z_delta, 0.0)
 
         # ===== v17: 目标高度接近奖励 (减少 |z_target - z_robot|) =====
         # 根据当前目标y位置估算目标z高度
@@ -1062,7 +1065,7 @@ class VBotSection011Env(NpEnv):
         last_z_error = info.get("last_z_error", z_error.copy())
         z_error_delta = last_z_error - z_error  # 正 = 接近目标高度
         info["last_z_error"] = z_error.copy()
-        height_approach = scales.get("height_approach", 5.0) * np.clip(z_error_delta, -0.1, 0.5)
+        height_approach = scales.get("height_approach", 0.0) * np.clip(z_error_delta, -0.1, 0.5)
 
         # ===== v17: 高度振荡惩罚 (penalize rapid z bouncing) =====
         z_osc = np.abs(z_delta)
@@ -1217,8 +1220,8 @@ class VBotSection011Env(NpEnv):
                          1.294))))                                         # 高台顶部
             clearance = current_z - terrain_z_est
             min_clearance = 0.20  # 正常站立clearance≈0.25m, 低于0.20m=蹲坐
-            crouch_excess = np.maximum(min_clearance - clearance, 0.0)
-            crouch_penalty = crouch_penalty_scale * crouch_excess
+            # v51: 改为固定大惩罚，而不是线性惩罚，因为线性惩罚太小(-0.05)会被alive_bonus(+1.0)淹没
+            crouch_penalty = np.where(clearance < min_clearance, crouch_penalty_scale, 0.0)
         else:
             crouch_penalty = np.zeros(n, dtype=np.float32)
 
@@ -1247,6 +1250,7 @@ class VBotSection011Env(NpEnv):
             + scales.get("lin_vel_z", -0.15) * lin_vel_z_penalty
             + scales.get("ang_vel_xy", -0.02) * ang_vel_xy_penalty
             + scales.get("torques", -1e-5) * torque_penalty
+            + scales.get("dof_pos", -0.0) * dof_pos_penalty
             + scales.get("dof_vel", -5e-5) * dof_vel_penalty
             + scales.get("dof_acc", -2.5e-7) * dof_acc_penalty
             + scales.get("action_rate", -0.01) * action_rate_penalty

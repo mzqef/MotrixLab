@@ -142,8 +142,8 @@ BASE_REWARD_SCALES: dict[str, float] = {
     # ===== Zone & Waypoint =====
     "zone_approach": 74.727,                       # T14: 2.13× stronger (v47=35.06)
     # ===== 地形适应 =====
-    "height_progress": 26.965,                     # T14: ~same (v47=28.30)
-    "height_approach": 5.0,                        # unchanged (not in search)
+    "height_progress": 0.0,                        # v51: 禁用，防止机器狗通过上下弹跳刷分
+    "height_approach": 0.0,                        # v51: 禁用，防止机器狗通过上下弹跳刷分
     "height_oscillation": -2.0,                    # unchanged (not in search)
     # ===== 跳跃 & 庆祝 =====
     "jump_reward": 10.093,                         # T14: ~same
@@ -154,6 +154,7 @@ BASE_REWARD_SCALES: dict[str, float] = {
     "lin_vel_z": -0.027,                           # T14: 7.2× lighter (v47=-0.195) ← KEY
     "ang_vel_xy": -0.038,                          # T14: lighter (v47=-0.045)
     "torques": -5e-6,                              # unchanged (not in search)
+    "dof_pos": -0.008,                             # v52: 轻微姿态惩罚(v51=-0.05太重导致冻结)
     "dof_vel": -3e-5,                              # unchanged (not in search)
     "dof_acc": -1.5e-7,                            # unchanged (not in search)
     "action_rate": -0.007,                         # T14: ~same (v47=-0.008)
@@ -179,7 +180,7 @@ BASE_REWARD_SCALES: dict[str, float] = {
     "drag_foot_penalty": -0.15,                    # v49→v50: 支撑相低速腿惩罚 (每条拖地腿, 统一尺度)
     "stagnation_penalty": -0.5,                    # v49: 停滞渐进惩罚 (从50%窗口开始线性增长)
     # ===== v50: 蹲坐惩罚 =====
-    "crouch_penalty": -0.5,                        # v50: base clearance低于0.20m时线性惩罚 (thigh/calf坐地盲区)
+    "crouch_penalty": -1.5,                        # v52: 二值惩罚(v51=-5.0太重导致冻结; 配合dof_pos双管齐下)
 }
 
 @dataclass
@@ -225,7 +226,7 @@ class VBotLongCourseEnvCfg(VBotStairsEnvCfg):
     @dataclass
     class InitState:
         # 起始位置：section01起始（高台中心）
-        pos = [0.0, -2.5, 0.35]  # START平台中心, z=0.35
+        pos = [0.0, -2.5, 0.50]  # START平台中心, z=0.30 (v51: 0.35→0.30)
         pos_randomization_range = [-2.0, -0.5, 2.0, 0.5]  # X: ±2.0m (5m宽平台), Y: ±0.5m → y∈[-3.0,-2.0]
 
         default_joint_angles = {
@@ -278,7 +279,8 @@ class VBotSection011EnvCfg(VBotStairsEnvCfg):
     class InitState:
         # 竞赛正确起点：START平台 (Adiban_001), center=(0, -2.5), 顶面z=0
         # 竞赛规则: "初始点位置随机分布在'START'平台区域" y∈[-3.5, -1.5]
-        pos = [0.0, -2.5, 0.35]  # START平台中心, z=0.35
+        # z=0.30: 略高于自然站立高度(~0.27m)，防止穿地，减少spawning下落冲击
+        pos = [0.0, -2.5, 0.50]
         pos_randomization_range = [-2.0, -0.5, 2.0, 0.5]  # X: ±2.0m (5m宽平台), Y: ±0.5m → y∈[-3.0,-2.0]
 
         default_joint_angles = {

@@ -281,41 +281,47 @@ REWARD_SEARCH_SPACE_SECTION001 = {
 #   - foot_clearance range [0.05,0.3] centered on v47=0.15
 #   - Added alive_decay_horizon and waypoint_bonus to search
 REWARD_SEARCH_SPACE_SECTION011 = {
+    # ===== v53 WIDE EXPLORATION — 14h budget, maximize data & insight =====
+    # height_progress: PERMANENTLY DISABLED (bounce-farming exploit). Do NOT re-enable.
+    # height_approach: PERMANENTLY DISABLED. Do NOT re-enable.
+    #
     # ===== 导航核心 (Navigation core) =====
-    "forward_velocity": {"type": "uniform", "low": 1.5, "high": 5.0},       # v47=2.875, T14=3.163
-    "waypoint_approach": {"type": "uniform", "low": 80.0, "high": 500.0},   # v49: widened (T14=280.5 was at 93% of old 300 upper)
-    "zone_approach": {"type": "uniform", "low": 20.0, "high": 150.0},       # v49: widened (T14=74.7 was at 91% of old 80 upper)
-    "height_progress": {"type": "uniform", "low": 15.0, "high": 50.0},      # v47=28.30, T14=26.97
-    "position_tracking": {"type": "uniform", "low": 0.1, "high": 0.8},      # v47=0.384, T14=0.259
-    "waypoint_facing": {"type": "uniform", "low": 0.3, "high": 1.2},        # v47=0.61, T14=0.637
+    "forward_velocity": {"type": "uniform", "low": 0.5, "high": 8.0},       # v53: much wider (explore low-pull vs high-pull)
+    "waypoint_approach": {"type": "uniform", "low": 40.0, "high": 800.0},   # v53: doubled upper (T14=280; test extreme pull)
+    "zone_approach": {"type": "uniform", "low": 5.0, "high": 250.0},        # v53: wider both ends
+    "position_tracking": {"type": "uniform", "low": 0.02, "high": 1.5},     # v53: wider (explore near-zero vs strong)
+    "waypoint_facing": {"type": "uniform", "low": 0.1, "high": 2.0},        # v53: wider (test weak vs strong heading pull)
     # ===== 存活奖励 =====
-    "alive_bonus": {"type": "uniform", "low": 0.5, "high": 2.5},            # v47=1.446
-    "alive_decay_horizon": {"type": "uniform", "low": 800.0, "high": 3000.0},  # v47=1500; anti-oscillation vs exploration
+    "alive_bonus": {"type": "uniform", "low": 0.2, "high": 4.0},            # v53: wider (test low survival incentive vs strong)
+    "alive_decay_horizon": {"type": "uniform", "low": 500.0, "high": 5000.0},  # v53: wider (fast vs slow decay)
     # ===== 一次性奖金 =====
-    "waypoint_bonus": {"type": "uniform", "low": 20.0, "high": 100.0},      # v47=50.0
-    "phase_bonus": {"type": "uniform", "low": 10.0, "high": 50.0},          # v47=25.0
+    "waypoint_bonus": {"type": "uniform", "low": 10.0, "high": 200.0},      # v53: doubled (test strong milestone pull)
+    "phase_bonus": {"type": "uniform", "low": 5.0, "high": 100.0},          # v53: doubled upper
     # ===== 庆祝 & 跳跃奖励 =====
-    "per_jump_bonus": {"type": "uniform", "low": 10.0, "high": 80.0},       # v47=25.0
-    "celebration_bonus": {"type": "uniform", "low": 40.0, "high": 200.0},   # v47=80.0
-    "jump_reward": {"type": "uniform", "low": 5.0, "high": 25.0},           # v47=10.0
-    # ===== 惩罚 (WIDER range — explore LIGHTER penalties for bump traversal) =====
-    "termination": {"type": "choice", "values": [-200, -150, -100, -50]},   # v47=-200; explore lighter
-    "orientation": {"type": "uniform", "low": -0.05, "high": -0.005},       # v47=-0.027
-    "lin_vel_z": {"type": "uniform", "low": -0.2, "high": -0.005},          # v49: widened lighter end (T14=-0.027 was at 96% of old -0.02 bound)
-    "ang_vel_xy": {"type": "uniform", "low": -0.05, "high": -0.005},        # v47=-0.045, T14=-0.038
-    "action_rate": {"type": "uniform", "low": -0.02, "high": -0.002},       # v47=-0.008, T14=-0.007
-    "impact_penalty": {"type": "uniform", "low": -0.1, "high": -0.005},     # v47=-0.080, T14=-0.100
-    "torque_saturation": {"type": "uniform", "low": -0.03, "high": -0.003}, # v47=-0.025, T14=-0.012
-    "swing_contact_penalty": {"type": "uniform", "low": -0.06, "high": -0.0005},  # v49: widened (T14=-0.003 was AT old lower bound)
+    "per_jump_bonus": {"type": "uniform", "low": 5.0, "high": 120.0},       # v53: wider
+    "celebration_bonus": {"type": "uniform", "low": 20.0, "high": 300.0},   # v53: wider
+    "jump_reward": {"type": "uniform", "low": 2.0, "high": 40.0},           # v53: wider
+    # ===== 惩罚 (WIDE exploration — test everything from near-zero to aggressive) =====
+    "termination": {"type": "choice", "values": [-250, -200, -150, -100, -50]},  # v53: full range including extremes
+    "orientation": {"type": "uniform", "low": -0.1, "high": -0.002},        # v53: wider both sides
+    "lin_vel_z": {"type": "uniform", "low": -0.2, "high": -0.005},          # v53: wider (test aggressive bounce control)
+    "ang_vel_xy": {"type": "uniform", "low": -0.1, "high": -0.002},         # v53: wider
+    "action_rate": {"type": "uniform", "low": -0.05, "high": -0.001},       # v53: wider (test smooth vs aggressive)
+    "impact_penalty": {"type": "uniform", "low": -0.3, "high": -0.002},     # v53: much wider upper bound
+    "torque_saturation": {"type": "uniform", "low": -0.08, "high": -0.001}, # v53: wider
+    "swing_contact_penalty": {"type": "uniform", "low": -0.15, "high": -0.0002},  # v53: wider
     # ===== 步态 & 地形 =====
-    "stance_ratio": {"type": "uniform", "low": 0.0, "high": 0.08},          # v47=0.041
-    "foot_clearance": {"type": "uniform", "low": 0.05, "high": 0.3},        # v47=0.15 (boosted for bumps)
-    "foot_clearance_bump_boost": {"type": "uniform", "low": 4.0, "high": 15.0},  # v47=8.0 (boosted)
-    "swing_contact_bump_scale": {"type": "uniform", "low": 0.1, "high": 0.6},    # v47=0.356, T14=0.210
-    # ===== v49 新惩罚 (Anti-local-optimum penalties) =====
-    "drag_foot_penalty": {"type": "uniform", "low": -0.08, "high": -0.005},   # v49: per-dragging-leg penalty (default=-0.02, bump区×2)
-    "stagnation_penalty": {"type": "uniform", "low": -2.0, "high": -0.1},     # v49: linear ramp from 50% stagnation window (default=-0.5)
-    "crouch_penalty": {"type": "uniform", "low": -15.0, "high": -1.0},         # v50: base clearance < 0.25m penalty (default=-5.0, targets sitting)
+    "stance_ratio": {"type": "uniform", "low": 0.0, "high": 0.15},          # v53: wider upper
+    "foot_clearance": {"type": "uniform", "low": 0.02, "high": 0.5},        # v53: wider (test low vs aggressive clearance)
+    "foot_clearance_bump_boost": {"type": "uniform", "low": 2.0, "high": 25.0},  # v53: wider
+    "swing_contact_bump_scale": {"type": "uniform", "low": 0.05, "high": 1.0},   # v53: wider
+    # ===== v49 新惩罚 (Anti-local-optimum penalties — WIDE to test zero-ish vs strong) =====
+    "drag_foot_penalty": {"type": "uniform", "low": -0.3, "high": -0.005},    # v53: much wider (test aggressive vs near-zero)
+    "stagnation_penalty": {"type": "uniform", "low": -2.0, "high": -0.05},    # v53: wider (test strong nudge vs gentle)
+    # v51 crouch_penalty: BINARY penalty. Include near-zero to test "no crouch penalty" hypothesis.
+    "crouch_penalty": {"type": "uniform", "low": -5.0, "high": -0.05},        # v53: full range (v51=-5 froze, but -0.05 ≈ off)
+    # v51 dof_pos: penalize deviation from default standing joint angles.
+    "dof_pos": {"type": "uniform", "low": -0.1, "high": -0.0005},             # v53: full range (test strong vs near-zero)
 }
 
 # --- Section012 (stairs/bridge/obstacles, 60pt section, bridge-priority) ---

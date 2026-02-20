@@ -70,9 +70,9 @@ _NUM_ENVS = flags.DEFINE_integer("num-envs", 1, "Number of parallel envs for pla
 _SEED = flags.DEFINE_integer("seed", 42, "Random seed")
 
 # Capture settings
-_CAPTURE_EVERY = flags.DEFINE_integer("capture-every", 15, "Capture a frame every N simulation steps")
-_MAX_FRAMES = flags.DEFINE_integer("max-frames", 20, "Maximum number of frames to capture")
-_WARMUP_STEPS = flags.DEFINE_integer("warmup-steps", 30, "Steps before starting capture (let robot initialize)")
+_CAPTURE_EVERY = flags.DEFINE_integer("capture-every", 500, "Capture a frame every N simulation steps")
+_MAX_FRAMES = flags.DEFINE_integer("max-frames", 12, "Maximum number of frames to capture")
+_WARMUP_STEPS = flags.DEFINE_integer("warmup-steps", 100, "Steps before starting capture (let robot initialize)")
 _OUTPUT_DIR = flags.DEFINE_string("output-dir", None, "Output directory for frames (auto-generated if omitted)")
 _CAPTURE_DELAY = flags.DEFINE_float("capture-delay", 0.15, "Delay in seconds after render before capturing frame")
 _WINDOW_SIZE = flags.DEFINE_string("window-size", "1920x1080", "Render window size WxH (e.g. 1920x1080, 2560x1440, max)")
@@ -301,7 +301,7 @@ def run_vlm_analysis(frames_dir: str, env_name: str, model: str, custom_prompt: 
         cmd = [
             "copilot",
             "--model", model,
-            "--allow-all",
+            "--allow-url",
             "--add-dir", abs_frames_dir,
         ]
 
@@ -321,13 +321,14 @@ def run_vlm_analysis(frames_dir: str, env_name: str, model: str, custom_prompt: 
                 cmd,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 timeout=300,  # 5 min timeout per batch
                 cwd=str(Path(__file__).resolve().parent.parent),
             )
             if result.returncode == 0:
                 all_responses.append(result.stdout.strip())
             else:
-                err_msg = f"Copilot CLI error (batch {batch_num}): {result.stderr.strip()}"
+                err_msg = f"Copilot CLI error (batch {batch_num}): {result.stderr.strip() if result.stderr else 'Unknown error'}"
                 logger.error(err_msg)
                 all_responses.append(err_msg)
         except FileNotFoundError:

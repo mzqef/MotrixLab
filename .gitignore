@@ -21,6 +21,9 @@ starter_kit/navigation1/*/xmls/
 starter_kit/navigation2/*/xmls/
 starter_kit/navigation2/vbot/阶段二-world_0202_clean/
 
+# Logs
+starter_kit_log/
+runs/
 
 # OS
 .DS_Store

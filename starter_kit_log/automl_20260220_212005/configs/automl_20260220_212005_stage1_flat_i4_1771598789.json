@@ -1,0 +1,56 @@
+{
+  "run_tag": "automl_20260220_212005_stage1_flat_i4_1771598789",
+  "env_name": "vbot_navigation_section011",
+  "starter_kit_dir": "D:\\MotrixLab\\starter_kit\\navigation2",
+  "reward_scales": {
+    "forward_velocity": 3.996845237360952,
+    "waypoint_approach": 141.59247448684943,
+    "zone_approach": 95.84739089138816,
+    "height_progress": 35.67476713921364,
+    "position_tracking": 0.26338663518657,
+    "waypoint_facing": 1.061586565972949,
+    "alive_bonus": 0.5838954951564348,
+    "alive_decay_horizon": 1767.0261984858512,
+    "waypoint_bonus": 87.50801546771913,
+    "phase_bonus": 49.2010605678262,
+    "per_jump_bonus": 63.60989957959323,
+    "celebration_bonus": 46.79376604863197,
+    "jump_reward": 20.544975840257848,
+    "termination": -200,
+    "orientation": -0.01953762452296194,
+    "lin_vel_z": -0.10524545718865097,
+    "ang_vel_xy": -0.039558301577630704,
+    "action_rate": -0.005741531895794849,
+    "impact_penalty": -0.09165392483410702,
+    "torque_saturation": -0.02187225915226953,
+    "swing_contact_penalty": -0.04415879172336461,
+    "stance_ratio": 0.020909790900578748,
+    "foot_clearance": 0.11544959629962175,
+    "foot_clearance_bump_boost": 4.481607608782653,
+    "swing_contact_bump_scale": 0.5475116691530334,
+    "drag_foot_penalty": -0.16252132082400214,
+    "stagnation_penalty": -0.9560734043541839,
+    "crouch_penalty": -0.7713235891228214
+  },
+  "rl_overrides": {
+    "learning_rate": 0.00038786410474339497,
+    "entropy_loss_scale": 0.006033971354050757,
+    "policy_hidden_layer_sizes": [
+      512,
+      256,
+      128
+    ],
+    "value_hidden_layer_sizes": [
+      512,
+      256,
+      128
+    ],
+    "rollouts": 24,
+    "learning_epochs": 6,
+    "mini_batches": 16,
+    "discount_factor": 0.999,
+    "max_env_steps": 15000000,
+    "seed": 42,
+    "check_point_interval": 101
+  }
+}
