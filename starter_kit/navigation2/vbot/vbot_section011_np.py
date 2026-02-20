@@ -1163,6 +1163,47 @@ class VBotSection011Env(NpEnv):
         else:
             foot_clearance_reward = np.zeros(n, dtype=np.float32)
 
+        # ===== 拖脚惩罚 (Drag-Foot Penalty) =====
+        # 腿有接触 + 小腿关节角速度低 = 拖地行为 (foot_clearance的盲区)
+        # 与foot_clearance互补: 后者奖励摆动相抬腿, 此处惩罚支撑相拖腿
+        drag_foot_scale = scales.get("drag_foot_penalty", 0.0)
+        if drag_foot_scale < 0:
+            if foot_clearance_scale > 0:
+                # 复用foot_clearance已计算的变量
+                drag_in_contact = ~in_swing  # 支撑相 (有接触力)
+            else:
+                foot_forces_df = self._get_foot_contact_forces(data)
+                force_mag_df = np.linalg.norm(foot_forces_df, axis=2)
+                drag_in_contact = force_mag_df > 0.5
+                calf_indices = [2, 5, 8, 11]
+                calf_vel = np.abs(joint_vel[:, calf_indices])
+            low_vel = calf_vel < 1.0  # 小腿几乎不动
+            dragging = drag_in_contact & low_vel  # [n, 4]
+            # bump区boost: bump区拖脚更有害
+            drag_bump_boost = np.where(on_bump, 2.0, 1.0)
+            drag_foot_raw = np.sum(dragging.astype(np.float32), axis=1)  # 0~4: 拖地腿数
+            drag_foot_penalty = drag_foot_scale * drag_foot_raw * drag_bump_boost
+        else:
+            drag_foot_penalty = np.zeros(n, dtype=np.float32)
+
+        # ===== 停滞渐进惩罚 (Stagnation Ramp Penalty) =====
+        # 停滞检测只会截断episode, 不给惩罚信号 → 添加渐进惩罚
+        # 随着接近停滞截断阈值, 惩罚从0线性增长 → 提供"赶紧动"的梯度
+        stagnation_penalty_scale = scales.get("stagnation_penalty", 0.0)
+        if stagnation_penalty_scale < 0:
+            stag_window = getattr(self._cfg, 'stagnation_window_steps', 1000)
+            stag_grace = getattr(self._cfg, 'stagnation_grace_steps', 500)
+            stag_anchor_step = info.get("stagnation_anchor_step", np.zeros(n, dtype=np.int32))
+            stag_ep_steps = info.get("steps", np.zeros(n, dtype=np.int32))
+            stag_since = stag_ep_steps - stag_anchor_step
+            # 从50%窗口开始线性增长: 0→0.5window=0, 0.5window→window=0→1
+            stag_ratio = np.clip((stag_since.astype(np.float32) / stag_window - 0.5) * 2.0, 0.0, 1.0)
+            past_grace = stag_ep_steps >= stag_grace
+            stagnation_penalty = stagnation_penalty_scale * stag_ratio * past_grace.astype(np.float32)
+            stagnation_penalty = np.where(in_celeb, 0.0, stagnation_penalty)  # 庆祝阶段不惩罚
+        else:
+            stagnation_penalty = np.zeros(n, dtype=np.float32)
+
         # ===== 步态质量奖励 (Gait Quality) =====
         gait = self._compute_gait_rewards(data)
         gait_stance = scales.get("stance_ratio", 0.0) * gait["stance_reward"]
@@ -1196,6 +1237,8 @@ class VBotSection011Env(NpEnv):
             + termination_penalty
             + swing_penalty
             + height_osc_penalty
+            + drag_foot_penalty
+            + stagnation_penalty
         )
 
         # ===== 综合奖励 =====
@@ -1258,6 +1301,8 @@ class VBotSection011Env(NpEnv):
             "gait_stance": gait_stance,
             "impact_penalty": scales.get("impact_penalty", -0.02) * impact_penalty,
             "torque_saturation": scales.get("torque_saturation", -0.01) * torque_sat_penalty,
+            "drag_foot_penalty": drag_foot_penalty,
+            "stagnation_penalty": stagnation_penalty,
         }
         return reward
 

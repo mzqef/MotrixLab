@@ -175,6 +175,9 @@ BASE_REWARD_SCALES: dict[str, float] = {
     "foot_clearance_bump_boost": 7.167,            # T14: ~same (v47=8.0)
     "alive_decay_horizon": 2383.0,                 # T14: 1.59× longer (v47=1500)
     "slope_orientation": 0.0,                      # unchanged (disabled)
+    # ===== v49: 拖脚惩罚 + 停滞惩罚 =====
+    "drag_foot_penalty": -0.02,                    # v49: 支撑相低速腿惩罚 (每条拖地腿, bump区×2)
+    "stagnation_penalty": -0.5,                    # v49: 停滞渐进惩罚 (从50%窗口开始线性增长)
 }
 
 @dataclass
