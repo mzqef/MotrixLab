@@ -5,7 +5,7 @@
 *   **Terrain**: Start (flat) → Height Field (bumps, z=0–0.277m) → 15° Ramp → High Platform (z=1.294m).
 *   **Distance**: ~10.3m.
 *   **Goal**: Collect 12 items (smileys + red packets) and perform a jump celebration. Total 20 pts.
-*   **Key Architecture (v48-T14)**: 54-dim observations, sweep-order zone targeting, torque saturation awareness, impact avoidance. Symmetric (512,256,128) policy+value nets. AutoML-optimized lighter penalties + stronger navigation pull.
+*   **Key Architecture (v49)**: 54-dim observations, sweep-order zone targeting, torque saturation awareness, impact avoidance. Symmetric (512,256,128) policy+value nets. v48-T14 base config + v49 anti-local-optimum penalties (drag_foot, stagnation).
 
 ## 2. Terrain & Challenges
 | Segment | Y-Range | Z-Height | Key Challenge |
@@ -35,12 +35,18 @@ Triggered automatically upon reaching the high platform.
 *   **Success Condition**: Robot Z-height exceeds `1.55m`.
 *   **Rewards**: Continuous elevation bonus (`8.0`) + One-time completion bonus (`100.0`).
 
-## 5. Reward Engineering (v48-T14 Active)
-### AutoML-Optimized Reward Balance
+## 5. Reward Engineering (v49 Active)
+### AutoML-Optimized Reward Balance + Anti-Local-Optimum Fixes
 
 v48-T14 (AutoML `automl_20260220_071134`, trial T14) discovered the optimal reward configuration through 15-trial Bayesian search. The winning pattern: **lighter penalties + stronger navigation pull**.
 
-**Key changes from v47:**
+**However**, T14 100M training collapsed into a backward-dragging local optimum (foot_clearance=0, LR crushed to 5.9e-5). **v49** adds two targeted penalties:
+
+**v49 Anti-Local-Optimum Penalties:**
+- `drag_foot_penalty` = **-0.02**: Penalizes legs with ground contact + low velocity (< 1.0 m/s). Bump zone ×2. Directly targets the "stand and drag" behavior that T14 converged to.
+- `stagnation_penalty` = **-0.5**: Linear ramp from 50% to 100% of stagnation window. Provides gradient signal before truncation fires. Exempt during celebration phase.
+
+**Key changes from v47 (inherited from T14):**
 - `lin_vel_z`: -0.195 → **-0.027** (7.2× lighter — bumps need vertical motion)
 - `torque_saturation`: -0.025 → **-0.012** (2.1× lighter)
 - `swing_contact_penalty`: -0.031 → **-0.003** (10× lighter)
@@ -60,12 +66,13 @@ Full reward scales table: [Task_Reference.md](Task_Reference.md) Section 9.
 *   **Height Progress**: Strong reward for vertical gain (`12.0` × Δz).
 *   *Disabled*: Height approach, oscillation, and slope orientation rewards.
 
-## 6. Training & Configuration (v48-T14 Active)
+## 6. Training & Configuration (v49 Active)
 *   **Config Files**:
     *   Logic/Spawns: `vbot_section011_np.py`, `cfg.py`
     *   Hyperparams: `rl_cfgs.py` (v48-T14: LR=4.513e-4, entropy=0.00775, KL-adaptive, γ=0.999, λ=0.99)
     *   Geometry: `scene_section011.xml`
     *   Network: (512, 256, 128) both policy and value (symmetric since v47)
+*   **v49 additions**: `drag_foot_penalty` and `stagnation_penalty` in cfg.py + vbot_section011_np.py
 *   **Key Commands**:
     ```bash
     # Train (100M steps, T14 config)

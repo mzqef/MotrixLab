@@ -14,11 +14,15 @@ Section 011 uses a **multi-signal reward** combining:
 
 ---
 
-## 2. Current Reward Scales (v48-T14 — Active)
+## 2. Current Reward Scales (v49 — Active)
 
-See [Task_Reference.md](Task_Reference.md) Section 9 for the full table with all 28 parameters and comparison vs v47.
+See [Task_Reference.md](Task_Reference.md) Section 9 for the full table with all 30 parameters and comparison vs v47.
 
-**Key v48-T14 changes from v47:**
+**v49 additions (anti-local-optimum penalties):**
+- `drag_foot_penalty`: **-0.02** — Per-dragging-leg penalty. Detects calf contact + velocity < 1.0 m/s. Bump zone ×2 boost. Targets the backward-dragging behavior found in T14 100M training.
+- `stagnation_penalty`: **-0.5** — Linear ramp from 50% to 100% of stagnation window. Provides gradient signal before truncation. Exempt during celebration phase.
+
+**Key v48-T14 changes from v47 (still active in v49):**
 - `lin_vel_z`: -0.195 → **-0.027** (7.2× lighter — bumps need vertical motion)
 - `torque_saturation`: -0.025 → **-0.012** (2.1× lighter)
 - `termination`: -200 → **-150** (sweet spot)
@@ -54,6 +58,8 @@ See [REPORT_NAV2_section011.md](REPORT_NAV2_section011.md) for the full chronolo
 | v35 | **5.91** | KL-adaptive + pre-peak warm-start ★ ALL-TIME BEST (old chain) |
 | v47 | 1.40 mean, 7.0 max @50M | Fresh v46 config, (512,256,128) policy |
 | **v48-T14** | **0.484 @15M** (cold) | **AutoML winner: lighter penalties + stronger navigation** |
+| **v48-T14 100M** | FAILED @78% | Local optimum: backward-dragging, foot_clearance=0, LR crushed |
+| **v49** | TBD | +drag_foot_penalty, +stagnation_penalty, expanded AutoML search |
 
 > **Note**: v48-T14's 0.484@15M cold-start is not directly comparable to v35's 5.91 (warm-start chain). v48-T14 config is expected to significantly outperform v47 at equal step counts due to better penalty/reward balance.
 

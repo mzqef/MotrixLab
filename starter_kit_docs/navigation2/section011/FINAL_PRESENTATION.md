@@ -1,7 +1,7 @@
 # Section011 — Final Presentation & Reproduction Recipe
 
 > **Historical Best: wp_idx = 5.9115** (v35, warm-start chain)
-> **Active Config: v48-T14** — AutoML-optimized lighter penalties + stronger navigation. 100M training in progress.
+> **Active Config: v49** — v48-T14 base + drag_foot_penalty + stagnation_penalty (anti-local-optimum). T14 100M failed at 78% (backward-dragging local optimum). v49 targets the root cause.
 > See [Task_Reference.md](Task_Reference.md) Section 9 for full reward scales table.
 
 ---
@@ -161,6 +161,27 @@ uv run scripts/train.py --env vbot_navigation_section011 --train-backend torch \
 **100M deployment**: Training v48-T14 config from scratch to 100M steps (current).
 
 See [Task_Reference.md](Task_Reference.md) Section 10 for future AutoML exploration plan (boundary expansion, long-horizon validation).
+
+### Phase 5: Anti-Local-Optimum Penalties (v49)
+
+**Problem**: T14 100M training converged to backward-dragging local optimum at ~78% (38.5k/48.5k iters). Deep analysis revealed:
+- `foot_clearance = 0` — robot NEVER lifts legs (pure dragging gait)
+- `torque_saturation = -1106` — controllers fully saturated fighting terrain
+- `wp_idx_mean = 0.45` — average didn't even pass WP0
+- LR crushed from 4.5e-4 → 5.9e-5 by KL-adaptive (7.6× collapse)
+
+**Root cause**: Reward blind spot — legs with sustained ground contact + low velocity get neither foot_clearance reward (not in swing) nor swing_contact penalty (low velocity). Combined with alive_bonus, standing/retreating is a positive-reward strategy.
+
+**v49 Fix — Two new penalties:**
+
+| Penalty | Scale | Mechanism |
+|---------|-------|-----------|
+| `drag_foot_penalty` | -0.02 | Per-dragging-leg: calf_contact AND velocity < 1.0 m/s. Bump zone ×2. |
+| `stagnation_penalty` | -0.5 | Linear ramp from 50%→100% of stagnation window. Provides gradient before truncation. |
+
+**AutoML v49 search space expanded**: 6 boundary-widened params + 2 new penalties → 29 total searchable parameters. Key expansions: entropy [3e-3, 1.5e-2], waypoint_approach [80, 500], zone_approach [20, 150], swing_contact_penalty [-0.06, -0.0005].
+
+See [Task_Reference.md](Task_Reference.md) Section 10 for the full v49 expansion table and next AutoML plan.
 
 ---
 
@@ -424,6 +445,17 @@ Simultaneously, **navigation pull was strengthened**: waypoint_approach 1.68×, 
 
 5 parameters hit search boundaries, indicating the Bayesian optimizer was constrained. Future searches should expand these ranges (see [Task_Reference.md](Task_Reference.md) Section 10).
 
+### Discovery 7: Short-Horizon AutoML ≠ Long-Horizon Success (v48-T14 Failure)
+
+T14 was the best trial at 15M cold-start steps (wp_idx_mean=0.484). But when trained to 100M steps:
+- **Collapsed into backward-dragging local optimum** — foot_clearance=0, robot never lifts legs
+- **LR crushed by KL-adaptive** — from 4.5e-4 → 5.9e-5 (policy stopped learning)
+- **Lighter penalties enabled survival exploitation** — without strong penalties, alive_bonus dominates
+
+**Lesson**: Configs optimized for early training (15M) can catastrophically fail at scale. The penalty lightening that accelerates early learning removes the gradient signal needed to escape local optima at 50M+.
+
+**Fix (v49)**: Added `drag_foot_penalty` (penalizes exactly the degenerate behavior) and `stagnation_penalty` (provides gradient signal before stagnation truncation). These target the specific failure mode rather than reverting to heavier general penalties.
+
 ---
 
 ## 8. Failed Experiments (What NOT To Do)
@@ -497,7 +529,7 @@ v29 agent_6000.pt            │
                           v35 (KL-adaptive + pre-peak — wp_idx=5.91 @ agent_6000.pt) ★ BEST (warm-start)
 ```
 
-### Fresh-Start Chain (v46 → v48-T14, no warm-start)
+### Fresh-Start Chain (v46 → v48-T14 → v49, no warm-start)
 
 ```
 v46 (fresh config: v35 rewards + PHASE_APPROACH=-1 + waypoint_facing 0.061→0.61)
@@ -510,9 +542,15 @@ v48-T14 (AutoML winner — wp_idx_mean=0.484 @ 15M cold-start)
     │    Lighter penalties + stronger navigation pull
     │    LR=4.5e-4, entropy=0.0078, (512,256,128) both
     ▼
-100M deployment (in progress) — expected to significantly outperform v47
+T14 100M deployment — ★ FAILED at 78% (backward-dragging local optimum)
+    │    foot_clearance=0, LR crushed to 5.9e-5
+    ▼
+v49 (anti-local-optimum: +drag_foot_penalty, +stagnation_penalty)
+    │    AutoML search space expanded: 29 params (was 27)
+    ▼
+v49 AutoML search (NEXT) → best trial → 50M+ long-horizon validation
 ```
 
 ---
 
-*Generated 2026-02-17. Updated 2026-02-20 with v48-T14 AutoML results. Source of truth for Section011 training methodology.*
+*Generated 2026-02-17. Updated 2026-02-20 with v48-T14 failure analysis and v49 anti-local-optimum fixes. Source of truth for Section011 training methodology.*

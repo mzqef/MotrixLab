@@ -1,7 +1,7 @@
 # Section 011 Task Reference: Slopes, Zones & Celebration
 
 > **Scope:** Concrete values for Stage 2A (Slopes, Height Field, Ramp, High Platform).
-> **Environment ID:** `vbot_navigation_section011` (Active v48-T14: KL-adaptive scheduler, LR=4.5e-4, entropy=0.00775, net=(512,256,128); episode 120 s/12000 steps with stagnation detection).
+> **Environment ID:** `vbot_navigation_section011` (Active v49: v48-T14 base + drag_foot_penalty + stagnation_penalty; KL-adaptive scheduler, LR=4.5e-4, entropy=0.00775, net=(512,256,128); episode 120 s/12000 steps with stagnation detection).
 
 ---
 
@@ -96,6 +96,9 @@ Key inputs for policy:
     *   Tilt $> 45^\circ$: **0%** bonus.
 *   **Key Gradients:** Strong `waypoint_approach` (**280.5**, was 166.5 in v47), `zone_approach` (**74.7**, was 35.06), and `height_progress` (27.0).
 *   **Key Penalty Changes (v48-T14 vs v47):** `lin_vel_z` **-0.027** (was -0.195, 7.2× lighter), `torque_saturation` **-0.012** (was -0.025, 2.1× lighter), `termination` **-150** (was -200), `swing_contact_penalty` **-0.003** (was -0.031, 10× lighter).
+*   **v49 Anti-Local-Optimum Penalties:**
+    *   `drag_foot_penalty` **-0.02**: Per-dragging-leg penalty. Detects calf contact + velocity < 1.0 m/s. Bump zone 2× boost.
+    *   `stagnation_penalty` **-0.5**: Linear ramp from 50% to 100% of stagnation window. Provides gradient signal before truncation.
 *   **Active Config (v48-T14):**
     *   Discount ($\gamma$): **0.999**, GAE ($\lambda$): **0.99**
     *   LR: **4.513e-4** + KL-Adaptive scheduler (v48-T14: 4.5× higher than v47's 1e-4)
@@ -115,7 +118,7 @@ Key inputs for policy:
 
 ---
 
-## 9. Current Reward Scales (v48-T14 — Active in cfg.py)
+## 9. Current Reward Scales (v49 — Active in cfg.py)
 
 | Category | Parameter | Value | vs v47 | Notes |
 |----------|-----------|-------|--------|-------|
@@ -142,6 +145,8 @@ Key inputs for policy:
 | | `impact_penalty` | -0.100 | +25% | Slightly heavier |
 | | `action_rate` | -0.007 | ~same | |
 | | `ang_vel_xy` | -0.038 | -16% | |
+| | **`drag_foot_penalty`** | **-0.02** | **v49 NEW** | Per-dragging-leg (contact+low_vel), bump×2 |
+| | **`stagnation_penalty`** | **-0.5** | **v49 NEW** | Linear ramp 50%→100% stagnation window |
 | **Gait** | `stance_ratio` | 0.070 | +70% | |
 | | `swing_contact_bump_scale` | 0.210 | -41% | |
 | **Unchanged** | `height_approach` | 5.0 | same | Not in search |
@@ -159,6 +164,23 @@ Key inputs for policy:
 ### v48 Search (completed 2026-02-20): What Was Searched
 
 25 reward parameters + 2 HP parameters (LR, entropy) searched over 15 trials × 15M steps.
+
+**v48 Outcome:** T14 winner deployed to 100M training → **FAILED** at 78% (local optimum: backward-dragging behavior, foot_clearance=0, LR crushed to 5.9e-5). See REPORT Section 8.
+
+### v49 Search Space Expansion (2026-02-20): 27 reward + 2 HP = 29 parameters
+
+Based on T14 boundary analysis + 2 new anti-local-optimum penalties:
+
+| Change | Old | New | Reason |
+|--------|-----|-----|--------|
+| `learning_rate` | [3e-4, 5e-4] | **[2e-4, 8e-4]** | T14=4.5e-4 at 90th pctile |
+| `entropy_loss_scale` | [3e-3, 6e-3] | **[3e-3, 1.5e-2]** | T14=7.75e-3 EXCEEDED upper |
+| `waypoint_approach` | [80, 300] | **[80, 500]** | T14=280.5 at 93% |
+| `zone_approach` | [20, 80] | **[20, 150]** | T14=74.7 at 91% |
+| `lin_vel_z` | [-0.2, -0.02] | **[-0.2, -0.005]** | T14=-0.027 at 96% |
+| `swing_contact_penalty` | [-0.06, -0.003] | **[-0.06, -0.0005]** | T14=-0.003 AT bound |
+| `drag_foot_penalty` | — (new) | **[-0.08, -0.005]** | v49 anti-drag penalty |
+| `stagnation_penalty` | — (new) | **[-2.0, -0.1]** | v49 anti-stagnation penalty |
 
 ### What Was NOT Searched (Fixed Parameters)
 
@@ -196,11 +218,11 @@ Key inputs for policy:
 
 ### Recommended Future Search Directions (Priority Order)
 
-**Search A — Boundary Expansion (HIGH priority):**
-The Bayesian optimizer hit boundaries on entropy, waypoint_approach, zone_approach, lin_vel_z, and swing_contact_penalty. The true optimum may lie beyond these bounds. A focused search with widened ranges should be the FIRST next AutoML run.
+**Search A — v49 Anti-Local-Optimum + Boundary Expansion (HIGH priority — NEXT):**
+Combines boundary widening (6 params) + 2 new anti-dragging penalties. v48-T14 converged to backward-dragging local optimum at 100M (foot_clearance=0, LR crushed). The v49 penalties directly target this failure mode. Run 15–20 trials × 15M steps with expanded 29-parameter search space. **This is the immediate next AutoML run.**
 
 **Search B — Long-Horizon Validation (HIGH priority):**
-T14 was validated at 15M steps only. At 50M+ steps, behavior can diverge. Run a 5-trial search at 30M steps/trial to test if T14's config still leads at longer horizons, or if lighter penalties cause late-training bouncing/instability.
+T14 was validated at 15M steps only. At 50M+ steps, behavior can diverge. Run best v49 trial to 50M+. v48-T14 proved this concern valid: 15M config collapsed at 78M. Long-horizon validation is MANDATORY before declaring any config optimal.
 
 **Search C — Reward Components Not Yet Searched (MEDIUM priority):**
 - `slope_orientation` currently disabled (0.0) — could help ramp traversal stability. Search [0.0, 0.1].

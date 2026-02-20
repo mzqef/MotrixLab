@@ -315,6 +315,7 @@ REWARD_SEARCH_SPACE_SECTION011 = {
     # ===== v49 新惩罚 (Anti-local-optimum penalties) =====
     "drag_foot_penalty": {"type": "uniform", "low": -0.08, "high": -0.005},   # v49: per-dragging-leg penalty (default=-0.02, bump区×2)
     "stagnation_penalty": {"type": "uniform", "low": -2.0, "high": -0.1},     # v49: linear ramp from 50% stagnation window (default=-0.5)
+    "crouch_penalty": {"type": "uniform", "low": -15.0, "high": -1.0},         # v50: base clearance < 0.25m penalty (default=-5.0, targets sitting)
 }
 
 # --- Section012 (stairs/bridge/obstacles, 60pt section, bridge-priority) ---
@@ -453,6 +454,7 @@ REWARD_COMPONENT_CATEGORIES = {
     # Section011 v49: anti-local-optimum penalties
     "drag_foot_penalty": "stability",
     "stagnation_penalty": "stability",
+    "crouch_penalty": "stability",
 }
 
 

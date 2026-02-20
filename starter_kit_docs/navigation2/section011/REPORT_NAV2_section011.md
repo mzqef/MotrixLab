@@ -319,3 +319,115 @@ From TensorBoard of T14's 15M step run:
 ---
 
 *This report is append-only. Never overwrite existing content — the history is a permanent record.*
+
+---
+
+## 8. T14 100M Training Failure & v49 Fix — 2026-02-20
+
+### T14 100M Deployment: `26-02-20_15-07-50-296259_PPO`
+
+| Property | Value |
+|----------|-------|
+| Config | v48-T14 (LR=4.513e-4, entropy=0.00775, KL-adaptive) |
+| Steps target | 100M (48,500 iters) |
+| Stopped at | ~78% (38,500 iters, ~3h) |
+| Reason | **Local optimum — policy learned to survive by retreating/dragging, never navigates** |
+
+### Deep Analysis @ 78% (monitor_training.py --deep)
+
+| Metric | Value | Assessment |
+|--------|-------|------------|
+| `wp_idx_mean` | **0.45** (max 2.0) | FAILURE — average didn't pass WP0 |
+| `term_rate` | **7.8%** | Excellent survival (but survival ≠ navigation) |
+| `max_y_progress` | 0.64 mean, 4.49 max | Barely past bump entrance |
+| `foot_clearance` | **0** (zero!) | Robot NEVER lifts legs — pure dragging |
+| `torque_saturation` | **-1106** cumulative | Massive — controllers fully saturated |
+| `ep_length` | 2826 mean (~28s) | Alive but not progressing |
+| `LR` | **5.9e-5** (from configured 4.5e-4) | KL-adaptive crushed LR 7.6× — stagnant learning |
+| `alive_bonus_total` | 1131 | Positive — survival is rewarded |
+| `forward_vel_total` | 861 | Some forward motion but inconsistent |
+| `zone_approach_total` | 3821 | Proximity-based — doesn't require actual collection |
+| `penalties_total` | -2397 | Heavy penalty budget but not enough to break survival loop |
+| `smiley_bonus` | 0 | No zones collected |
+| `celeb/jump/red_packet` | 0 | No progress past bump entrance |
+
+### Root Cause: Reward Blind Spot → Backward-Dragging Local Optimum
+
+**User Observation**: "Legs stuck on obstacles, robot constantly retreating/dragging — survival-oriented, navigation-opposed."
+
+**Analysis**: The reward function had a blind spot for legs with sustained ground contact + low velocity:
+1. **foot_clearance** reward: Only fires during swing phase (leg off ground) → `foot_clearance=0` means robot never enters swing
+2. **swing_contact_penalty**: Penalizes contact during swing, but if leg NEVER swings, penalty is zero
+3. **drag behavior**: Leg in continuous ground contact with low velocity gets NEITHER reward nor penalty
+
+Combined with `alive_bonus` (even with decay), the robot found a degenerate strategy:
+- Stand still / slowly retreat → alive_bonus accumulates
+- Never lift legs → zero foot_clearance reward but also zero swing_contact penalty
+- Torque controllers saturate trying to maintain posture → torque_saturation penalty is large but not enough to break the equilibrium
+
+### LR Collapse Timeline
+
+```
+Configured:  4.513e-4
+Peak:        1.1e-3   (early training, high KL divergence)
+@35%:        8.9e-5
+@64%:        5.9e-5
+@78%:        5.9e-5   (stable — no more learning)
+```
+
+KL-adaptive raised LR early (trying to learn), then crushed it once policy settled into the local optimum. Final LR is 7.6× below configured and lower than v47's fixed 1e-4.
+
+### v49 Fix: Two New Anti-Local-Optimum Penalties
+
+**Penalty 1: `drag_foot_penalty` (default: -0.02)**
+
+Targets the exact blind spot: legs with sustained contact + low velocity.
+
+```
+Detection: calf_in_contact AND calf_velocity < 1.0 m/s
+Per-step: drag_foot_scale × count_of_dragging_legs (0-4)
+Bump boost: 2× in bump zone (y ∈ [-1.5, 1.5])
+```
+
+This directly penalizes the "stand and drag" strategy that T14 converged to.
+
+**Penalty 2: `stagnation_penalty` (default: -0.5)**
+
+Progressive penalty that ramps up as stagnation detection window fills:
+
+```
+stag_ratio = clip((steps_since_anchor / window - 0.5) × 2, 0, 1)
+penalty = stagnation_scale × stag_ratio
+```
+
+- 0% to 50% of stagnation window: no penalty (grace period)
+- 50% to 100%: linear ramp from 0 to full penalty
+- Exempt during celebration phase
+
+This provides gradient signal BEFORE truncation fires, while truncation only fires at 100% (binary — no gradient).
+
+### v49 AutoML Search Space Expansion
+
+Based on T14 boundary analysis + v49 new penalties, the AutoML search space was expanded:
+
+| Parameter | Old Range | New Range | Reason |
+|-----------|-----------|-----------|--------|
+| `learning_rate` | [3e-4, 5e-4] | **[2e-4, 8e-4]** | T14=4.5e-4 was at 90th percentile |
+| `entropy_loss_scale` | [3e-3, 6e-3] | **[3e-3, 1.5e-2]** | T14=7.75e-3 EXCEEDED old upper bound |
+| `waypoint_approach` | [80, 300] | **[80, 500]** | T14=280.5 was at 93% |
+| `zone_approach` | [20, 80] | **[20, 150]** | T14=74.7 was at 91% |
+| `lin_vel_z` | [-0.2, -0.02] | **[-0.2, -0.005]** | T14=-0.027 was at 96% (lighter end) |
+| `swing_contact_penalty` | [-0.06, -0.003] | **[-0.06, -0.0005]** | T14=-0.003 was AT lower bound |
+| `drag_foot_penalty` | — (new) | **[-0.08, -0.005]** | v49 new penalty |
+| `stagnation_penalty` | — (new) | **[-2.0, -0.1]** | v49 new penalty |
+
+Total searchable parameters: **27 reward + 2 HP = 29** (was 25+2=27).
+
+### Next Steps (v49 Plan)
+
+1. **v49 Baseline quick-train (10M steps)**: Verify code works, let user play-test to observe drag_foot and stagnation penalty effects
+2. **AutoML v49 search**: Run 15–20 trials × 15M steps with expanded search space
+   - Key hypothesis: drag_foot_penalty + stagnation_penalty break the backward-dragging local optimum
+   - Watch for: whether Bayesian finds optimal penalty weights, or if new penalties cause over-penalization (robot freezes)
+3. **Long-horizon validation**: Best v49 trial → 50M+ full training run
+4. **Comparison strategy**: Compare v49 best vs T14 100M (stopped) to measure improvement from anti-dragging penalties

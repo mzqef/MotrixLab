@@ -1179,10 +1179,8 @@ class VBotSection011Env(NpEnv):
                 calf_vel = np.abs(joint_vel[:, calf_indices])
             low_vel = calf_vel < 1.0  # 小腿几乎不动
             dragging = drag_in_contact & low_vel  # [n, 4]
-            # bump区boost: bump区拖脚更有害
-            drag_bump_boost = np.where(on_bump, 2.0, 1.0)
             drag_foot_raw = np.sum(dragging.astype(np.float32), axis=1)  # 0~4: 拖地腿数
-            drag_foot_penalty = drag_foot_scale * drag_foot_raw * drag_bump_boost
+            drag_foot_penalty = drag_foot_scale * drag_foot_raw
         else:
             drag_foot_penalty = np.zeros(n, dtype=np.float32)
 
@@ -1203,6 +1201,26 @@ class VBotSection011Env(NpEnv):
             stagnation_penalty = np.where(in_celeb, 0.0, stagnation_penalty)  # 庆祝阶段不惩罚
         else:
             stagnation_penalty = np.zeros(n, dtype=np.float32)
+
+        # ===== 蹲坐惩罚 (Crouch Penalty) =====
+        # 机器人坐下时base高度低于正常站立高度, 但thigh/calf接触不触发base_contact终止
+        # 根据地形估算地面z, 检查base clearance是否低于站立阈值
+        crouch_penalty_scale = scales.get("crouch_penalty", 0.0)
+        if crouch_penalty_scale < 0:
+            # 估算当前位置下方地面高度 (section011地形)
+            terrain_z_est = np.where(
+                current_y < -1.5, 0.0,                                    # START平台
+                np.where(current_y < 1.5, 0.10,                           # 高度场 (保守底部)
+                np.where(current_y < 2.0, 0.0,                            # 过渡区
+                np.where(current_y < 7.0,
+                         (current_y - 2.0) / 5.0 * 1.294,                 # 坡道线性插值
+                         1.294))))                                         # 高台顶部
+            clearance = current_z - terrain_z_est
+            min_clearance = 0.20  # 正常站立clearance≈0.25m, 低于0.20m=蹲坐
+            crouch_excess = np.maximum(min_clearance - clearance, 0.0)
+            crouch_penalty = crouch_penalty_scale * crouch_excess
+        else:
+            crouch_penalty = np.zeros(n, dtype=np.float32)
 
         # ===== 步态质量奖励 (Gait Quality) =====
         gait = self._compute_gait_rewards(data)
@@ -1239,6 +1257,7 @@ class VBotSection011Env(NpEnv):
             + height_osc_penalty
             + drag_foot_penalty
             + stagnation_penalty
+            + crouch_penalty
         )
 
         # ===== 综合奖励 =====
@@ -1303,6 +1322,7 @@ class VBotSection011Env(NpEnv):
             "torque_saturation": scales.get("torque_saturation", -0.01) * torque_sat_penalty,
             "drag_foot_penalty": drag_foot_penalty,
             "stagnation_penalty": stagnation_penalty,
+            "crouch_penalty": crouch_penalty,
         }
         return reward
 
