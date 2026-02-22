@@ -1057,7 +1057,7 @@ class VBotSection012Env(NpEnv):
                     info[last_key] = d.copy()
 
         # ===== 楼梯区抬脚 =====
-        on_stair = ((current_y > 12.0) & (current_y < 14.5)) | ((current_y > 21.0) & (current_y < 23.5))
+        # v54: TerrainZone-driven clearance boost with pre-zone transition (replaces hardcoded on_stair)
         foot_clearance_scale = scales.get("foot_clearance", 0.02)
         if foot_clearance_scale > 0:
             foot_forces = self._get_foot_contact_forces(data)
@@ -1065,8 +1065,8 @@ class VBotSection012Env(NpEnv):
             in_swing = force_mag < 0.5
             calf_indices = [2, 5, 8, 11]
             calf_vel = np.abs(joint_vel[:, calf_indices])
-            stair_boost = np.where(on_stair, scales.get("foot_clearance_stair_boost", 3.0), 1.0)
-            clearance_scale_vec = foot_clearance_scale * stair_boost
+            clearance_boost = self._terrain_scale.compute_clearance_boost(current_y, scales)
+            clearance_scale_vec = foot_clearance_scale * clearance_boost
             foot_clearance_reward = clearance_scale_vec * np.sum(
                 in_swing.astype(np.float32) * np.clip(calf_vel, 0.0, 5.0) * 0.2, axis=1
             )
@@ -1074,11 +1074,12 @@ class VBotSection012Env(NpEnv):
             foot_clearance_reward = np.zeros(n, dtype=np.float32)
 
         # ===== 摆动相接触惩罚 =====
-        stair_swing_scale = np.where(on_stair, scales.get("swing_contact_stair_scale", 0.5), 1.0)
+        # v54: TerrainZone-driven swing contact scaling (replaces hardcoded on_stair)
+        terrain_swing_scale = self._terrain_scale.compute_swing_scale(current_y, scales)
         swing_penalty = (
             scales.get("swing_contact_penalty", -0.025)
             * self._compute_swing_contact_penalty(data, joint_vel)
-            * stair_swing_scale
+            * terrain_swing_scale
         )
 
         # ===== 步态质量 =====

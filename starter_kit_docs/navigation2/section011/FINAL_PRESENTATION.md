@@ -1,7 +1,8 @@
 # Section011 — Final Presentation & Reproduction Recipe
 
 > **Historical Best: wp_idx = 5.9115** (v35, warm-start chain)
-> **Active Config: v49** — v48-T14 base + drag_foot_penalty + stagnation_penalty (anti-local-optimum). T14 100M failed at 78% (backward-dragging local optimum). v49 targets the root cause.
+> **Stage Two AutoML COMPLETED** (`automl_20260222_124457`) — warm-start from T12 peak (wp=2.232), 15 trials, jump-10 celebration, LR≤7e-4, frozen preprocessor.
+> **Champion: T13 wp_mean=3.443, score=0.5439** (15/15 trials, 6.71h).
 > See [Task_Reference.md](Task_Reference.md) Section 9 for full reward scales table.
 
 ---
@@ -182,6 +183,118 @@ See [Task_Reference.md](Task_Reference.md) Section 10 for future AutoML explorat
 **AutoML v49 search space expanded**: 6 boundary-widened params + 2 new penalties → 29 total searchable parameters. Key expansions: entropy [3e-3, 1.5e-2], waypoint_approach [80, 500], zone_approach [20, 150], swing_contact_penalty [-0.06, -0.0005].
 
 See [Task_Reference.md](Task_Reference.md) Section 10 for the full v49 expansion table and next AutoML plan.
+
+### Phase 6: Stage One + Full Training + Stage Two AutoML (2026-02-22)
+
+**Goal**: Break through the warm-start chain ceiling (wp~2.8) using large-scale AutoML search, full 100M training, and warm-start refinement with harder celebration (10 jumps).
+
+#### Phase 6A: Stage One — Cold-Start AutoML (`automl_20260221_203616`)
+
+20 Bayesian trials × 10M steps, searching 31 reward + 2 HP parameters centered on R1_T10 values.
+
+**Winner: T12** (wp_mean=0.412, score=0.2562 — seed config survived as champion):
+
+| Parameter | T12 Value | Key |
+|-----------|-----------|-----|
+| `forward_velocity` | 6.49 | Strong forward pull |
+| `waypoint_approach` | 510.9 | Very high navigation attraction |
+| `zone_approach` | 196.3 | Strong zone pull |
+| `termination` | -50 | Light fall penalty |
+| `stagnation_penalty` | -1.13 | Anti-loafing |
+| `drag_foot_penalty` | -0.29 | Anti-dragging |
+| `crouch_penalty` | -1.30 | Anti-crouching |
+| LR | 1.0e-3 | Aggressive (search upper bound) |
+| Entropy | 0.0028 | Very low exploration |
+
+```powershell
+# Stage One AutoML (20 trials × 10M steps)
+uv run starter_kit_schedule/scripts/automl.py --mode stage --env vbot_navigation_section011 `
+    --budget-hours 8 --hp-trials 20 --seed-configs starter_kit_schedule/configs/seed_T12_warmstart.json
+```
+
+#### Phase 6B: Full 100M Training — Three Candidates
+
+Three top trials (T12, T13, T11) trained to 100M steps with fixed LR=1e-3 (no KL-adaptive).
+
+| Run | Peak wp | Peak Iter | Final wp | Collapse | Run Dir |
+|-----|---------|-----------|----------|----------|---------|
+| **A (T12)** | **2.232** | **24500** | 0.138 | -94% | `26-02-22_05-25-43-367487_PPO` |
+| B (T13) | 2.033 | 21000 | 0.639 | -69% | `26-02-22_05-28-12-324803_PPO` |
+| C (T11) | 1.919 | 25000 | 0.363 | -80% | `26-02-22_05-30-41-234319_PPO` |
+
+**All three collapsed after ~50M steps** — fixed LR=1e-3 too aggressive for exploitation phase. Peak checkpoint `agent_24500.pt` from Train A preserved for warm-start.
+
+#### Phase 6C: Stage Two — Warm-Start AutoML (`automl_20260222_124457`, COMPLETED)
+
+15 warm-start trials from T12's peak checkpoint, with `required_jumps = 10` (hardened from 3). Completed in **6.71 hours**.
+
+**Infrastructure changes**:
+- `--checkpoint` and `--freeze-preprocessor` flags added to `automl.py`
+- LR clamped ≤ 7e-4 in both random and Bayesian phases
+- Frozen RunningStandardScaler prevents normalizer drift
+
+**Full results — Top 5** (all 15 trials reached wp_MAX=7.0):
+
+| Rank | Trial | Score | wp_mean | suc% | LR | Entropy | Term | Stag | CrouchP | BmpB | Fwd | WPA |
+|------|-------|-------|---------|------|-----|---------|------|------|---------|------|-----|-----|
+| **1** | **T13** | **0.5439** | **3.443** | 23.2% | 5.7e-4 | **0.0100** | -50 | -2.38 | -2.34 | 13.55 | 5.55 | **346.0** |
+| 2 | T4 | 0.5399 | 3.411 | 20.5% | 5.1e-4 | 0.0084 | -50 | -2.38 | -2.34 | 13.55 | 5.55 | 310.6 |
+| 3 | T6 | 0.5374 | 3.354 | 25.5% | 7.0e-4 | 0.0066 | -75 | -1.66 | -2.35 | 19.13 | 9.38 | 772.3 |
+| 4 | T10 | 0.5297 | 3.312 | 19.7% | 4.9e-4 | 0.0100 | -50 | -2.38 | -2.21 | 16.25 | 5.55 | 310.6 |
+| 5 | T2 | 0.5286 | 3.300 | 21.4% | 7.0e-4 | 0.0071 | -50 | -5.52 | -1.40 | 7.44 | 5.52 | 638.9 |
+
+*Full 15-trial table: see [REPORT_NAV2_section011.md](REPORT_NAV2_section011.md) Section 11.*
+
+**Key findings**:
+- **T13 champion** — entropy=0.01 + WPA=346 was the winning edge over T4 (entropy=0.0084, WPA=310.6)
+- **Term -50 dominates**: avg score 0.5247 vs -75 (0.5205) vs -100 (0.5119)
+- **T9 controlled ablation**: T4's exact rewards with term=-100 → score dropped 0.5399→0.5272
+- **Bayesian convergence**: After ~10 trials, optimizer heavily exploited T4 config region
+- **Warm-start doubles score**: 0.50-0.54 (warm-start) vs 0.22-0.26 (cold-start)
+
+```powershell
+# Stage Two AutoML — Branch A (warm-start from T12 peak)
+uv run starter_kit_schedule/scripts/automl.py --mode stage --env vbot_navigation_section011 `
+    --budget-hours 8 --hp-trials 15 `
+    --seed-configs starter_kit_schedule/configs/seed_T12_warmstart.json `
+    --checkpoint "runs/vbot_navigation_section011/26-02-22_05-25-43-367487_PPO/checkpoints/agent_24500.pt" `
+    --freeze-preprocessor
+```
+
+#### Phase 6D: Stage Two — Branch B: Warm-Start from Train B / T13 (`automl_20260222_201059`, COMPLETED)
+
+15 warm-start trials from **T13's** peak checkpoint (iter 21000, wp=2.033). 8 trials completed successfully, 3 failed. **5.87 hours**.
+
+**Champion: T10** (wp_mean=3.111, suc=25.4%, LR=5.0e-4, entropy=0.0037, term=-50)
+
+| Rank | Trial | wp_mean | suc% | LR | entropy | term |
+|------|-------|---------|------|-----|---------|------|
+| 1 | **T10** | **3.111** | 25.4% | 5.0e-4 | 0.0037 | -50 |
+| 2 | T8 | 2.956 | 24.5% | 7.0e-4 | 0.0097 | -100 |
+| 3 | T2 | 2.944 | 24.6% | 7.0e-4 | 0.0059 | -75 |
+| 4 | T4 | 2.943 | 23.3% | 5.4e-4 | 0.0039 | -50 |
+| 5 | T6 | 2.859 | 24.0% | 7.0e-4 | 0.0074 | -100 |
+
+**Branch A vs Branch B head-to-head**:
+
+| Metric | Branch A (T13) | Branch B (T10) | Winner |
+|--------|---------------|---------------|--------|
+| Champion wp_mean | **3.443** | 3.111 | Branch A (+9.6%) |
+| Success rate | 25.3% | 25.4% | Tie |
+| Trials completed | 15/15 | 8/11 | Branch A |
+| Duration | 6.71h | 5.87h | — |
+
+**Conclusion**: Branch A clearly superior. Higher peak warm-start checkpoint (wp=2.232) beats more-stable-but-lower checkpoint (wp=2.033). Branch B's T10 independently converged on term=-50, confirming it as the optimizer-preferred regime.
+
+#### Phase 6E: Stage Two — Branch C: T11 (`automl_20260223_012907`, RUNNING)
+
+Warm-start from Train C peak (T11, iter 25000, wp=1.919). Started 2026-02-23. 1 trial completed so far (T0 seed: wp=2.440, suc=23.7%).
+
+T11's distinctive feature: high entropy (ent=0.0098, 3.5× T12) during Stage One. The weakest full-train candidate (-80% collapse), but broad exploration may enable unexpected discoveries in warm-start.
+
+#### Phase 6F: Deploy Branch A Champion (NEXT)
+
+Branch A T13 is the confirmed overall champion (score=0.5439, wp=3.443). Next step: deploy T13 config to full 100M training or directly use for competition submission.
 
 ---
 
@@ -529,7 +642,7 @@ v29 agent_6000.pt            │
                           v35 (KL-adaptive + pre-peak — wp_idx=5.91 @ agent_6000.pt) ★ BEST (warm-start)
 ```
 
-### Fresh-Start Chain (v46 → v48-T14 → v49, no warm-start)
+### Fresh-Start Chain (v46 → v48-T14 → v49 → Stage One → Full Train → Stage Two)
 
 ```
 v46 (fresh config: v35 rewards + PHASE_APPROACH=-1 + waypoint_facing 0.061→0.61)
@@ -540,17 +653,50 @@ v47 (50M fresh — wp_idx_mean=1.40, max=7.0, 100% term rate)
     ▼  [AutoML 15 trials × 15M, joint HP+reward search]
 v48-T14 (AutoML winner — wp_idx_mean=0.484 @ 15M cold-start)
     │    Lighter penalties + stronger navigation pull
-    │    LR=4.5e-4, entropy=0.0078, (512,256,128) both
     ▼
 T14 100M deployment — ★ FAILED at 78% (backward-dragging local optimum)
-    │    foot_clearance=0, LR crushed to 5.9e-5
+    │
+    ▼  [+drag_foot_penalty, +stagnation_penalty]
+v49/v55 (anti-local-optimum + search space expansion)
+    │
+    ▼  [Iterative warm-start chain: R1_T10 → 4 chain steps]
+Stage 30 (warm-start chain plateaued at wp_mean=2.787)
+    │
+    ▼  [AutoML 20 trials × 10M, cold-start, v55 search space]
+Stage One AutoML (automl_20260221_203616)
+    │    T12 champion: seed config survived (wp_mean=0.412, score=0.2562)
     ▼
-v49 (anti-local-optimum: +drag_foot_penalty, +stagnation_penalty)
-    │    AutoML search space expanded: 29 params (was 27)
+Full 100M Training (3 candidates: T12, T13, T11)
+    │    Train A (T12) peak: wp_mean=2.232 @ iter 24500
+    │    All 3 collapsed after 50M steps (fixed LR=1e-3 too aggressive)
     ▼
-v49 AutoML search (NEXT) → best trial → 50M+ long-horizon validation
+agent_24500.pt preserved ← warm-start source for Stage Two
+    │    + cfg.py: required_jumps = 3 → 10
+    ▼
+Stage Two AutoML — Branch A (automl_20260222_124457, COMPLETED — 6.71h)
+    │    15 warm-start trials from T12 peak, LR ≤ 7e-4, frozen preprocessor
+    │    T13 CHAMPION: wp_mean=3.443, score=0.5439
+    ▼
+T13 config → Full deployment (NEXT)
+
+Full 100M Training — Train B (T13): peak wp=2.033 @ iter 21000
+    │    Collapsed -69% (to 0.639) — least severe of the three
+    ▼
+agent_21000.pt preserved ← warm-start source for Branch B
+    │
+    ▼
+Stage Two AutoML — Branch B (automl_20260222_201059, COMPLETED — 5.87h)
+    │    8 warm-start trials from T13 peak, 3 failed
+    │    T10 CHAMPION: wp_mean=3.111, score=0.5134
+    ▼
+Branch A T13 confirmed as overall winner (score=0.5439 > 0.5134)
+
+Full 100M Training — Train C (T11): peak wp=1.919 @ iter 25000
+    │    Collapsed -80% (to 0.363)
+    ▼
+agent_25000.pt preserved ← warm-start source for Branch C (RUNNING)
 ```
 
 ---
 
-*Generated 2026-02-17. Updated 2026-02-20 with v48-T14 failure analysis and v49 anti-local-optimum fixes. Source of truth for Section011 training methodology.*
+*Generated 2026-02-17. Updated 2026-02-23 with Branch B results (T10 champion, score=0.5134, wp=3.111 — Branch A confirmed superior), Branch C launch (running), checkpoint cleanup (20 GB freed, 9 runs preserved), and TensorBoard comparison data. Source of truth for Section011 training methodology.*

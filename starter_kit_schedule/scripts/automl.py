@@ -167,7 +167,7 @@ class AutoMLConfig:
     # HP search settings
     hp_method: str = "bayesian"  # bayesian | random | grid
     hp_trials_per_stage: int = 20
-    hp_warmup_trials: int = 5
+    hp_warmup_trials: int = 8  # v56: more random exploration before Bayesian (2 seeds + 8 warmup = 10 random, then Bayesian)
     hp_eval_steps: int = 15_000_000  # v37: 15M steps — zones start appearing ~10M, Bayesian gets real signal
 
     # (Reward weights are searched jointly with HP — no separate reward search phase)
@@ -184,6 +184,13 @@ class AutoMLConfig:
     checkpoint_interval: int = 1000
     num_envs: int = 2048
     seed: int = 42
+
+    # Warm-start from checkpoint (all trials use this checkpoint)
+    checkpoint: Optional[str] = None
+    freeze_preprocessor: bool = False
+
+    # Seed configs: JSON files whose HP+reward are used as the first N trials
+    seed_configs: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -225,7 +232,7 @@ HP_SEARCH_SPACE = {
     # v49 Round: Boundaries expanded from v48-T14 analysis
     # T14 optimal: lr=4.51e-4, entropy=7.75e-3 (EXCEEDED old upper of 6e-3)
     # T7 optimal: lr=4.24e-4, entropy=4.11e-3, epochs=6, rollouts=24, mini_batches=16
-    "learning_rate": {"type": "loguniform", "low": 2e-4, "high": 8e-4},  # v49: widened (T14=4.5e-4 was at 90th pctile)
+    "learning_rate": {"type": "loguniform", "low": 4e-4, "high": 1.5e-3},  # v56: raised floor (T3 failed at 2.2e-4)
     "entropy_loss_scale": {"type": "loguniform", "low": 3e-3, "high": 1.5e-2},  # v49: widened (T14=7.75e-3 EXCEEDED old upper 6e-3)
     # Network sizes FIXED — v47: larger policy net (512,256,128) matching value net
     "policy_hidden_layer_sizes": {
@@ -281,47 +288,50 @@ REWARD_SEARCH_SPACE_SECTION001 = {
 #   - foot_clearance range [0.05,0.3] centered on v47=0.15
 #   - Added alive_decay_horizon and waypoint_bonus to search
 REWARD_SEARCH_SPACE_SECTION011 = {
-    # ===== v53 WIDE EXPLORATION — 14h budget, maximize data & insight =====
+    # ===== v55 FOCUSED SEARCH — centered on T10 best (wp_idx=0.290) =====
+    # T10 was the best trial from automl_20260221_012214. Ranges are ±50-70%
+    # around T10 values to exploit the known-good region while still exploring.
     # height_progress: PERMANENTLY DISABLED (bounce-farming exploit). Do NOT re-enable.
     # height_approach: PERMANENTLY DISABLED. Do NOT re-enable.
     #
-    # ===== 导航核心 (Navigation core) =====
-    "forward_velocity": {"type": "uniform", "low": 0.5, "high": 8.0},       # v53: much wider (explore low-pull vs high-pull)
-    "waypoint_approach": {"type": "uniform", "low": 40.0, "high": 800.0},   # v53: doubled upper (T14=280; test extreme pull)
-    "zone_approach": {"type": "uniform", "low": 5.0, "high": 250.0},        # v53: wider both ends
-    "position_tracking": {"type": "uniform", "low": 0.02, "high": 1.5},     # v53: wider (explore near-zero vs strong)
-    "waypoint_facing": {"type": "uniform", "low": 0.1, "high": 2.0},        # v53: wider (test weak vs strong heading pull)
+    # ===== 导航核心 (Navigation core) — T10 anchored =====
+    "forward_velocity": {"type": "uniform", "low": 2.0, "high": 10.0},       # T10=6.06 ±65%
+    "waypoint_approach": {"type": "uniform", "low": 200.0, "high": 800.0},   # T10=510.9 ±60%
+    "zone_approach": {"type": "uniform", "low": 80.0, "high": 350.0},        # T10=196.3 ±60%
+    "position_tracking": {"type": "uniform", "low": 0.5, "high": 2.5},       # T10=1.39 ±60%
+    "waypoint_facing": {"type": "uniform", "low": 0.2, "high": 1.5},         # T10=0.73 ±60%
     # ===== 存活奖励 =====
-    "alive_bonus": {"type": "uniform", "low": 0.2, "high": 4.0},            # v53: wider (test low survival incentive vs strong)
-    "alive_decay_horizon": {"type": "uniform", "low": 500.0, "high": 5000.0},  # v53: wider (fast vs slow decay)
+    "alive_bonus": {"type": "uniform", "low": 1.0, "high": 4.0},             # T10=2.50 ±60%
+    "alive_decay_horizon": {"type": "uniform", "low": 1500.0, "high": 5000.0},  # T10=3921 ±60%
     # ===== 一次性奖金 =====
-    "waypoint_bonus": {"type": "uniform", "low": 10.0, "high": 200.0},      # v53: doubled (test strong milestone pull)
-    "phase_bonus": {"type": "uniform", "low": 5.0, "high": 100.0},          # v53: doubled upper
+    "waypoint_bonus": {"type": "uniform", "low": 10.0, "high": 60.0},        # T10=27.2 ±60%
+    "phase_bonus": {"type": "uniform", "low": 40.0, "high": 180.0},          # T10=99.8 ±60%
     # ===== 庆祝 & 跳跃奖励 =====
-    "per_jump_bonus": {"type": "uniform", "low": 5.0, "high": 120.0},       # v53: wider
-    "celebration_bonus": {"type": "uniform", "low": 20.0, "high": 300.0},   # v53: wider
-    "jump_reward": {"type": "uniform", "low": 2.0, "high": 40.0},           # v53: wider
-    # ===== 惩罚 (WIDE exploration — test everything from near-zero to aggressive) =====
-    "termination": {"type": "choice", "values": [-250, -200, -150, -100, -50]},  # v53: full range including extremes
-    "orientation": {"type": "uniform", "low": -0.1, "high": -0.002},        # v53: wider both sides
-    "lin_vel_z": {"type": "uniform", "low": -0.2, "high": -0.005},          # v53: wider (test aggressive bounce control)
-    "ang_vel_xy": {"type": "uniform", "low": -0.1, "high": -0.002},         # v53: wider
-    "action_rate": {"type": "uniform", "low": -0.05, "high": -0.001},       # v53: wider (test smooth vs aggressive)
-    "impact_penalty": {"type": "uniform", "low": -0.3, "high": -0.002},     # v53: much wider upper bound
-    "torque_saturation": {"type": "uniform", "low": -0.08, "high": -0.001}, # v53: wider
-    "swing_contact_penalty": {"type": "uniform", "low": -0.15, "high": -0.0002},  # v53: wider
+    "per_jump_bonus": {"type": "uniform", "low": 15.0, "high": 80.0},        # T10=46.8 ±60%
+    "celebration_bonus": {"type": "uniform", "low": 50.0, "high": 250.0},    # T10=126.6 ±60%
+    "jump_reward": {"type": "uniform", "low": 2.0, "high": 15.0},            # T10=7.55 ±70%
+    # ===== 惩罚 — T10 had light penalties; test slightly wider =====
+    "termination": {"type": "choice", "values": [-100, -75, -50, -25]},       # v56: lighter range (T3/T4 died with -200/-100)
+    "orientation": {"type": "uniform", "low": -0.03, "high": -0.003},         # T10=-0.011 ±65%
+    "lin_vel_z": {"type": "uniform", "low": -0.08, "high": -0.008},           # T10=-0.032 ±65%
+    "ang_vel_xy": {"type": "uniform", "low": -0.15, "high": -0.03},           # T10=-0.10 ±50%
+    "action_rate": {"type": "uniform", "low": -0.08, "high": -0.015},         # T10=-0.042 ±60%
+    "impact_penalty": {"type": "uniform", "low": -0.12, "high": -0.015},      # T10=-0.054 ±65%
+    "torque_saturation": {"type": "uniform", "low": -0.12, "high": -0.02},    # T10=-0.074 ±60%
+    "swing_contact_penalty": {"type": "uniform", "low": -0.02, "high": -0.001},  # T10=-0.005 ±70%
     # ===== 步态 & 地形 =====
-    "stance_ratio": {"type": "uniform", "low": 0.0, "high": 0.15},          # v53: wider upper
-    "foot_clearance": {"type": "uniform", "low": 0.02, "high": 0.5},        # v53: wider (test low vs aggressive clearance)
-    "foot_clearance_bump_boost": {"type": "uniform", "low": 2.0, "high": 25.0},  # v53: wider
-    "swing_contact_bump_scale": {"type": "uniform", "low": 0.05, "high": 1.0},   # v53: wider
-    # ===== v49 新惩罚 (Anti-local-optimum penalties — WIDE to test zero-ish vs strong) =====
-    "drag_foot_penalty": {"type": "uniform", "low": -0.3, "high": -0.005},    # v53: much wider (test aggressive vs near-zero)
-    "stagnation_penalty": {"type": "uniform", "low": -2.0, "high": -0.05},    # v53: wider (test strong nudge vs gentle)
-    # v51 crouch_penalty: BINARY penalty. Include near-zero to test "no crouch penalty" hypothesis.
-    "crouch_penalty": {"type": "uniform", "low": -5.0, "high": -0.05},        # v53: full range (v51=-5 froze, but -0.05 ≈ off)
-    # v51 dof_pos: penalize deviation from default standing joint angles.
-    "dof_pos": {"type": "uniform", "low": -0.1, "high": -0.0005},             # v53: full range (test strong vs near-zero)
+    "stance_ratio": {"type": "uniform", "low": 0.0, "high": 0.01},           # T10=0.0007 (near zero; keep exploring low range)
+    "foot_clearance": {"type": "uniform", "low": 0.15, "high": 0.7},         # T10=0.448 ±60%
+    "foot_clearance_bump_boost": {"type": "uniform", "low": 5.0, "high": 25.0},  # T10=12.99 ±60%
+    "foot_clearance_bump_boost_pre_margin": {"type": "uniform", "low": 0.5, "high": 2.0},  # v56: searchable pre-zone width (T10=0.7, T1=1.2)
+    "foot_clearance_bump_boost_post_margin": {"type": "uniform", "low": 0.0, "high": 0.8},  # v56: searchable post-zone width (T10=0.0, T1=0.5)
+    "foot_clearance_pre_zone_ratio": {"type": "uniform", "low": 0.3, "high": 0.8},  # v56: T10 was 0.5 (hardcoded); search ±60%
+    "swing_contact_bump_scale": {"type": "uniform", "low": 0.15, "high": 0.8},   # T10=0.425 ±60%
+    # ===== v49 penalties — T10 had strong values here =====
+    "drag_foot_penalty": {"type": "uniform", "low": -0.5, "high": -0.08},     # T10=-0.283 ±60%
+    "stagnation_penalty": {"type": "uniform", "low": -2.5, "high": -0.4},     # T10=-1.288 ±60%
+    "crouch_penalty": {"type": "uniform", "low": -2.5, "high": -0.3},         # T10=-1.232 ±60%
+    "dof_pos": {"type": "uniform", "low": -0.06, "high": -0.005},             # T10=-0.024 ±65%
 }
 
 # --- Section012 (stairs/bridge/obstacles, 60pt section, bridge-priority) ---
@@ -351,6 +361,7 @@ REWARD_SEARCH_SPACE_SECTION012 = {
     "traversal_bonus": {"type": "uniform", "low": 10.0, "high": 40.0},      # cfg=20.0
     "foot_clearance": {"type": "uniform", "low": 0.01, "high": 0.06},       # cfg=0.02
     "foot_clearance_stair_boost": {"type": "uniform", "low": 1.0, "high": 5.0},  # cfg=3.0
+    "foot_clearance_pre_zone_ratio": {"type": "uniform", "low": 0.3, "high": 1.0},  # v54: transition zone boost strength
     # === Celebration (jump-based) ===
     "jump_reward": {"type": "uniform", "low": 3.0, "high": 15.0},           # cfg=8.0
     # === Gait quality ===
@@ -706,6 +717,9 @@ class AutoMLPipeline:
         """
         logger.info(f"Running unified HP+reward search for {stage}: {self.config.hp_trials_per_stage} trials")
         logger.info(f"  Environment: {self.config.environment}")
+        if self.config.checkpoint:
+            logger.info(f"  Warm-start from: {self.config.checkpoint}")
+            logger.info(f"  Freeze preprocessor: {self.config.freeze_preprocessor}")
         search_space = get_reward_search_space(self.config.environment)
         logger.info(f"  Reward search space: {len(search_space)} parameters")
 
@@ -735,10 +749,31 @@ class AutoMLPipeline:
             self.state.current_iteration = trial
 
             # Sample or use Bayesian acquisition
+            # Seed configs take priority as the very first trials
+            if trial < len(self.config.seed_configs):
+                seed_path = Path(self.config.seed_configs[trial])
+                logger.info(f"  Using seed config: {seed_path.name}")
+                with open(seed_path) as _sf:
+                    seed_data = json.load(_sf)
+                reward_config = seed_data.get("reward_scales", {})
+                rl_ov = seed_data.get("rl_overrides", {})
+                hp_config = HPConfig(
+                    learning_rate=rl_ov.get("learning_rate", 5e-4),
+                    entropy_loss_scale=rl_ov.get("entropy_loss_scale", 0.005),
+                    policy_hidden_layer_sizes=rl_ov.get("policy_hidden_layer_sizes", [512, 256, 128]),
+                    value_hidden_layer_sizes=rl_ov.get("value_hidden_layer_sizes", [512, 256, 128]),
+                    rollouts=rl_ov.get("rollouts", 24),
+                    learning_epochs=rl_ov.get("learning_epochs", 6),
+                    mini_batches=rl_ov.get("mini_batches", 16),
+                    discount_factor=rl_ov.get("discount_factor", 0.999),
+                )
             # Use warmup count relative to total trials completed (not just this session)
-            if trial < self.config.hp_warmup_trials or self.config.hp_method == "random":
+            elif trial < self.config.hp_warmup_trials + len(self.config.seed_configs) or self.config.hp_method == "random":
                 hp_config = sample_hp_config()
                 reward_config = sample_reward_config(self.config.environment)
+                # Warm-start: clamp lr to safe range for fine-tuning
+                if self.config.checkpoint:
+                    hp_config.learning_rate = min(hp_config.learning_rate, 7e-4)
             else:
                 # Simple Bayesian: perturb best HP + reward config
                 hp_config, reward_config = self._bayesian_suggest(best_hp, best_reward)
@@ -799,7 +834,11 @@ class AutoMLPipeline:
         # Perturb learning rate in log space
         lr = hp_dict["learning_rate"]
         lr = float(lr * np.exp(np.random.normal(0, 0.3)))
-        lr = max(1e-5, min(1e-3, lr))
+        # Warm-start: narrower LR range (0.3-0.7x of original, never above 7e-4)
+        if self.config.checkpoint:
+            lr = max(1e-5, min(7e-4, lr))
+        else:
+            lr = max(1e-5, min(1e-3, lr))
         hp_dict["learning_rate"] = lr
 
         # Perturb entropy
@@ -914,6 +953,11 @@ class AutoMLPipeline:
             "reward_scales": reward_scales,
             "rl_overrides": rl_overrides,
         }
+
+        # Warm-start: pass checkpoint and freeze_preprocessor to train_one.py
+        if self.config.checkpoint:
+            config_data["checkpoint"] = self.config.checkpoint
+            config_data["freeze_preprocessor"] = self.config.freeze_preprocessor
 
         # Write config JSON
         config_dir = self.log_dir / "configs"
@@ -1146,6 +1190,14 @@ def parse_args():
     # Search settings
     parser.add_argument("--hp-trials", type=int, default=20,
                        help="Unified HP + reward weight search trials per stage")
+    parser.add_argument("--seed-configs", nargs="*", default=[],
+                       help="JSON config files to use as the first N seed trials")
+
+    # Warm-start options
+    parser.add_argument("--checkpoint", type=str, default=None,
+                       help="Warm-start all trials from this checkpoint")
+    parser.add_argument("--freeze-preprocessor", action="store_true",
+                       help="Freeze preprocessor (RunningStandardScaler) during warm-start")
 
     return parser.parse_args()
 
@@ -1161,6 +1213,9 @@ def main():
         target_reward=args.target_reward,
         environment=args.env,
         hp_trials_per_stage=args.hp_trials,
+        seed_configs=args.seed_configs or [],
+        checkpoint=args.checkpoint,
+        freeze_preprocessor=args.freeze_preprocessor,
     )
 
     # Load from YAML if provided

@@ -11,7 +11,7 @@
 | :--- | :---: | :---: | :--- | :--- |
 | **Smiley** | 3 | 4 each (12) | `(-3, 0)`, `(0, 0)`, `(3, 0)` | **Center-Contact**: Touch exact center (Radius **0.2m**) on height field ($y \approx 0$). |
 | **Red Packet** | 3 | 2 each (6) | `(-3, 4.4)`, `(0, 4.4)`, `(3, 4.4)` | **Center-Contact**: Touch exact center (Radius **0.2m**) on 15° ramp ($y \approx 4.4$). |
-| **Celebration** | 1 | 2 | High Platform $(0, 7.83)$ | Perform **3 jumps** ($z > 1.55$ then land $z < 1.50$) on top platform ($z > 1.0$). |
+| **Celebration** | 1 | 2 | High Platform $(0, 7.83)$ | Perform **10 jumps** ($z > 1.55$ then land $z < 1.50$) on top platform ($z > 1.0$). |
 
 *   **Spawn:** Random on START platform ($y \in [-3.5, -1.5]$). Current fixed spawn: $y=-2.5$.
 *   **Rule Change:** Old 1.2m boundary detection replaced by strict 0.2m center-contact.
@@ -56,9 +56,9 @@ Triggered when robot is on High Platform ($z > 1.0$).
 | :--- | :--- | :--- |
 | **Jump Threshold** | $z > 1.55$ | Detects airborne state. |
 | **Land Threshold** | $z < 1.50$ | Detects landing (counts 1 jump). |
-| **Required Jumps** | 3 | Total jumps needed for completion. |
+| **Required Jumps** | **10** | Total jumps needed for completion (changed from 3 → 10 in cfg.py line 381). |
 | **Rewards** | Jump: 10.0 (step)Per Jump: 25.0Completion: 80.0 | Continuous height reward + discrete bonuses. |
-| **Observation** | `celeb_progress` | Encodes progress: 0.0 $\to$ 0.33 $\to$ 0.67 $\to$ 1.0. |
+| **Observation** | `celeb_progress` | Encodes progress: 0.0 $\to$ 0.1 $\to$ 0.2 $\to$ ... $\to$ 1.0 (10 steps of 0.1). |
 
 ---
 
@@ -243,3 +243,73 @@ The v48 search converged heavily after ~8/15 trials — most guided trials share
 - Use more random seeds (e.g., `--random-trials 5` instead of 3)
 - Or use a different optimizer (random search with 20+ trials) to ensure broader exploration
 - Or split into focused sub-searches (e.g., penalties-only, bonuses-only, HP-only)
+
+---
+
+## 11. Multi-Stage AutoML Pipeline
+
+### Overview: Stage 1 → Full Train → Stage 2 (per branch)
+
+```
+Stage 1 AutoML (20 cold-start trials)
+    │
+    ├── T12 (#1) ──→ Full 100M Train A ──→ peak agent_24500.pt ──→ Stage 2 Branch A (COMPLETED)
+    ├── T13 (#2) ──→ Full 100M Train B ──→ peak agent_21000.pt ──→ Stage 2 Branch B (RUNNING)
+    └── T11 (#7) ──→ Full 100M Train C ──→ peak agent_25000.pt ──→ Stage 2 Branch C (PENDING)
+```
+
+### Stage One: Cold-Start (`automl_20260221_203616`) — COMPLETED
+
+- 20 trials × 10M steps, v55 search space (31 reward + 2 HP)
+- Winner: **T12** (wp_mean=0.412, score=0.2562) — seed config survived as champion
+- Top 3 selected: T12 (#1, term=-50), T13 (#2, term=-25), T11 (#7, high entropy)
+- All 3 trained to 100M steps → all collapsed after 50M (fixed LR=1e-3 too aggressive)
+
+### Full 100M Training — Peak Checkpoints
+
+| Run | Stage 1 Trial | Peak wp_mean | Peak Iter | Collapse | Checkpoint |
+|-----|--------------|-------------|-----------|----------|------------|
+| A | T12 (term=-50) | **2.232** | 24500 | -94% | `26-02-22_05-25-43-367487_PPO/checkpoints/agent_24500.pt` |
+| B | T13 (term=-25) | 2.033 | 21000 | -69% | `26-02-22_05-28-12-324803_PPO/checkpoints/agent_21000.pt` |
+| C | T11 (ent=0.01) | 1.919 | 25000 | -80% | `26-02-22_05-30-41-234319_PPO/checkpoints/agent_25000.pt` |
+
+### Stage Two Branch A: T12 Warm-Start (`automl_20260222_124457`) — COMPLETED
+
+- 15 trials × 10M steps, warm-start from Train A peak (agent_24500.pt), **6.71 hours**
+- Seed: `seed_T12_warmstart.json` (term=-50, stag=-1.13, lr=5e-4, ent=0.0028)
+- **Champion: T13** (wp_mean=3.443, score=0.5439, entropy=0.0100, LR=5.7e-4, term=-50)
+- All 15 trials achieved wp_MAX=7.0
+
+### Stage Two Branch B: T13 Warm-Start (`automl_20260222_201059`) — COMPLETED
+
+- 8 successful trials (3 failed) × 10M steps, warm-start from Train B peak (agent_21000.pt), **5.87 hours**
+- Seed: `seed_T13_warmstart.json` (term=-25, stag=-1.13, lr=5e-4, ent=0.002)
+- **Champion: T10** (wp_mean=3.111, score=0.5134, entropy=0.0037, LR=5.0e-4, term=-50)
+- Branch A T13 (score=0.5439) confirmed superior to Branch B T10 (score=0.5134) by 9.6%
+
+### Stage Two Branch C: T11 Warm-Start (`automl_20260223_012907`) — RUNNING
+
+- Warm-start from Train C peak (agent_25000.pt)
+- Seed: T11 config (term=-50, lr=5e-4, ent=0.0038)
+- T11's unique angle: high entropy (ent=0.0098, 3.5× T12)
+- Early results: T0 seed → wp=2.440, suc=23.7%
+
+### Reproduction
+
+```powershell
+# Branch A (COMPLETED)
+uv run starter_kit_schedule/scripts/automl.py `
+    --mode stage --env vbot_navigation_section011 `
+    --budget-hours 8 --hp-trials 15 `
+    --seed-configs starter_kit_schedule/configs/seed_T12_warmstart.json `
+    --checkpoint "runs/vbot_navigation_section011/26-02-22_05-25-43-367487_PPO/checkpoints/agent_24500.pt" `
+    --freeze-preprocessor
+
+# Branch B (RUNNING)
+uv run starter_kit_schedule/scripts/automl.py `
+    --mode stage --env vbot_navigation_section011 `
+    --budget-hours 8 --hp-trials 15 `
+    --seed-configs starter_kit_schedule/configs/seed_T13_warmstart.json `
+    --checkpoint "runs/vbot_navigation_section011/26-02-22_05-28-12-324803_PPO/checkpoints/agent_21000.pt" `
+    --freeze-preprocessor
+```

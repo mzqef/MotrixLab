@@ -1,0 +1,30 @@
+{
+  "T0": {
+    "standard": {
+      "wp_mean": 0.0,
+      "wp_median": 0.0,
+      "wp_p75": 0.0,
+      "wp_max": 0.0,
+      "y_mean": -1.8699614671058953,
+      "y_max": -1.3090710639953613,
+      "ep_len_mean": 200.0,
+      "total_episodes": 256,
+      "completed_episodes": 0,
+      "term_count": 0,
+      "trunc_count": 0
+    },
+    "relaxed": {
+      "wp_mean": 0.0,
+      "wp_median": 0.0,
+      "wp_p75": 0.0,
+      "wp_max": 0.0,
+      "y_mean": -1.8755804877728224,
+      "y_max": -1.3509738445281982,
+      "ep_len_mean": 200.0,
+      "total_episodes": 256,
+      "completed_episodes": 0,
+      "term_count": 0,
+      "trunc_count": 0
+    }
+  }
+}

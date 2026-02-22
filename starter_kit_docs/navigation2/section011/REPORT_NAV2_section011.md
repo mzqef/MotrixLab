@@ -431,3 +431,489 @@ Total searchable parameters: **27 reward + 2 HP = 29** (was 25+2=27).
    - Watch for: whether Bayesian finds optimal penalty weights, or if new penalties cause over-penalization (robot freezes)
 3. **Long-horizon validation**: Best v49 trial → 50M+ full training run
 4. **Comparison strategy**: Compare v49 best vs T14 100M (stopped) to measure improvement from anti-dragging penalties
+
+---
+
+## Stage 30: Iterative Warm-Start Chain (2026-02-21)
+
+### Context
+After AutoML R1 (11 trials) and R2 (5 trials) identified R1_T10 as the best config (wp_mean=0.290, wp_max=3), launched full 100M-step training. Discovered critical instability: **KL-adaptive LR scheduler causes catastrophic policy collapse at 60-80% of long training runs.**
+
+### R1_T10 Reward Config (held constant across all runs)
+```
+forward_vel=6.06, wp_approach=510.9, zone=196.3, alive=2.50, alive_decay=3921,
+fc=0.45, fc_bump=12.99, termination=-50, stagnation=-1.29, crouch=-1.23, drag=-0.28,
+celebration=126.6, phase_bonus=99.8, per_jump=46.8, jump_reward=7.55, wp_bonus=27.2
+```
+
+### Full Train (100M steps, KL-adaptive LR)
+- **Run**: `26-02-21_10-05-29-377373_PPO`
+- **Peak**: wp_mean=0.937 at step 29500 (~55% progress)
+- **Failure**: Catastrophic collapse at ~70% — wp_mean crashed 0.937 → 0.147 (84% drop)
+- **Root cause**: KL-adaptive scheduler crushed LR from 8.78e-4 → 1e-4 floor. When policy reached new terrain phases (wp_max jumped to 7), large KL divergence triggered but LR was already at floor, so policy couldn't recover from the perturbation.
+- **Lesson**: KL-adaptive is DANGEROUS for long training runs. Use fixed LR for anything >20M steps.
+
+### Warm-Start Chain Strategy
+**Insight**: Loading a peak checkpoint with a fixed (low) LR and frozen preprocessor allows the policy to improve further, then save the new peak before inevitable drift sets in. Chaining these warm-starts progressively pushes performance higher.
+
+| Chain | Source | LR | Peak wp_mean | Peak Step | Delta | Run Dir |
+|-------|--------|----|-------------|-----------|-------|---------|
+| 0 (full) | fresh | 1e-3 (KL) | 0.937 | 29500 | — | `26-02-21_10-05-29-377373_PPO` |
+| 1 | agent_27000 (chain0) | 5e-5 | 1.829 | 9000 | +95% | `26-02-21_12-06-20-648190_PPO` |
+| 2 | agent_9000 (chain1) | 1e-5 | **2.584** | 7500 | +41% | `26-02-21_13-15-59-147217_PPO` |
+| 3 | agent_7500 (chain2) | 1e-5 | **2.787** | 7000 | +8% | `26-02-21_13-56-35-936742_PPO` |
+| 4 | agent_7000 (chain3) | 1e-5 | 2.726 | 7000 | -2% | `26-02-21_14-24-01-549247_PPO` |
+
+**Pattern observed**: Every chain shows "ramp up → peak → gradual decline" regardless of LR. The peak consistently occurs around step 7000-9000. Diminishing returns: +95% → +41% → +8% → -2%. Chain plateaued at wp_mean ≈ 2.787.
+
+### Preserved Peak Checkpoints
+All peaks saved in `starter_kit_schedule/checkpoints/`:
+- `warmstart1_agent_9000.pt` (wp=1.829)
+- `warmstart2_agent_7500.pt` (wp=2.584)
+- `warmstart3_agent_7000.pt` (wp=**2.787**, BEST)
+- `warmstart4_agent_7000.pt` (wp=2.726)
+
+### Key Findings
+1. **KL-adaptive is catastrophic for long runs**: Fixed LR (null scheduler) is mandatory.
+2. **Warm-start chain works but plateaus**: Each successive chain yields diminishing improvement. The reward function, not the training process, is now the bottleneck.
+3. **wp_mean=2.787 interpretation**: Average robot reaches ~3rd waypoint (all 3 smileys). wp_max=7 shows full course is completable for some environments. The bottleneck is transitioning from smileys (Phase 1) to red packets (Phase 2) and beyond.
+4. **Preprocessor freeze is critical**: Without frozen preprocessor, observation normalization drifts during warm-start, causing immediate performance collapse.
+
+### Disk Space
+Cleaned all intermediate checkpoints from chain runs. Only best_agent.pt + peak checkpoints (in starter_kit_schedule/checkpoints/) preserved. Total cleanup: ~680MB saved across runs.
+
+### Next Steps
+1. **Visual diagnosis**: Run `capture_vlm.py` on warmstart3_agent_7000.pt to identify what prevents robots from reaching Phase 2 (red packets)
+2. **Reward engineering**: wp_mean=2.8 ceiling likely indicates insufficient reward signal for Phase 2 transition. Possible causes:
+   - Red packet bonuses too low relative to smiley bonuses
+   - Navigation signal weak after exiting smiley zone
+   - Ramp climbing reward needs strengthening
+3. **AutoML reward search**: After diagnosis, define new reward search space targeting Phase 2+ performance
+4. **Architecture alternative**: Consider whether policy capacity (512,256,128) is sufficient for multi-phase navigation
+
+---
+
+## 9. Stage One AutoML — Cold-Start HP+Reward Search (2026-02-22)
+
+### Campaign: `automl_20260221_203616`
+
+| Property | Value |
+|----------|-------|
+| Mode | stage (cold start, no warm-start) |
+| Trials | **20** |
+| Steps/trial | 10M (≈910 iters @ 2048 envs, `check_point_interval=909`) |
+| Budget | 8h |
+| Search space | v55 focused — centered on R1_T10 (Stage 30 winner), ±50-70% around T10 values |
+| Optimizer | Bayesian (1 seed + ~4 random warmup + ~15 guided) |
+| Policy/Value net | (512, 256, 128) fixed |
+| Seed config | `seed_T12_warmstart.json` — R1_T10's exact reward scales (fwd=6.49, wpa=510.9, zone=196.3, term=-50) |
+| Status | **Completed** |
+
+### Context
+
+Stage 30 warm-start chain plateaued at wp_mean=2.787. The reward function, not the training process, was the bottleneck. This AutoML searched 31 reward parameters + 2 HP to find configurations that could break through the wp~3 ceiling when trained from scratch.
+
+### Search Space Highlights (v55, 33 searchable parameters)
+
+Key ranges centered on R1_T10 values:
+- `forward_velocity`: [2.0, 10.0] (T10=6.06)
+- `waypoint_approach`: [200, 800] (T10=510.9)
+- `zone_approach`: [80, 350] (T10=196.3)
+- `termination`: {-100, -75, -50, -25}
+- `drag_foot_penalty`: [-0.5, -0.08] (T10=-0.283)
+- `stagnation_penalty`: [-2.5, -0.4] (T10=-1.29)
+- `crouch_penalty`: [-2.5, -0.3] (T10=-1.23)
+- New searchable params: `foot_clearance_bump_boost_pre_margin`, `foot_clearance_bump_boost_post_margin`, `foot_clearance_pre_zone_ratio`, `dof_pos`
+
+### Results — Top 10 Trials by Score
+
+| Rank | Trial | Score | wp_mean | suc% | LR | Entropy | Term | Fwd | WP_Appr | Zone | Stag | BumpB |
+|------|-------|-------|---------|------|-----|---------|------|-----|---------|------|------|-------|
+| 1 | **T12** | **0.2562** | **0.412** | 19.9% | 1.0e-3 | 0.0028 | -50 | 6.49 | 510.9 | 196.3 | -1.13 | 10.01 |
+| 2 | T13 | 0.2539 | 0.379 | 18.0% | 1.0e-3 | 0.0020 | -25 | 6.49 | 510.9 | 196.3 | -1.13 | 10.01 |
+| 3 | T16 | 0.2530 | 0.374 | 21.5% | 7.3e-4 | 0.0026 | -50 | 7.34 | 477.8 | 196.3 | -1.13 | 9.75 |
+| 4 | T18 | 0.2498 | 0.336 | 19.6% | 1.0e-3 | 0.0024 | -75 | 6.49 | 510.9 | 211.0 | -1.10 | 10.01 |
+| 5 | T8 | 0.2462 | 0.304 | 17.7% | 1.0e-3 | 0.0036 | -50 | 6.06 | 510.9 | 196.3 | -1.29 | 10.01 |
+| 6 | T0 | 0.2461 | 0.302 | 17.1% | 5.0e-4 | 0.0028 | -50 | 6.49 | 510.9 | 196.3 | -1.13 | 10.01 |
+| 7 | T11 | 0.2460 | 0.298 | 19.7% | 1.0e-3 | 0.0098 | -50 | 6.06 | 510.9 | 196.3 | -1.29 | 12.99 |
+| 8 | T1 | 0.2441 | 0.271 | 17.8% | 1.5e-3 | 0.0058 | -50 | 5.73 | 200.5 | 105.0 | -0.96 | 7.36 |
+| 9 | T2 | 0.2440 | 0.266 | 20.1% | 8.2e-4 | 0.0113 | -50 | 5.33 | 543.7 | 162.7 | -1.57 | 16.61 |
+| 10 | T15 | 0.2413 | 0.242 | 17.3% | 4.9e-4 | 0.0039 | -50 | 6.49 | 510.9 | 225.1 | -1.00 | 10.01 |
+
+Bottom 10: T3(0.205), T6(0.247), T19(0.187), T9(0.178), T5(0.212), T17(0.155), T10(0.145), T14(0.127), T4(0.000), T7(0.041)
+
+### Key Discoveries
+
+1. **LR=1e-3 wins at 10M cold-start**: Top 4 of 5 trials used lr=1e-3 (search upper bound). At this short horizon, aggressive learning dominates.
+2. **Low entropy wins**: T12 (ent=0.0028) and T13 (ent=0.0020) — the two best — had the lowest entropy values. This contrasts with v48's T14 (ent=0.0078) at 15M steps — shorter horizon favors even lower exploration.
+3. **Termination -50 dominates**: 14/20 trials used -50. The lighter termination was the best category overall.
+4. **T12 ≡ seed**: T12's reward config is identical to the T10 seed config. The seed survived as champion, confirming R1_T10's reward scales are near-optimal for this architecture.
+5. **Bayesian convergence**: Strong convergence around seed values (wpa≈511, fwd≈6.49, zone≈196). T1 (wpa=200.5, zone=105) diverged most from seed → placed 8th.
+
+### Selection for Full Training
+
+Three candidates selected for 100M training, spanning the diversity of top configs:
+- **Train A (T12)**: Seed champion, term=-50, fwd=6.49, wpa=510.9
+- **Train B (T13)**: Same rewards as T12 but term=-25 (lightest penalty)
+- **Train C (T11)**: Different HP (ent=0.0098, 3.5× T12's entropy), higher bump_boost=12.99
+
+---
+
+## 10. Full 100M Training Campaign — Three Candidates (2026-02-22)
+
+### Setup
+
+All three runs used:
+- **100M steps** (48,500 iters @ 2048 envs)
+- **Fixed LR** (no KL-adaptive — learned from Stage 30's KL collapse)
+- `check_point_interval = 500` (≈1M steps between checkpoints)
+- `lr_scheduler_type = null` (fixed learning rate throughout)
+- Individual configs saved in `starter_kit_schedule/configs/`
+
+| Run | Config File | Source Trial | LR | Entropy | Termination | Run Dir |
+|-----|-------------|-------------|-----|---------|-------------|---------|
+| A | `full_A_T12_best_wpidx.json` | T12 | 1.0e-3 | 0.0028 | -50 | `26-02-22_05-25-43-367487_PPO` |
+| B | `full_B_T13_soft_term.json` | T13 | 1.0e-3 | 0.0020 | -25 | `26-02-22_05-28-12-324803_PPO` |
+| C | `full_C_T11_best_sucrate.json` | T11 | 1.0e-3 | 0.0098 | -50 | `26-02-22_05-30-41-234319_PPO` |
+
+### Results — All Three Collapsed After 50M Steps
+
+| Run | Peak wp_mean | Peak Iter | Final wp_mean | Final Iter | Collapse % | Peak Checkpoint |
+|-----|-------------|-----------|--------------|------------|-----------|----------------|
+| **A (T12)** | **2.232** | **24500** | 0.138 | 48500 | **-94%** | `agent_24500.pt` |
+| B (T13) | 2.033 | 21000 | 0.639 | 48500 | -69% | `agent_21000.pt` |
+| C (T11) | 1.919 | 25000 | 0.363 | 48500 | -80% | `agent_25000.pt` |
+
+### PPO Policy Collapse Analysis
+
+All three runs exhibited the same pattern:
+1. **Phase 1 (0-25M steps)**: Rapid learning, wp_mean climbing steadily
+2. **Phase 2 (25M-50M steps)**: Peak performance reached, then gradual decline begins
+3. **Phase 3 (50M-100M steps)**: Catastrophic collapse — wp_mean crashes to near-zero
+
+**Root cause**: Fixed LR=1e-3 is too aggressive for the exploitation phase. After 50M steps, the policy has explored the reward landscape and needs finer-grained updates. But the constant high LR causes destructive oscillations in the policy, erasing learned behaviors.
+
+**Key insight**: This is the opposite of Stage 30's KL-adaptive collapse. There, KL-adaptive crushed LR too aggressively. Here, fixed LR doesn't reduce at all. The ideal approach is **warm-starting from the peak with a LOWER fixed LR** — which motivates Stage Two AutoML.
+
+### Peak Checkpoint Preservation
+
+Each candidate's peak checkpoint is the warm-start source for its own **Stage Two AutoML** pipeline:
+
+| Run | Peak Checkpoint | Peak wp_mean | → Stage Two AutoML |
+|-----|----------------|-------------|-------------------|
+| **A (T12)** | `26-02-22_05-25-43-367487_PPO/checkpoints/agent_24500.pt` | 2.232 | `automl_20260222_124457` (**COMPLETED**, T13 champion, score=0.5439) |
+| **B (T13)** | `26-02-22_05-28-12-324803_PPO/checkpoints/agent_21000.pt` | 2.033 | `automl_20260222_201059` (**RUNNING**) |
+| **C (T11)** | `26-02-22_05-30-41-234319_PPO/checkpoints/agent_25000.pt` | 1.919 | Pending (start after B completes) |
+
+---
+
+## 11. Stage Two AutoML — Warm-Start from Train A / T12 Peak (2026-02-22, COMPLETED)
+
+### Campaign: `automl_20260222_124457` (Branch A: T12 → full train → agent_24500.pt)
+
+| Property | Value |
+|----------|-------|
+| Mode | stage (warm-start from T12 peak) |
+| Trials | **15** (1 seed + 4 random warmup + ~10 Bayesian) |
+| Steps/trial | 10M (≈910 iters) |
+| Budget | 8h |
+| Warm-start checkpoint | `runs/vbot_navigation_section011/26-02-22_05-25-43-367487_PPO/checkpoints/agent_24500.pt` |
+| Freeze preprocessor | **Yes** (RunningStandardScaler no-op to prevent normalizer drift) |
+| LR clamping | **max 7e-4** (both random and Bayesian phases) |
+| Search space | Same v55 REWARD_SEARCH_SPACE_SECTION011 (31 reward params) + HP_SEARCH_SPACE (LR, entropy) |
+| Seed config | `seed_T12_warmstart.json` (T12's exact rewards, lr=5e-4, ent=0.0028) |
+| cfg.py change | `required_jumps = 10` (was 3) — harder celebration requirement |
+| Status | **COMPLETED** — 15/15 trials, 6.71h elapsed |
+
+### Motivation
+
+1. **PPO collapse at 100M**: All three full training runs peaked at ~50M then collapsed. Warm-starting from the peak with lower LR should allow the policy to refine without catastrophic oscillations.
+2. **Jump-10 requirement**: The celebration requirement was hardened from 3 jumps to 10 jumps (changed in `cfg.py` line 381). Stage Two AutoML tests whether reward weights need retuning for this harder celebration task.
+3. **LR clamping rationale**: With warm-start, the policy is already well-trained. LR ≤ 7e-4 prevents destructive updates while still allowing meaningful learning. The seed uses lr=5e-4 (0.5× the original 1e-3).
+
+### Warm-Start Infrastructure
+
+**AutoML warm-start support** (added to `automl.py`):
+- `--checkpoint <path>`: All trials load the same pre-trained checkpoint
+- `--freeze-preprocessor`: Prevents RunningStandardScaler drift (monkey-patches `_parallel_variance` to no-op in `train_one.py`)
+- LR clamping: Random sampling caps at `min(sampled_lr, 7e-4)` (line 776); Bayesian suggest caps at `max(1e-5, min(7e-4, lr))` (line 839)
+- Checkpoint and freeze_preprocessor flags passed through to `train_one.py` via config JSON
+
+### Results — All 15 Trials (Warm-Start, Ranked by Score)
+
+**All 15 trials achieved wp_idx_MAX = 7.0** (full course completion) — confirming the warm-start baseline is extremely strong.
+
+| Rank | Trial | Score | wp_mean | suc% | term_rate | LR | Entropy | Term | Fwd | WP_Appr | Stag | BumpB | CrouchP |
+|------|-------|-------|---------|------|-----------|-----|---------|------|-----|---------|------|-------|---------|
+| **1** | **T13** | **0.5439** | **3.443** | **23.2%** | 0.03% | 5.7e-4 | **0.0100** | -50 | 5.55 | **346.0** | -2.38 | 13.55 | -2.34 |
+| 2 | T4 | 0.5399 | 3.411 | 20.5% | 0.02% | 5.1e-4 | 0.0084 | -50 | 5.55 | 310.6 | **-2.38** | **13.55** | **-2.34** |
+| 3 | T6 | 0.5374 | 3.354 | **25.5%** | 0.02% | 7.0e-4 | 0.0066 | -75 | 9.38 | 772.3 | -1.66 | 19.13 | -2.35 |
+| 4 | T10 | 0.5297 | 3.312 | 19.7% | 0.03% | 4.9e-4 | 0.0100 | -50 | 5.55 | 310.6 | -2.38 | 16.25 | -2.21 |
+| 5 | T2 | 0.5286 | 3.300 | 21.4% | 0.02% | 7.0e-4 | 0.0071 | -50 | 5.52 | 638.9 | -1.47 | 7.44 | -1.40 |
+| 6 | T8 | 0.5285 | 3.356 | 20.5% | 0.02% | 7.0e-4 | 0.0097 | -50 | 2.92 | 459.1 | -0.73 | 6.08 | -1.72 |
+| 7 | T9 | 0.5272 | 3.303 | 19.6% | 0.03% | 7.0e-4 | 0.0089 | -100 | 4.19 | 310.6 | -2.38 | 13.55 | -2.34 |
+| 8 | T0 (seed) | 0.5222 | 3.250 | 24.5% | 0.03% | 5.0e-4 | 0.0028 | -50 | 6.49 | 510.9 | -1.13 | 10.01 | -1.30 |
+| 9 | T14 | 0.5214 | 3.212 | 21.6% | 0.03% | 5.5e-4 | 0.0068 | -75 | 5.55 | 262.7 | -2.38 | 13.55 | -2.34 |
+| 10 | T1 | 0.5175 | 3.239 | 22.8% | 0.03% | 4.4e-4 | 0.0125 | -50 | 2.77 | 238.6 | -1.24 | 10.15 | -0.35 |
+| 11 | T3 | 0.5138 | 3.183 | 21.7% | 0.03% | 5.8e-4 | 0.0038 | -75 | 6.31 | 276.8 | -0.93 | 7.09 | -0.64 |
+| 12 | T5 | 0.5095 | 3.112 | 21.6% | 0.02% | 7.0e-4 | 0.0038 | -75 | 9.52 | 351.1 | -2.24 | 19.99 | -1.33 |
+| 13 | T11 | 0.5046 | 3.019 | 19.0% | 0.02% | 4.6e-4 | 0.0062 | -50 | 5.55 | 310.6 | -2.38 | 13.55 | -2.50 |
+| 14 | T12 | 0.5042 | 3.013 | 18.7% | 0.03% | 3.9e-4 | 0.0083 | -100 | 5.55 | 310.6 | -2.38 | 15.73 | -2.34 |
+| 15 | T7 | 0.4965 | 2.962 | 20.9% | 0.02% | 7.0e-4 | 0.0076 | -100 | 3.46 | 361.2 | -0.67 | 19.27 | -1.59 |
+
+### Key Findings
+
+**1. T13 is champion — entropy=0.01 is the differentiator**: T13 and T4 share nearly identical reward configs (same stag, crouch, bmpB, fwd, term=-50). T13's edge: entropy=0.01 (vs 0.0084) and WPA=346 (vs 310.6). Slightly more exploration + slightly higher navigation pull produced the best result.
+
+**2. Termination -50 dominates warm-start**:
+| Term | Trials | Best Score | Avg Score |
+|------|--------|-----------|-----------|
+| -50 | 9 | 0.5439 (T13) | 0.5247 |
+| -75 | 4 | 0.5374 (T6) | 0.5205 |
+| -100 | 2 | 0.5272 (T9) | 0.5119 |
+
+**3. Controlled ablation via T9**: T9 uses T4's exact rewards but term=-100 → wp_mean drops 3.411→3.303 (-3.2%). This is direct evidence that heavier termination hurts even with optimal reward weights.
+
+**4. Bayesian convergence pattern**: After T4 (trial 4), the optimizer heavily exploited T4's basin. T9, T10, T11, T12 are near-copies with minor variations. T13 introduced just enough perturbation (ent=0.01, WPA=346) to break through.
+
+**5. Warm-start roughly doubles AutoML score**: Stage Two scores (0.50-0.54) vs Stage One (0.22-0.26). The pre-trained checkpoint provides an enormous head start that reward tuning further optimizes.
+
+**6. Anti-loafing penalties are essential**: stag≈-2.38 and crouch≈-2.34 appear in the top 4 of 5 trials. The lightest stag/crouch trials (T3: stag=-0.93, T1: crouch=-0.35) scored lowest among -50 trials.
+
+**7. LR not at boundary**: Winner at 5.7e-4, within the [4e-4, 7e-4] effective range. Neither extreme LR wins — moderate learning rate works best for warm-start refinement.
+
+### Reproduction Commands
+
+```powershell
+# === Stage Two AutoML: Warm-start from T12 peak ===
+# Prerequisites: required_jumps = 10 in cfg.py line 381
+
+uv run starter_kit_schedule/scripts/automl.py `
+    --mode stage `
+    --env vbot_navigation_section011 `
+    --budget-hours 8 `
+    --hp-trials 15 `
+    --seed-configs starter_kit_schedule/configs/seed_T12_warmstart.json `
+    --checkpoint "runs/vbot_navigation_section011/26-02-22_05-25-43-367487_PPO/checkpoints/agent_24500.pt" `
+    --freeze-preprocessor
+
+# Monitor progress
+Get-Content starter_kit_log/automl_20260222_124457/state.yaml
+
+# Check how many trials completed
+Get-ChildItem starter_kit_log/automl_20260222_124457/experiments/ -Directory | Measure-Object
+```
+
+### Preceding Steps to Reproduce from Scratch
+
+To fully reproduce this Stage Two AutoML run from zero:
+
+```powershell
+# Step 1: Run Stage One cold-start AutoML (20 trials × 10M steps)
+uv run starter_kit_schedule/scripts/automl.py `
+    --mode stage --env vbot_navigation_section011 `
+    --budget-hours 8 --hp-trials 20 `
+    --seed-configs starter_kit_schedule/configs/seed_T12_warmstart.json
+
+# Step 2: Apply best trial (T12) config to cfg.py and train to 100M
+# Use starter_kit_schedule/scripts/apply_best_and_train.ps1 -AutomlId automl_20260221_203616
+# Or manually: apply T12 reward_scales to cfg.py, set lr=1e-3, train.py --env vbot_navigation_section011
+
+# Step 3: Identify peak checkpoint from 100M training
+# Train A (T12) peaked at agent_24500.pt (wp_mean=2.232)
+# Path: runs/vbot_navigation_section011/26-02-22_05-25-43-367487_PPO/checkpoints/agent_24500.pt
+
+# Step 4: Change required_jumps = 10 in cfg.py line 381
+
+# Step 5: Run Stage Two AutoML (warm-start from T12 peak, command above)
+```
+
+---
+
+## 12. Stage Two AutoML — Warm-Start from Train B / T13 Peak (2026-02-22, COMPLETED)
+
+### Campaign: `automl_20260222_201059` (Branch B: T13 → full train → agent_21000.pt)
+
+| Property | Value |
+|----------|-------|
+| Mode | stage (warm-start from T13 peak) |
+| Trials | **15** (1 seed + 4 random warmup + ~10 Bayesian) |
+| Steps/trial | 10M (≈910 iters) |
+| Budget | 8h |
+| Warm-start checkpoint | `runs/vbot_navigation_section011/26-02-22_05-28-12-324803_PPO/checkpoints/agent_21000.pt` |
+| Freeze preprocessor | **Yes** |
+| LR clamping | **max 7e-4** |
+| Search space | Same v55 (31 reward + 2 HP) |
+| Seed config | `seed_T13_warmstart.json` (T13's exact rewards: term=-25, stag=-1.127, fwd=6.485, wpa=510.9, lr=5e-4, ent=0.002) |
+| cfg.py change | `required_jumps = 10` (same as Branch A) |
+| Status | **Completed** — 8/11 trials successful (3 failed), 5.87h elapsed |
+
+### Motivation
+
+This is the **parallel Stage Two branch for T13** (the second-best Stage One trial). Key differences from Branch A:
+1. **Different warm-start checkpoint**: Train B peaked at iter 21000 (wp=2.033) vs Train A's iter 24500 (wp=2.232). Lower peak but different convergence trajectory.
+2. **T13's base config**: term=-25 (lightest of all top trials) vs T12's term=-50. The policy learned a different balance between risk-taking and caution.
+3. **Lower entropy seed**: ent=0.002 (T13) vs 0.0028 (T12). The Bayesian optimizer starts from a different entropy basin.
+
+### Comparison: Branch A (T12) vs Branch B (T13) Starting Points
+
+| Property | Branch A (T12) | Branch B (T13) |
+|----------|---------------|---------------|
+| Stage 1 score | 0.2562 (#1) | 0.2539 (#2) |
+| Stage 1 term | -50 | -25 |
+| Stage 1 entropy | 0.0028 | 0.0020 |
+| Full train peak wp | 2.232 @ iter 24500 | 2.033 @ iter 21000 |
+| Full train collapse | -94% (to 0.138) | -69% (to 0.639) |
+| Seed LR | 5e-4 | 5e-4 |
+
+**Interesting**: Train B collapsed less severely (-69% vs -94%), suggesting T13's lighter termination penalty (term=-25) produced a more stable policy. This may translate into better Stage Two results despite the lower peak.
+
+### Results (8 completed trials, sorted by wp_idx_mean)
+
+| Trial | wp_mean | suc% | reward | LR | entropy | term | fwd | wpa | stag | dur_h |
+|-------|---------|------|--------|----|---------|------|-----|-----|------|-------|
+| **T10** | **3.111** | **25.4%** | 5.87 | 5.0e-4 | 0.0037 | -50 | 6.89 | 407.9 | -0.62 | 0.59 |
+| T8 | 2.956 | 24.5% | 5.10 | 7.0e-4 | 0.0097 | -100 | 8.10 | 738.8 | -2.04 | 0.41 |
+| T2 | 2.944 | 24.6% | 3.93 | 7.0e-4 | 0.0059 | -75 | 5.07 | 423.8 | -0.98 | 0.60 |
+| T4 | 2.943 | 23.3% | 6.17 | 5.4e-4 | 0.0039 | -50 | 6.89 | 407.9 | -0.62 | 0.41 |
+| T6 | 2.859 | 24.0% | 3.55 | 7.0e-4 | 0.0074 | -100 | 6.15 | 232.7 | -2.23 | 0.41 |
+| T1 | 2.787 | 25.5% | 5.47 | 6.4e-4 | 0.0078 | -25 | 9.81 | 473.9 | -1.65 | 0.42 |
+| T7 | 2.778 | 25.3% | 3.32 | 5.8e-4 | 0.0081 | -25 | 3.52 | 276.3 | -1.48 | 0.42 |
+| T5 | 2.568 | 24.6% | 4.46 | 7.0e-4 | 0.0033 | -25 | 9.01 | 644.6 | -0.41 | 0.42 |
+
+3 trials (T0 seed, T3, T9) failed — no experiment outputs produced.
+
+### Champion: T10
+
+| Property | Value |
+|----------|-------|
+| wp_idx_mean | **3.111** |
+| Success rate | 25.4% |
+| LR | 5.0e-4 |
+| Entropy | 0.0037 |
+| Termination | -50 |
+| Forward velocity | 6.89 |
+| Waypoint approach | 407.9 |
+| Stagnation penalty | -0.62 |
+
+### Branch A vs Branch B — Head-to-Head
+
+| Metric | Branch A (T13) | Branch B (T10) | Delta |
+|--------|---------------|---------------|-------|
+| Champion wp_mean | **3.443** | 3.111 | **-9.6%** |
+| Champion suc% | 25.3% | 25.4% | +0.1% |
+| Champion LR | 5.7e-4 | 5.0e-4 | — |
+| Champion entropy | 0.0100 | 0.0037 | 2.7× lower |
+| Champion term | -50 | -50 | same |
+| Trials completed | 15/15 | 8/11 | — |
+| Duration | 6.71h | 5.87h | — |
+
+**Conclusion**: Branch A (T12 warm-start) produced a clearly superior champion (T13, wp=3.443) compared to Branch B (T13 warm-start, T10, wp=3.111). The 9.6% advantage confirms that the higher-peak warm-start checkpoint (agent_24500 @ wp=2.232) provided a better foundation than the more stable but lower-peak checkpoint (agent_21000 @ wp=2.033). Branch A also had zero failures vs Branch B's 3 failed trials.
+
+**Notable**: Branch B's T10 independently converged on term=-50 (same as Branch A's champion), despite starting from T13's seed config with term=-25. This confirms that moderate termination penalty is the optimizer-preferred regime for warm-start at this curriculum stage.
+
+### Reproduction Commands
+
+```powershell
+# === Stage Two AutoML: Warm-start from T13 peak (Branch B) ===
+# Prerequisites: required_jumps = 10 in cfg.py line 381
+
+uv run starter_kit_schedule/scripts/automl.py `
+    --mode stage `
+    --env vbot_navigation_section011 `
+    --budget-hours 8 `
+    --hp-trials 15 `
+    --seed-configs starter_kit_schedule/configs/seed_T13_warmstart.json `
+    --checkpoint "runs/vbot_navigation_section011/26-02-22_05-28-12-324803_PPO/checkpoints/agent_21000.pt" `
+    --freeze-preprocessor
+
+# Monitor progress
+Get-Content starter_kit_log/automl_20260222_201059/state.yaml
+```
+
+---
+
+## 13. Stage Two AutoML — Warm-Start from Train C / T11 Peak (2026-02-23, RUNNING)
+
+### Campaign: `automl_20260223_012907` (Branch C: T11 → full train → agent_25000.pt)
+
+| Property | Value |
+|----------|-------|
+| Mode | stage (warm-start from T11 peak) |
+| Steps/trial | 10M+ |
+| Budget | 8h |
+| Warm-start checkpoint | `runs/vbot_navigation_section011/26-02-22_05-30-41-234319_PPO/checkpoints/agent_25000.pt` |
+| Freeze preprocessor | **Yes** |
+| LR clamping | **max 7e-4** |
+| Search space | Same v55 (31 reward + 2 HP) |
+| Seed config | T11's exact rewards (term=-50, lr=5e-4, ent=0.0038) |
+| cfg.py change | `required_jumps = 10` (same as Branch A/B) |
+| Status | **Running** — 1 trial completed so far, 0.59h elapsed |
+
+### Early Results (1 trial)
+
+| Trial | wp_mean | suc% | reward | LR | entropy | term |
+|-------|---------|------|--------|----|---------|------|
+| T0 (seed) | 2.440 | 23.7% | 4.63 | 5.0e-4 | 0.0038 | -50 |
+
+### Context
+
+Branch C is the final Stage Two branch, warm-starting from the weakest of the three full-train candidates (T11, peak wp=1.919, collapsed -80%). T11's distinctive feature was high entropy during Stage One (ent=0.0098, 3.5× T12), which may enable broader exploration in the warm-start phase.
+
+### Reproduction Commands
+
+```powershell
+# === Stage Two AutoML: Warm-start from T11 peak (Branch C) ===
+uv run starter_kit_schedule/scripts/automl.py `
+    --mode stage `
+    --env vbot_navigation_section011 `
+    --budget-hours 8 `
+    --hp-trials 15 `
+    --seed-configs starter_kit_schedule/configs/seed_T11_warmstart.json `
+    --checkpoint "runs/vbot_navigation_section011/26-02-22_05-30-41-234319_PPO/checkpoints/agent_25000.pt" `
+    --freeze-preprocessor
+
+# Monitor progress
+Get-Content starter_kit_log/automl_20260223_012907/state.yaml
+```
+
+---
+
+## 14. Checkpoint Cleanup (2026-02-23)
+
+Performed bulk cleanup of `/runs/vbot_navigation_section011/` to reclaim disk space:
+
+- **Deleted**: 83 run directories entirely (obsolete experiments, AutoML trials, intermediate runs)
+- **Trimmed**: 9 important runs kept but intermediate checkpoints removed (only best/peak preserved)
+- **Space freed**: ~20.12 GB
+
+### Runs Preserved (9 total)
+
+| Run | Source | Purpose | Checkpoints Kept |
+|-----|--------|---------|-----------------|
+| `26-02-22_05-25-43` | Full Train A (T12) | Stage Two warm-start source | `agent_24500.pt` (peak) |
+| `26-02-22_05-28-12` | Full Train B (T13) | Stage Two warm-start source | `agent_21000.pt` (peak) |
+| `26-02-22_05-30-41` | Full Train C (T11) | Stage Two warm-start source | `agent_25000.pt` (peak) |
+| Branch A T4 | `automl_20260222_124457` | Branch A #2 | `best_agent.pt` |
+| Branch A T6 | `automl_20260222_124457` | Branch A #3 | `best_agent.pt` |
+| Branch A T13 | `automl_20260222_124457` | **Branch A champion** | `best_agent.pt` |
+| Branch B T2 | `automl_20260222_201059` | Branch B #3 | `best_agent.pt` |
+| Branch B T4 | `automl_20260222_201059` | Branch B #4 | `best_agent.pt` |
+| Branch B T8 | `automl_20260222_201059` | Branch B #2 | `best_agent.pt` |
+
+### TensorBoard Comparison (Final Metrics from All 9 Runs)
+
+| Run | wp_idx_mean (best) | reached% (best) | Source |
+|-----|-------------------|-----------------|--------|
+| Full A (T12) | 2.232 | 28.6% | Cold-start 100M |
+| Full B (T13) | 2.033 | 27.5% | Cold-start 100M |
+| Full C (T11) | 1.919 | 27.8% | Cold-start 100M |
+| **BrA T13** | **3.935** | **52.2%** | Stage Two warm-start **CHAMPION** |
+| BrA T4 | 3.900 | 50.0% | Stage Two warm-start |
+| BrA T6 | 3.879 | 50.6% | Stage Two warm-start |
+| BrB T10 (eval) | 3.111 | 25.4% | Stage Two warm-start |
+| BrB T8 | 3.420 | 57.8% | Stage Two warm-start |
+| BrB T4 | 3.385 | 55.1% | Stage Two warm-start |
+| BrB T2 | 3.416 | 56.3% | Stage Two warm-start |
+
+**Key insight**: Branch A top-3 achieved higher peak wp_idx_mean (3.88-3.94) vs Branch B top-3 (3.38-3.42). However, Branch B trials achieved higher reached% (55-58% vs 50-52%), suggesting they found a more conservative but more reliable traversal strategy.

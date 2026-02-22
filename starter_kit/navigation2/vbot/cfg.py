@@ -35,26 +35,43 @@ class NoiseConfig:
 
 @dataclass
 class TerrainZone:
-    """Y-gated terrain zone → action_scale mapping.
+    """Y-gated terrain zone → action_scale + clearance/swing modulation.
 
     Universal terrain zones covering navigation2 full course (y ≈ -3.5 to 34.33).
     Each section only encounters zones within its Y range.
+
+    Clearance boost: robots inside this zone get foot_clearance multiplied by
+    the value from reward_scales[clearance_boost_key]. Robots within pre_zone_margin
+    meters before y_min get a fraction (foot_clearance_pre_zone_ratio) of the boost.
+
+    Swing scale: robots inside this zone get swing_contact_penalty multiplied by
+    the value from reward_scales[swing_scale_key] (typically < 1.0 to reduce penalty).
     """
     y_min: float
     y_max: float
     action_scale: float
     label: str = ""  # 仅用于调试/日志
+    clearance_boost_key: str = ""   # v54: reward_scales key for foot clearance boost (empty = inactive)
+    pre_zone_margin: float = 0.0    # v54: meters before y_min where transition zone starts
+    post_zone_margin: float = 0.0   # v54: meters after y_max where transition zone continues
+    swing_scale_key: str = ""       # v54: reward_scales key for swing contact penalty modifier (empty = inactive)
 
 # 全程地形区域表 (从XML碰撞几何体提取)
 # 每个section仅会命中其Y范围内的zone；未命中的zone不影响
 DEFAULT_TERRAIN_ZONES: List[TerrainZone] = [
     # === Section 011 (y ≈ -3.5 → 8.83) ===
-    TerrainZone(y_min=-1.5,  y_max=1.5,   action_scale=0.40, label="s011_bump"),      # 高度场凹凸区
+    TerrainZone(y_min=-1.8,  y_max=1.8,   action_scale=0.40, label="s011_bump",
+               clearance_boost_key="foot_clearance_bump_boost", pre_zone_margin=0.7, post_zone_margin=0.0,
+               swing_scale_key="swing_contact_bump_scale"),                              # 高度场凹凸区 (matches old hardcoded on_bump range)
     TerrainZone(y_min=2.0,   y_max=6.9,   action_scale=0.40, label="s011_slope"),      # 15°坡道
     # === Section 012 (y ≈ 8.83 → 25.33) ===
-    TerrainZone(y_min=12.33, y_max=14.33, action_scale=0.50, label="s012_stairs_up"),   # 楼梯上行
+    TerrainZone(y_min=12.33, y_max=14.33, action_scale=0.50, label="s012_stairs_up",
+               clearance_boost_key="foot_clearance_stair_boost", pre_zone_margin=1.0, post_zone_margin=0.3,
+               swing_scale_key="swing_contact_stair_scale"),                             # 楼梯上行
     TerrainZone(y_min=14.33, y_max=21.33, action_scale=0.20, label="s012_bridge_valley"),  # 桥+河谷+平台
-    TerrainZone(y_min=21.33, y_max=23.33, action_scale=0.20, label="s012_stairs_down"), # 楼梯下行
+    TerrainZone(y_min=21.33, y_max=23.33, action_scale=0.20, label="s012_stairs_down",
+               clearance_boost_key="foot_clearance_stair_boost", pre_zone_margin=1.0,
+               swing_scale_key="swing_contact_stair_scale"),                             # 楼梯下行
     # === Section 013 (y ≈ 25.33 → 34.33) ===
     TerrainZone(y_min=27.33, y_max=30.83, action_scale=0.40, label="s013_ramp_hfield"), # 21.8°坡+高度场
     TerrainZone(y_min=30.83, y_max=33.83, action_scale=0.40, label="s013_ball_zone"),   # 球障碍+最终平台
@@ -142,8 +159,8 @@ BASE_REWARD_SCALES: dict[str, float] = {
     # ===== Zone & Waypoint =====
     "zone_approach": 74.727,                       # T14: 2.13× stronger (v47=35.06)
     # ===== 地形适应 =====
-    "height_progress": 0.0,                        # v51: 禁用，防止机器狗通过上下弹跳刷分
-    "height_approach": 0.0,                        # v51: 禁用，防止机器狗通过上下弹跳刷分
+    "height_progress": 0.0,                        # v52: not needed — existing forward rewards sufficient (zone_approach, wp_approach, forward_velocity)
+    "height_approach": 0.0,                        # v52: not needed — robots already reach ramp with zone+forward rewards
     "height_oscillation": -2.0,                    # unchanged (not in search)
     # ===== 跳跃 & 庆祝 =====
     "jump_reward": 10.093,                         # T14: ~same
@@ -174,8 +191,11 @@ BASE_REWARD_SCALES: dict[str, float] = {
     "stance_ratio": 0.070,                         # T14: +70% (v47=0.041)
     "foot_clearance": 0.219,                       # T14: 1.46× (v47=0.15)
     "foot_clearance_bump_boost": 7.167,            # T14: ~same (v47=8.0)
+    "foot_clearance_stair_boost": 3.0,             # v54: centralized (was section012 fallback default)
+    "foot_clearance_pre_zone_ratio": 0.5,          # v54→v56: matches old T10 pre-bump ratio (was 0.75, old code used 0.5)
+    "swing_contact_stair_scale": 0.5,              # v54: centralized (was section012 fallback default)
     "alive_decay_horizon": 2383.0,                 # T14: 1.59× longer (v47=1500)
-    "slope_orientation": 0.0,                      # unchanged (disabled)
+    "slope_orientation": 0.0,                      # v52: not needed — robots already climb ramp via forward rewards
     # ===== v49: 拖脚惩罚 + 停滞惩罚 =====
     "drag_foot_penalty": -0.15,                    # v49→v50: 支撑相低速腿惩罚 (每条拖地腿, 统一尺度)
     "stagnation_penalty": -0.5,                    # v49: 停滞渐进惩罚 (从50%窗口开始线性增长)
@@ -358,7 +378,7 @@ class VBotSection011EnvCfg(VBotStairsEnvCfg):
         # 庆祝旋转参数
         celebration_jump_threshold = 1.55  # v16b: 实测站立z≈1.52, 小跳+0.03m即可
         # v27: 多次跳跃庆祝
-        required_jumps = 3                # 需要跳3次才算完成庆祝
+        required_jumps = 10               # 需要跳10次才算完成庆祝
         celebration_landing_z = 1.50      # 落地判定: z < 1.50 = 已着地, 可以再跳
 
 
@@ -577,11 +597,20 @@ class TerrainScaleHelper:
             self._zone_y_max = np.array([z.y_max for z in zones], dtype=np.float32)
             self._zone_scale = np.array([z.action_scale for z in zones], dtype=np.float32)
             self._num_zones = len(zones)
+            # v54: pre-compile clearance boost and swing scale zone metadata
+            self._zone_clearance_keys = [z.clearance_boost_key for z in zones]
+            self._zone_pre_margins = np.array([z.pre_zone_margin for z in zones], dtype=np.float32)
+            self._zone_post_margins = np.array([z.post_zone_margin for z in zones], dtype=np.float32)
+            self._zone_swing_keys = [z.swing_scale_key for z in zones]
         else:
             self._zone_y_min = np.empty(0, dtype=np.float32)
             self._zone_y_max = np.empty(0, dtype=np.float32)
             self._zone_scale = np.empty(0, dtype=np.float32)
             self._num_zones = 0
+            self._zone_clearance_keys = []
+            self._zone_pre_margins = np.empty(0, dtype=np.float32)
+            self._zone_post_margins = np.empty(0, dtype=np.float32)
+            self._zone_swing_keys = []
 
     def _lookup_scale(self, probe_y: np.ndarray) -> np.ndarray:
         """Vectorized first-match zone lookup by Y position.
@@ -649,3 +678,96 @@ class TerrainScaleHelper:
         # 也存入 info 以便外部观测 (TensorBoard, debug logging等)
         info["current_action_scale"] = current
         return current
+
+    def compute_clearance_boost(self, probe_y: np.ndarray, scales: dict) -> np.ndarray:
+        """Compute foot clearance boost multiplier based on terrain zones.
+
+        For each zone with a clearance_boost_key:
+        - Robots inside the zone get the full boost value from scales[key].
+        - Robots within pre_zone_margin before the zone get boost * pre_zone_ratio.
+        - All other robots get 1.0 (no boost).
+
+        Multiple zones stack via max (highest boost wins).
+
+        Args:
+            probe_y: (n,) robot Y positions.
+            scales: reward_scales dict.
+
+        Returns:
+            (n,) clearance multiplier array (>= 1.0).
+        """
+        n = probe_y.shape[0]
+        result = np.ones(n, dtype=np.float32)
+        if self._num_zones == 0:
+            return result
+
+        pre_zone_ratio = float(scales.get("foot_clearance_pre_zone_ratio", 0.5))
+
+        for i in range(self._num_zones):
+            key = self._zone_clearance_keys[i]
+            if not key:
+                continue
+            boost_val = float(scales.get(key, 1.0))
+            if boost_val <= 1.0:
+                continue
+            # v56: margins overridable via scales["{key}_pre_margin"] / ["{key}_post_margin"]
+            # If not in scales, falls back to TerrainZone config value
+            margin = float(scales.get(f"{key}_pre_margin", self._zone_pre_margins[i]))
+            post_margin = float(scales.get(f"{key}_post_margin", self._zone_post_margins[i]))
+            y_min = float(self._zone_y_min[i])
+            y_max = float(self._zone_y_max[i])
+
+            # Inside zone: full boost
+            in_zone = (probe_y >= y_min) & (probe_y < y_max)
+            result = np.where(in_zone, np.maximum(result, boost_val), result)
+
+            # Pre-zone transition: partial boost
+            if margin > 0:
+                pre_y_min = y_min - margin
+                in_pre = (probe_y >= pre_y_min) & (probe_y < y_min)
+                pre_boost = boost_val * pre_zone_ratio
+                result = np.where(in_pre, np.maximum(result, pre_boost), result)
+                
+            # Post-zone transition: full boost (to cover back legs)
+            if post_margin > 0:
+                post_y_max = y_max + post_margin
+                in_post = (probe_y >= y_max) & (probe_y < post_y_max)
+                result = np.where(in_post, np.maximum(result, boost_val), result)
+
+        return result
+
+    def compute_swing_scale(self, probe_y: np.ndarray, scales: dict) -> np.ndarray:
+        """Compute swing contact penalty scale based on terrain zones.
+
+        For each zone with a swing_scale_key, robots inside get the scale value
+        from scales[key] (typically < 1.0 to reduce penalty on rough terrain).
+        Others get 1.0.
+
+        Multiple zones stack via min (lightest penalty wins).
+
+        Args:
+            probe_y: (n,) robot Y positions.
+            scales: reward_scales dict.
+
+        Returns:
+            (n,) swing penalty multiplier array.
+        """
+        n = probe_y.shape[0]
+        result = np.ones(n, dtype=np.float32)
+        if self._num_zones == 0:
+            return result
+
+        for i in range(self._num_zones):
+            key = self._zone_swing_keys[i]
+            if not key:
+                continue
+            swing_val = float(scales.get(key, 1.0))
+            y_min = float(self._zone_y_min[i])
+            y_max = float(self._zone_y_max[i])
+            
+            # v56: swing scale applies to main zone ONLY (matches old T10 on_bump behavior)
+            # Old code: on_bump = (y > -1.8) & (y < 1.8) — no pre/post zone extension
+            in_zone = (probe_y >= y_min) & (probe_y < y_max)
+            result = np.where(in_zone, np.minimum(result, swing_val), result)
+
+        return result

@@ -1045,13 +1045,18 @@ class VBotSection011Env(NpEnv):
         saturation_ratio = np.abs(raw_torques) / self.torque_limits[np.newaxis, :]
         torque_sat_penalty = np.sum(np.maximum(saturation_ratio - 0.9, 0.0) ** 2, axis=1)
 
-        # ===== 爬坡高度进步 =====
+        # ===== 爬坡高度进步 (v52: watermark — 仅奖励新高度, 防止弹跳刷分) =====
         last_z = info.get("last_z", current_z.copy())
         z_delta = current_z - last_z
         info["last_z"] = current_z.copy()
-        height_progress = scales.get("height_progress", 0.0) * np.maximum(z_delta, 0.0)
+        # Watermark: 只奖励超越历史最高高度的部分, 弹跳回来再上去不算
+        max_z_reached = info.get("max_z_reached", current_z.copy())
+        z_above_max = np.maximum(current_z - max_z_reached, 0.0)
+        max_z_reached = np.maximum(max_z_reached, current_z)
+        info["max_z_reached"] = max_z_reached
+        height_progress = scales.get("height_progress", 0.0) * z_above_max
 
-        # ===== v17: 目标高度接近奖励 (减少 |z_target - z_robot|) =====
+        # ===== v17: 目标高度接近奖励 (v52: watermark — 仅奖励新接近记录) =====
         # 根据当前目标y位置估算目标z高度
         target_xy_for_z = position_error + robot_xy  # recover target_xy
         target_y_for_z = target_xy_for_z[:, 1]
@@ -1062,10 +1067,12 @@ class VBotSection011Env(NpEnv):
                      1.294)  # 高台顶面
         )
         z_error = np.abs(current_z - target_z_est)
-        last_z_error = info.get("last_z_error", z_error.copy())
-        z_error_delta = last_z_error - z_error  # 正 = 接近目标高度
-        info["last_z_error"] = z_error.copy()
-        height_approach = scales.get("height_approach", 0.0) * np.clip(z_error_delta, -0.1, 0.5)
+        # Watermark: 只奖励打破历史最低误差的部分
+        min_z_error = info.get("min_z_error", z_error.copy())
+        z_error_improvement = np.maximum(min_z_error - z_error, 0.0)
+        min_z_error = np.minimum(min_z_error, z_error)
+        info["min_z_error"] = min_z_error
+        height_approach = scales.get("height_approach", 0.0) * np.clip(z_error_improvement, 0.0, 0.5)
 
         # ===== v17: 高度振荡惩罚 (penalize rapid z bouncing) =====
         z_osc = np.abs(z_delta)
@@ -1132,16 +1139,16 @@ class VBotSection011Env(NpEnv):
                     info[last_key] = d.copy()
 
         # ===== 摆动相接触惩罚 =====
-        # v19: bump区降低惩罚强度, 避免在高度场因必要触地被过度惩罚
-        on_bump = (current_y > -1.8) & (current_y < 1.8)
-        bump_swing_scale = np.where(on_bump, scales.get("swing_contact_bump_scale", 0.6), 1.0)
+        # v54: TerrainZone-driven swing contact scaling (replaces hardcoded on_bump)
+        terrain_swing_scale = self._terrain_scale.compute_swing_scale(current_y, scales)
         swing_penalty = (
             scales.get("swing_contact_penalty", -0.15)
             * self._compute_swing_contact_penalty(data, joint_vel)
-            * bump_swing_scale
+            * terrain_swing_scale
         )
 
         # ===== 脚部离地高度奖励 (鼓励抬脚过障碍) =====
+        # v54: TerrainZone-driven clearance boost with pre-zone transition
         foot_clearance_scale = scales.get("foot_clearance", 0.0)
         if foot_clearance_scale > 0:
             foot_forces = self._get_foot_contact_forces(data)
@@ -1149,15 +1156,7 @@ class VBotSection011Env(NpEnv):
             in_swing = force_mag < 0.5  # motrixsim 0.5+: 摆动相 = 无接触 (mag < 0.5)
             calf_indices = [2, 5, 8, 11]
             calf_vel = np.abs(joint_vel[:, calf_indices])  # [n, 4]
-            # v46: 三级抬脚boost — pre-bump过渡区(y>-2.5) + bump区 + 坡道前(y<2.5)
-            # 解决边界处机器人不知道抬脚的问题: 在进入bump前0.5-1m就开始鼓励高抬腿
-            pre_bump = (current_y > -2.5) & (current_y <= -1.5)  # 接近bump的过渡区
-            bump_boost_val = scales.get("foot_clearance_bump_boost", 2.5)
-            clearance_boost = np.where(
-                on_bump, bump_boost_val,                    # bump区: 全额boost
-                np.where(pre_bump, bump_boost_val * 0.5,    # 过渡区: 半额boost
-                         1.0)                                # 其他: 无boost
-            )
+            clearance_boost = self._terrain_scale.compute_clearance_boost(current_y, scales)
             clearance_scale_vec = foot_clearance_scale * clearance_boost
             # 奖励摆动相的小腿关节角速度 (鼓励积极抬腿, 而非拖地)
             foot_clearance_reward = clearance_scale_vec * np.sum(
@@ -1456,6 +1455,9 @@ class VBotSection011Env(NpEnv):
             # v44: 停滞检测 (stagnation timeout)
             "stagnation_anchor_xy": robot_init_xy.copy(),
             "stagnation_anchor_step": np.zeros(num_envs, dtype=np.int32),
+            # v52: height watermarks (anti-bounce, reset per episode)
+            "max_z_reached": terrain_heights.copy(),
+            "min_z_error": np.full(num_envs, 99.0, dtype=np.float32),
         }
 
         return obs, info
