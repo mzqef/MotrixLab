@@ -81,30 +81,31 @@ class navigation2:
     @dataclass
     class VBotSection013PPOConfig(PPOCfg):
         """VBot Section013 导航 PPO 配置（高度场/滚球，25分赛段）
+        网络结构: (512,256,128) — 与section011 checkpoint一致, 支持warm-start
         """
         seed: int = 42
         num_envs: int = 2048
         play_num_envs: int = 16
-        max_env_steps: int = 30_000_000       # Run8: fresh 30M from section001
+        max_env_steps: int = 50_000_000       # warm-start from section011: 50M
         check_point_interval: int = 500
 
-        learning_rate: float = 0.0003568963889028796            # Run5/10 proven: warm-start LR
-        lr_scheduler_type: str | None = None   # constant LR (Run5/10 proven)
-        rollouts: int = 24                     # AutoML收敛值
-        learning_epochs: int = 6               # AutoML收敛值 (was 8)
-        mini_batches: int = 16                 # AutoML收敛值 (was 32)
-        discount_factor: float = 0.999         # Stage 13证明: 长视野 (was 0.99)
-        lambda_param: float = 0.99             # Stage 15证明: 高GAE (was 0.95)
+        learning_rate: float = 1.5e-4                          # warm-start: 0.33× section011 LR (prevent forgetting)
+        lr_scheduler_type: str | None = "kl_adaptive"          # KL-adaptive: self-regulates on transfer
+        rollouts: int = 24                     # section011 universally converged
+        learning_epochs: int = 6               # section011 universally converged
+        mini_batches: int = 16                 # section011 universally converged
+        discount_factor: float = 0.999         # Stage 13证明: 长视野
+        lambda_param: float = 0.99             # Stage 15证明: 高GAE
         grad_norm_clip: float = 1.0
-        entropy_loss_scale: float = 0.004318625492723052       # warm-start需要更多探索 (was 0.006)
+        entropy_loss_scale: float = 0.006      # warm-start on new terrain needs more exploration
 
         ratio_clip: float = 0.2
         value_clip: float = 0.2
         clip_predicted_values: bool = True
 
         share_policy_value_features: bool = False
-        policy_hidden_layer_sizes: tuple[int, ...] = (256, 128, 64)
-        value_hidden_layer_sizes: tuple[int, ...] = (512, 256, 128)
+        policy_hidden_layer_sizes: tuple[int, ...] = (512, 256, 128)  # match section011 checkpoint
+        value_hidden_layer_sizes: tuple[int, ...] = (512, 256, 128)   # match section011 checkpoint
 
     @rlcfg("vbot_navigation_long_course")
     @dataclass

@@ -17,9 +17,10 @@ import vbot as navigation2_vbot  # noqa: F401, E402
 from motrix_envs import registry as env_registry
 
 # --- Monkey-patch the environment class ---
-_meta = env_registry._envs.get("vbot_navigation_section011")
+_ENV_NAME = "vbot_navigation_section013"
+_meta = env_registry._envs.get(_ENV_NAME)
 if _meta is None:
-    raise RuntimeError("Environment vbot_navigation_section011 not registered")
+    raise RuntimeError(f"Environment {_ENV_NAME} not registered")
 env_cls = _meta.env_cls_dict.get("np")
 if env_cls is None:
     raise RuntimeError("No 'np' backend for vbot_navigation_section011")
@@ -94,7 +95,7 @@ _POLICY = flags.DEFINE_string("policy", None, "The policy to load")
 _NUM_ENVS = flags.DEFINE_integer("num-envs", 1, "Number of envs to play")
 
 def main(argv):
-    env_name = "vbot_navigation_section011"
+    env_name = _ENV_NAME
     policy_path = _POLICY.value
     if not policy_path:
         print("ERROR: --policy required")

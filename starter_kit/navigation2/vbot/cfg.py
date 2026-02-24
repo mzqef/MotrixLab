@@ -531,25 +531,32 @@ class VBotSection012EnvCfg(VBotStairsEnvCfg):
 @registry.envcfg("vbot_navigation_section013")
 @dataclass
 class VBotSection013EnvCfg(VBotStairsEnvCfg):
-    """VBot Section03（滚球/坡道/最终平台）导航配置
+    """VBot Section03（滚球/坡道/最终平台）分阶段区域收集导航配置
 
     XML地形信息 (0126_C_section03.xml):
-    - 高度场：中心(0, 29.33, 1.343)
     - 入口平台：z=1.294
     - 0.75m高隔离墙 (Cdiban_006)：y=27.58
     - 21.8°坡道 (Cdiban_002)
+    - 高度场：中心(0, 29.33, 1.343)
     - 3个金球障碍 (R=0.75)：y=31.23，x=-3/0/3，球心z=0.844
     - 最终平台 (Cdiban_004)：中心(0, 32.33, 0.994)，顶面z=1.494
     - 终点墙：y=34.33
+
+    竞赛得分区 (Section 3 = 25分):
+    - 滚球通过 10~15分: 通过3金球区域(稳定接触+15, 无接触+10)
+    - 随机地形 5分
+    - 最终庆祝 5分
+
+    架构: 与Section011共享分阶段导航+庆祝FSM, 69维观测
     """
     model_file: str = os.path.dirname(__file__) + "/xmls/scene_section013.xml"
-    max_episode_seconds: float = 50.0  # Section03: 50s/5000steps (生产配置, Run5 proven)
-    max_episode_steps: int = 5000
+    max_episode_seconds: float = 120.0  # 与section011一致: 停滞检测替代固定时间限制
+    max_episode_steps: int = 12000
     @dataclass
     class InitState:
         # 起始位置：section03入口，地面z≈1.294，机器人高度0.5m以上
         pos = [0.0, 26.0, 1.8]
-        pos_randomization_range = [-0.5, -0.5, 0.5, 0.5]  # ±0.5m随机（竞赛会随机起始点）
+        pos_randomization_range = [-2.0, -0.5, 2.0, 0.5]  # X: ±2.0m (10m宽平台), Y: ±0.5m
 
         default_joint_angles = {
             "FR_hip_joint": -0.0,
@@ -568,10 +575,61 @@ class VBotSection013EnvCfg(VBotStairsEnvCfg):
     @dataclass
     class Commands:
         # 固定目标：最终平台中心
-        # 起始(0, 26.0) + 偏移(0, 6.33) → 目标(0, 32.33)（≈最终平台中心，顶面z=1.494）
+        # 起始(0, 26.0) + 偏移(0, 6.33) → 目标(0, 32.33)
         pose_command_range = [0.0, 6.33, 0.0, 0.0, 6.33, 0.0]
 
+    @dataclass
+    class ScoringZones:
+        """竞赛得分区定义 (Section 3 = 25分)
 
+        3个金球得分区 (稳定通过+15分, 无接触通过+10分):
+          球心坐标: (-3, 31.23), (0, 31.23), (3, 31.23), R=0.75
+          通过间隙中心: x ≈ -1.5, 1.5
+        庆祝区 (+5分): 最终平台上做庆祝动作
+        """
+        # 3个金球得分区: 机器人躯体覆盖球心点即视为接触 (footprint检测, 与Section011笑脸一致)
+        ball_centers = [[-3.0, 31.23], [0.0, 31.23], [3.0, 31.23]]
+        ball_points = 5.0  # 每个球区竞赛得分
+        # 庆祝区 (+5分): 最终平台
+        celebration_center = [0.0, 32.33]
+        celebration_radius = 1.5
+        celebration_min_z = 1.2  # 最终平台顶面z=1.494, 站立约+0.3
+        celebration_points = 5.0
+
+    @dataclass
+    class CourseBounds:
+        """赛道边界 (超出=终止+清零得分)
+
+        从XML碰撞模型提取:
+        - 边界墙 x=±5.25
+        - 入口平台 y≈25.33
+        - 终点墙 y≈34.33
+        - 最低地面 z≈0.8 (坡道底部), 跌落判定z=-0.0
+        """
+        x_min: float = -5.2
+        x_max: float = 5.2
+        y_min: float = 24.5   # 入口平台前方
+        y_max: float = 34.5   # 终点墙后方
+        z_min: float = 0.0    # 坡道底部以下判定
+
+    @dataclass
+    class WaypointNav:
+        """分阶段导航配置: 金球收集 + 最终平台 + 跳跃庆祝
+
+        Phase APPROACH: 入口 → 坡道/hfield区域
+        Phase BALLS: 收集3个金球得分区 (任意顺序)
+        Phase CLIMB: 到达最终平台
+        Phase CELEBRATION: 跳跃庆祝 (10次)
+        """
+        waypoint_radius = 1.2  # 金球区到达半径
+        final_radius = 0.8     # 最终平台精确到达
+        celebration_jump_threshold = 1.85  # 最终平台z=1.494, 站立+0.3=1.79, 跳+0.06
+        required_jumps = 10
+        celebration_landing_z = 1.75  # 落地判定
+
+    scoring_zones: ScoringZones = field(default_factory=ScoringZones)
+    waypoint_nav: WaypointNav = field(default_factory=WaypointNav)
+    course_bounds: CourseBounds = field(default_factory=CourseBounds)
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)
 

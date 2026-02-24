@@ -381,8 +381,53 @@ REWARD_SEARCH_SPACE_SECTION012 = {
     "score_clear_factor": {"type": "uniform", "low": 0.1, "high": 0.5},     # cfg=0.3
 }
 
+# --- Section013 (金球/坡道/hfield, 25pt section, ball-navigation + celebration) ---
+# Ball-zone navigation: approach → collect 3 gold balls → climb final platform → 10-jump celebration
+# Ranges centered on cfg.py defaults (derived from section011 T10 winner values)
+REWARD_SEARCH_SPACE_SECTION013 = {
+    # === Navigation core (section011 T10 anchored, ±60%) ===
+    "forward_velocity": {"type": "uniform", "low": 2.0, "high": 10.0},       # cfg=3.16
+    "waypoint_approach": {"type": "uniform", "low": 100.0, "high": 600.0},   # cfg=280.0
+    "zone_approach": {"type": "uniform", "low": 30.0, "high": 200.0},        # cfg=75.0
+    "position_tracking": {"type": "uniform", "low": 0.1, "high": 0.8},       # cfg=0.26
+    "waypoint_facing": {"type": "uniform", "low": 0.2, "high": 1.5},         # cfg=0.64
+    # === 存活奖励 ===
+    "alive_bonus": {"type": "uniform", "low": 0.5, "high": 3.0},             # cfg=1.0
+    "alive_decay_horizon": {"type": "uniform", "low": 1200.0, "high": 5000.0},  # cfg=2400.0
+    # === 一次性奖金 ===
+    "waypoint_bonus": {"type": "uniform", "low": 20.0, "high": 120.0},       # cfg=50.0 (per ball)
+    "phase_bonus": {"type": "uniform", "low": 5.0, "high": 40.0},            # cfg=15.0
+    # === 庆祝 & 跳跃奖励 ===
+    "per_jump_bonus": {"type": "uniform", "low": 20.0, "high": 120.0},       # cfg=60.0
+    "celebration_bonus": {"type": "uniform", "low": 50.0, "high": 300.0},    # cfg=140.0
+    "jump_reward": {"type": "uniform", "low": 3.0, "high": 25.0},            # cfg=10.0
+    # === 球区shaping (section013特有) ===
+    "ball_contact_reward": {"type": "uniform", "low": 1.0, "high": 10.0},    # cfg=4.0
+    "ball_unstable_contact_penalty": {"type": "uniform", "low": -15.0, "high": -2.0},  # cfg=-8.0
+    "ball_gap_alignment": {"type": "uniform", "low": 0.5, "high": 5.0},      # cfg=2.0
+    # === 惩罚 (section011 T10 anchored) ===
+    "termination": {"type": "choice", "values": [-200, -150, -100, -50]},     # cfg=-150.0
+    "orientation": {"type": "uniform", "low": -0.06, "high": -0.005},         # cfg=-0.026
+    "lin_vel_z": {"type": "uniform", "low": -0.08, "high": -0.008},           # cfg=-0.027
+    "ang_vel_xy": {"type": "uniform", "low": -0.1, "high": -0.01},            # cfg=-0.038
+    "action_rate": {"type": "uniform", "low": -0.02, "high": -0.002},         # cfg=-0.007
+    "impact_penalty": {"type": "uniform", "low": -0.25, "high": -0.03},       # cfg=-0.1
+    "torque_saturation": {"type": "uniform", "low": -0.03, "high": -0.003},   # cfg=-0.012
+    "swing_contact_penalty": {"type": "uniform", "low": -0.01, "high": -0.0005},  # cfg=-0.003
+    # === 步态 & 地形 ===
+    "stance_ratio": {"type": "uniform", "low": 0.02, "high": 0.2},           # cfg=0.07
+    "foot_clearance": {"type": "uniform", "low": 0.0, "high": 0.5},          # cfg=0.0 (disabled by default)
+    "drag_foot_penalty": {"type": "uniform", "low": -0.5, "high": -0.05},    # cfg=0.0 (disabled by default)
+    "stagnation_penalty": {"type": "uniform", "low": -3.0, "high": -0.3},    # cfg=0.0 (disabled by default)
+    "crouch_penalty": {"type": "uniform", "low": -3.0, "high": -0.2},        # cfg=0.0 (disabled by default)
+    "dof_pos": {"type": "uniform", "low": -0.02, "high": -0.002},            # cfg=-0.008
+    "slope_orientation": {"type": "uniform", "low": 0.01, "high": 0.1},      # cfg=0.04
+    "height_oscillation": {"type": "uniform", "low": -5.0, "high": -0.5},    # cfg=-2.0
+}
+
 # Registry: env name pattern → search space
 _REWARD_SEARCH_SPACES = {
+    "section013": REWARD_SEARCH_SPACE_SECTION013,
     "section012": REWARD_SEARCH_SPACE_SECTION012,
     "section011": REWARD_SEARCH_SPACE_SECTION011,
     "section001": REWARD_SEARCH_SPACE_SECTION001,

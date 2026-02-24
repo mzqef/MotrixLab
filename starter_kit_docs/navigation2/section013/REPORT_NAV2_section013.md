@@ -690,6 +690,63 @@ section001 warm-start
 7. ⬜ **VLM视觉分析** — 诊断42%失败cases的原因
 8. ⬜ **将best checkpoint恢复到competition default config** — max_episode_steps, arrival等需回退到比赛参数
 9. ⬜ **Section012/011整合** — 考虑全程导航训练
+10. ⬜ **Section011架构迁移 + AutoML搜索** — 69维obs, section011 warm-start
+
+---
+
+## 架构迁移: Section011模板 + Warm-Start兼容 (2026-02-23)
+
+### 动机
+- 之前所有Runs使用54维obs从section001 warm-start, peak 58.4% (Run 5)
+- 无法从section011 warm-start (obs 69维 vs 54维不兼容)
+- 新目标: 用section011架构重写section013, 实现69维obs, 从section011 checkpoint直接warm-start
+- Section011 best checkpoint已学会: 四足步态, 纠偏导航, 坡道攀爬, 跳跃庆祝 — 这些技能可迁移
+
+### 架构变更
+
+| 项目 | 旧 (54维) | 新 (69维, section011模板) |
+|------|-----------|--------------------------|
+| 观测维度 | 54 | **69** = 54基础 + 4(foot_contact) + 3(trunk_acc) + 12(torques) - 4(removed) |
+| 导航方式 | 单目标approach | **分阶段FSM** (APPROACH→BALLS→CLIMB→CELEBRATION) |
+| 庆祝 | stop-hold | **跳跃FSM** (IDLE→JUMP→LANDING→DONE, required_jumps=10) |
+| 奖励系统 | 简单approach+bonus | **Delta-based** wp_approach + zone_approach + watermark + gait |
+| 球区处理 | gap alignment + contact | **Ordered targeting** (nearest side→middle→far side) + stable/unstable contact |
+| 终止条件 | base_contact 简单 | **Grace-protected** soft + hard + OOB + stagnation |
+| action_scale | 固定 | **TerrainScaleHelper** (multi-zone dynamic) |
+| RL网络 | policy (256,128,64) | **policy (512,256,128)** — 匹配section011 checkpoint |
+| LR | constant 3.6e-4 | **kl_adaptive**, base 1.5e-4 (0.33× section011, 防遗忘) |
+
+### 文件修改
+1. **`vbot_section013_np.py`** — 完全重写 (~900行), section011架构
+2. **`cfg.py`** — 新增 `ScoringZones`, `WaypointNav`, `CourseBounds` dataclass; max_episode_steps 5000→12000
+3. **`rl_cfgs.py`** — policy_hidden_layer_sizes (256,128,64)→(512,256,128); LR 3.6e-4→1.5e-4 kl_adaptive; max_env_steps 30M→50M
+4. **`automl.py`** — 新增 `REWARD_SEARCH_SPACE_SECTION013` 搜索空间 (section011 T10锚定 + 球区特有参数)
+
+### Smoke Test (2026-02-23)
+- ✅ 环境创建: `obs=(69,)`, `act=(12,)` — 正确
+- ✅ Checkpoint兼容: section011 checkpoint (512→256→128, 69 input) 加载成功
+- ✅ 训练运行: 2M env steps (500 iter), warm-start, 2:12完成, checkpoint保存正常
+- ✅ 无crash, 无shape mismatch
+
+### Warm-start checkpoint
+- 来源: `starter_kit_schedule/checkpoints/vbot_navigation_section011_warmup_agent.pt`
+- 网络: policy_net 512→256→128→12, value_net 512→256→128→1
+- 输入: 69维 (与新section013完全一致)
+
+### AutoML搜索空间 (REWARD_SEARCH_SPACE_SECTION013)
+基于section011 T10最优值 ±60%:
+- 导航核心: forward_velocity [2,10], waypoint_approach [100,600], zone_approach [30,200]
+- 球区特有: ball_contact_reward [1,10], ball_unstable_contact_penalty [-15,-2], ball_gap_alignment [0.5,5]
+- 庆祝: per_jump_bonus [20,120], celebration_bonus [50,300], jump_reward [3,25]
+- 惩罚/步态: 与section011搜索空间对齐
+
+### Smoke Test路径
+`runs/vbot_navigation_section013/26-02-23_04-34-06-837170_PPO/`
+
+### 下一步
+1. ⬜ 启动AutoML搜索: `--mode stage --budget-hours 8 --hp-trials 15`
+2. ⬜ VLM视觉分析: 观察section011 policy在section013地形的迁移表现
+3. ⬜ 与旧架构(54维)的Run 5 (58.4% reached)对比: 新架构能否利用section011预训练超越?
 
 ---
 
