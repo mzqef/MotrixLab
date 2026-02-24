@@ -234,6 +234,52 @@ class VBotStairsEnvCfg(EnvCfg):
     sensor: Sensor = field(default_factory=Sensor)
 
 
+# ============================================================
+# 通用有序航点模型 (可复用于任意section)
+# ============================================================
+
+@dataclass
+class Waypoint:
+    """单个导航航点 — 有序路线中的一个节点。
+
+    kind:
+      "virtual"  — 中转/控制点，到达即通过
+      "reward"   — 奖励收集点，中心穿越即收集
+      "goal"     — 终点目标，到达后进入庆祝
+
+    z_min/z_max: 高度约束 (默认无约束)。
+      例如桥面航点 z_min=2.3, 桥下航点 z_max=2.2。
+
+    bonus_key: reward_scales 中的奖金key。
+      若key不存在，使用 bonus_default。
+    """
+    xy: tuple                   # (x, y) 目标位置
+    label: str = ""             # 人类可读标签 (调试/日志)
+    kind: str = "virtual"       # "reward" | "virtual" | "goal"
+    radius: float = 1.2         # 到达检测半径
+    z_min: float = -999.0       # z下限 (-999 = 无约束)
+    z_max: float = 999.0        # z上限 (999 = 无约束)
+    bonus_key: str = ""         # reward_scales key
+    bonus_default: float = 0.0  # 默认奖金值
+
+
+@dataclass
+class OrderedRoute:
+    """有序导航路线: 严格顺序航点列表 + 庆祝配置。
+
+    机器人必须按 waypoints 顺序依次到达每个航点。
+    到达最后一个航点 (kind="goal") 后进入庆祝阶段。
+    wp_idx = 已完成航点数量 (0 → len(waypoints))。
+
+    可复用于任意section: 只需在cfg中定义不同的 waypoints 列表。
+    """
+    waypoints: list = field(default_factory=list)   # List[Waypoint]
+    # 庆祝配置
+    required_jumps: int = 10                        # 庆祝跳跃次数 (可配置)
+    celebration_jump_threshold: float = 1.55        # 跳跃检测z阈值
+    celebration_landing_z: float = 1.50             # 落地判定z阈值
+
+
 @registry.envcfg("vbot_navigation_long_course")
 @dataclass
 class VBotLongCourseEnvCfg(VBotStairsEnvCfg):
@@ -448,67 +494,61 @@ class VBotSection012EnvCfg(VBotStairsEnvCfg):
         }
     @dataclass
     class Commands:
-        # 不再使用固定offset目标; 目标由状态机动态指定
-        # 保留结构兼容性: 起始(0,9.5) + 偏移(0,14.5) → 仅在 Phase 6 fallback 时使用
+        # 不再使用固定offset目标; 目标由有序路线状态机动态指定
         pose_command_range = [0.0, 14.5, 0.0, 0.0, 14.5, 0.0]
-    @dataclass
-    class ScoringZones:
-        """竞赛得分区定义 (从XML碰撞/可视体提取坐标)"""
-        # 桥上拜年红包 (+10分: 过桥途径收集)
-        # 红包在桥面中央, 通过过桥行为自然收集
-        bridge_hongbao_center = [-3.0, 17.83]  # 桥面中心位置
-        bridge_hongbao_radius = 2.0  # 宽松判定 (桥面长5.2m, 中间2m即算过)
-        bridge_hongbao_min_z = 2.3   # 必须在桥面上 (桥面z≈2.51~2.71)
-        bridge_hongbao_points = 10.0
-        # 桥底下拜年红包 (2个, 各+5分)
-        # 位于桥面下方, 河谷底部附近, 过桥后才激活
-        under_bridge_centers = [[-3.0, 16.0], [-3.0, 19.5]]  # 桥入口下方 + 桥出口下方
-        under_bridge_radius = 1.5  # 宽松判定
-        under_bridge_max_z = 2.2   # 必须在桥面下 (桥面z≈2.5, 桥下z<2.2)
-        under_bridge_points = 5.0
-        # 河床石头贺礼红包 (5个, 各+3分, 位于右侧通道球形障碍顶部)
-        stone_hongbao_centers = [
-            [3.5, 15.84],   # C_Bpo_sphere_001 top
-            [0.36, 15.84],  # C_Bpo_sphere_002 top
-            [2.0, 17.83],   # C_Bpo_sphere_003 top (center, lower)
-            [3.5, 19.72],   # C_Bpo_sphere_004 top
-            [0.36, 19.72],  # C_Bpo_sphere_005 top
-        ]
-        stone_hongbao_radius = 1.0  # 球体R=0.75, 判定半径略大于球顶
-        stone_hongbao_points = 3.0
-        # 庆祝区 (终点平台, +5分)
-        celebration_center = [0.0, 24.33]
-        celebration_radius = 1.5
-        celebration_min_z = 1.0
-        celebration_points = 5.0
-    @dataclass
-    class BridgeNav:
-        """桥优先导航虚拟航点定义
 
-        桥面路径: x≈-3.0, y=15.31→20.33, z≈2.51→2.71
-        虚拟航点强制机器人走桥面路线, 防止走桥下近路或绕行右侧
+    @dataclass
+    class Section012Route(OrderedRoute):
+        """右侧优先全收集路线: 石头红包 → 桥下红包 → 远端上桥 → 桥上红包 → 原路返回 → 终点 → 庆祝
+
+        路线逻辑:
+          1) 从入口右转，沿右侧河床收集5个石头贺礼红包 (固定顺序)
+          2) 穿越河谷到左侧桥下，收集2个桥下拜年红包
+          3) 从远端 (出口侧) 爬左楼梯上桥
+          4) 过桥收集桥上拜年红包
+          5) 原路返回到远端桥头，下楼梯
+          6) 到达丙午大吉终点平台
+          7) 庆祝跳跃 (~10次)
+
+        航点坐标来自XML碰撞/可视体 (0131_C_section02_hotfix1.xml)。
         """
-        # 虚拟导航点序列 [x, y] — 桥优先固定主线
-        # Phase 0: 波浪地形→左楼梯底
-        wave_to_stair = [-3.0, 12.3]    # 左楼梯底部入口 (y=12.43处)
-        # Phase 1: 左楼梯顶→桥入口
-        stair_top = [-3.0, 14.5]        # 左楼梯顶部 (y=14.23, z≈2.79)
-        stair_top_min_z = 2.3           # 必须爬上楼梯 (z>2.3 = 到达顶部)
-        # Phase 2: 过桥虚拟导航点 (3个)
-        bridge_entry = [-3.0, 15.8]     # 桥面入口
-        bridge_mid = [-3.0, 17.83]      # 桥面中心 (最低点z≈2.51)
-        bridge_exit = [-3.0, 20.0]      # 桥面出口
-        bridge_min_z = 2.3              # 必须在桥面上
-        # Phase 4: 下楼梯
-        stair_down_bottom = [-3.0, 23.2]  # 左楼梯底部 (下到地面)
-        # Phase 6: 终点平台
-        exit_platform = [0.0, 24.33]     # 丙午大吉平台中心
-        # 航点到达半径
-        waypoint_radius = 1.2  # 虚拟导航点半径 (宽松)
-        bridge_wp_radius = 1.5  # 桥面导航点半径 (桥宽2.64m, 放宽)
-        final_radius = 0.8     # 终点平台精确到达
-        # 庆祝: 跳跃
-        celebration_jump_threshold = 1.55  # 与section011一致
+        waypoints: list = field(default_factory=lambda: [
+            # === 阶段1: 右侧路线 — 收集石头贺礼红包 (5个, 各+3竞赛分) ===
+            Waypoint(xy=(2.0, 12.0),    label="right_approach",     kind="virtual",  radius=1.5,
+                     bonus_key="transit_bonus", bonus_default=10.0),
+            Waypoint(xy=(0.36, 15.84),  label="stone_1_near_left",  kind="reward",   radius=1.2,
+                     bonus_key="stone_bonus", bonus_default=10.0),
+            Waypoint(xy=(3.5, 15.84),   label="stone_2_near_right", kind="reward",   radius=1.2,
+                     bonus_key="stone_bonus", bonus_default=10.0),
+            Waypoint(xy=(2.0, 17.83),   label="stone_3_center",     kind="reward",   radius=1.2,
+                     bonus_key="stone_bonus", bonus_default=10.0),
+            Waypoint(xy=(0.36, 19.72),  label="stone_4_far_left",   kind="reward",   radius=1.2,
+                     bonus_key="stone_bonus", bonus_default=10.0),
+            Waypoint(xy=(3.5, 19.72),   label="stone_5_far_right",  kind="reward",   radius=1.2,
+                     bonus_key="stone_bonus", bonus_default=10.0),
+            # === 阶段2: 桥下红包收集 (2个, 各+5竞赛分) ===
+            Waypoint(xy=(-3.0, 19.5),   label="under_bridge_far",   kind="reward",   radius=1.5,
+                     z_max=2.2, bonus_key="under_bridge_bonus", bonus_default=15.0),
+            Waypoint(xy=(-3.0, 16.0),   label="under_bridge_near",  kind="reward",   radius=1.5,
+                     z_max=2.2, bonus_key="under_bridge_bonus", bonus_default=15.0),
+            # === 阶段3: 远端上桥 → 桥上红包 → 原路返回 ===
+            Waypoint(xy=(-3.0, 22.5),   label="bridge_climb_base",  kind="virtual",  radius=1.5,
+                     bonus_key="transit_bonus", bonus_default=10.0),
+            Waypoint(xy=(-3.0, 20.0),   label="bridge_far_entry",   kind="virtual",  radius=1.5,
+                     z_min=2.3, bonus_key="bridge_entry_bonus", bonus_default=20.0),
+            Waypoint(xy=(-3.0, 17.83),  label="bridge_hongbao",     kind="reward",   radius=2.0,
+                     z_min=2.3, bonus_key="bridge_hongbao_bonus", bonus_default=30.0),
+            Waypoint(xy=(-3.0, 20.0),   label="bridge_turnaround",  kind="virtual",  radius=1.5,
+                     z_min=2.3, bonus_key="transit_bonus", bonus_default=5.0),
+            Waypoint(xy=(-3.0, 22.5),   label="bridge_descent",     kind="virtual",  radius=1.5,
+                     bonus_key="transit_bonus", bonus_default=10.0),
+            # === 阶段4: 终点 ===
+            Waypoint(xy=(0.0, 24.33),   label="exit_platform",      kind="goal",     radius=0.8,
+                     bonus_key="exit_bonus", bonus_default=30.0),
+        ])
+        required_jumps: int = 10
+        celebration_jump_threshold: float = 1.55
+        celebration_landing_z: float = 1.50
     @dataclass
     class CourseBounds:
         """赛道边界 (超出=终止+清零得分)
@@ -521,8 +561,7 @@ class VBotSection012EnvCfg(VBotStairsEnvCfg):
         y_max: float = 25.5      # 出口平台后方+缓冲
         z_min: float = 0.5       # 跌落到河谷底部以下判定 (河谷最低z≈1.19)
 
-    scoring_zones: ScoringZones = field(default_factory=ScoringZones)
-    bridge_nav: BridgeNav = field(default_factory=BridgeNav)
+    ordered_route: Section012Route = field(default_factory=Section012Route)
     course_bounds: CourseBounds = field(default_factory=CourseBounds)
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)

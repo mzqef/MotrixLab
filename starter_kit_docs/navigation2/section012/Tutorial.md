@@ -1,6 +1,6 @@
-# Section 012 Tutorial — Stairs + Bridge + Spheres + Cones
+# Section 012 Tutorial — Ordered Multi-Waypoint Full-Collection Navigation
 
-Welcome! This tutorial covers the **Section 012** environment in Navigation2 — training a quadruped robot (VBot) to climb stairs, cross a narrow arch bridge, navigate past sphere/cone obstacles, and descend stairs.
+Welcome! This tutorial covers the **Section 012** environment in Navigation2 — training a quadruped robot (VBot) to collect ALL rewards on the obstacle course using a strict ordered route: right-side stones first, then under-bridge hongbaos, bridge out-and-back, and finally exit + celebration jumps.
 
 > **Prerequisite**: Read `starter_kit_docs/navigation1/Tutorial.md` for framework fundamentals, and `starter_kit_docs/navigation2/long_course/Tutorial.md` for the overall Navigation2 course overview.
 
@@ -11,20 +11,21 @@ Welcome! This tutorial covers the **Section 012** environment in Navigation2 —
 | Aspect | Value |
 |--------|-------|
 | **Environment** | `vbot_navigation_section012` |
-| **Terrain** | Entry platform → stairs (left/right) → bridge/spheres → stairs down → exit platform |
-| **Distance** | ~14.5m (y=9.5 → y=24.0) |
+| **Strategy** | Ordered multi-waypoint: 14 waypoints, strict fixed route |
+| **Terrain** | Entry → right stairs → stone hongbaos → under-bridge → bridge out-and-back → exit |
+| **Distance** | ~14.5m (y=9.5 → y=24.0), but route covers more due to zigzag + bridge traversal |
 | **Episode** | 6000 steps (60s) |
 | **Points** | **60 pts** (highest value section — 57% of total Stage 2 score) |
-| **Status** | Default config — reward budget needs fixing before training |
+| **Celebration** | 10 configurable jumps at exit platform |
 
-### What Skills Does This Section Train?
+### Key Insight: Multi-Navigation Problem
 
-- Stair climbing (10 steps, ΔZ=0.10-0.15 per step)
-- Stair descending (balance and controlled descent)
-- Narrow-path traversal (arch bridge, ~2.64m wide)
-- Obstacle avoidance (5 spheres R=0.75, 8 cones)
-- Route selection (left steep stairs + bridge vs right gentle stairs + obstacles)
-- Height-aware navigation (z: 1.294 → 2.794 → 1.294, up-then-down)
+Every competition scoring zone is treated as a **waypoint** in an ordered list. The robot navigates to each in turn:
+- **Reward waypoints**: stone hongbaos, under-bridge hongbaos, bridge hongbao — map to competition points
+- **Virtual waypoints**: guide the route between reward zones (approach angles, stair bases, bridge entry/exit)
+- **Goal waypoint**: exit platform — triggers celebration
+
+The policy sees its current target change as it reaches each waypoint, creating a natural curriculum: early training learns to walk toward a nearby target, then extends to the full route.
 
 ---
 
@@ -62,15 +63,25 @@ Y=24.3  ──────────────── EXIT PLATFORM (z≈1.29
 
 ---
 
-## 3. Route Selection
+## 3. Ordered Route — Full Collection Strategy
 
-The policy must discover the optimal route on its own. **Do not bias the reward toward left or right.** Let the RL agent learn from experience.
+The route is **fixed and strict** (not learned by the policy). The waypoint list in `cfg.py` defines the exact order:
 
-**Route trade-offs**:
-- **Left**: Steeper stairs but clear bridge path (no obstacles on bridge)
-- **Right**: Gentler stairs but 5 spheres (R=0.75m) blocking the path
+```
+  WP 0: right_approach         → Enter right side of course
+  WP 1-5: stone_hongbao_1~5    → Zigzag through 5 stone hongbaos (+15 pts)
+  WP 6-7: under_bridge_far/near → Collect 2 under-bridge hongbaos (+10 pts)
+  WP 8: bridge_climb_base      → Walk to far stair base
+  WP 9: bridge_far_entry       → Climb stairs, enter bridge (z>2.3)
+  WP10: bridge_hongbao         → Collect bridge hongbao (+10 pts)
+  WP11: bridge_turnaround      → Turn around on bridge (z>2.3)
+  WP12: bridge_descent         → Descend stairs back to ground
+  WP13: exit_platform          → Reach exit → 10-jump celebration (+5 pts)
+```
 
-Both routes reach the same exit platform at y≈24.3, z≈1.294.
+**Why right-side first?** The right stairs are gentler (ΔZ≈0.10 vs 0.15) and the stone hongbaos are scattered among spheres that serve as stepping stones. After collecting all ground-level rewards, the robot crosses to the left side for the bridge out-and-back.
+
+**Why out-and-back on the bridge?** The bridge hongbao is at the center (y≈17.83). The robot climbs from the far (y≈22.5) end, walks to the center, then turns around and descends from the same end. This avoids the need to descend steep stairs from the near end.
 
 ---
 
@@ -138,67 +149,42 @@ Right route has 5 spheres (R=0.75m) and 8 cones scattered in the path:
 pos = [0.0, 9.5, 1.8]  # Entry platform (z≈1.294 + 0.5m)
 max_episode_steps = 6000  # 60 seconds
 
-# ⚠️ Reward budget BROKEN — needs fixing before training:
-alive_bonus = 0.3         # 0.3 × 6000 = 1,800 >> arrival(80)
-arrival_bonus = 80.0
-termination = -200.0
+# Ordered route: 14 waypoints (see cfg.py Section012Route)
+# Celebration: 10 jumps at exit platform
+# Reward budget: completing (800+) >> standing (150) ✅
 ```
 
 ---
 
-## 6. Reward Engineering — Stairs & Bridge
+## 6. Reward Engineering — Ordered Waypoints
 
-### 6.1 Reward Budget (Must Fix)
+### 6.1 Reward Budget (Verified)
 
 ```
 STANDING STILL for 6000 steps:
-  alive = 0.3 × 6000 = 1,800
-  Total standing ≈ 2,200+
+  alive = 0.05 × 3000 (conditional) = 150
+  Total standing ≈ 150
 
-COMPLETING TASK:
-  arrival_bonus = 80
+COMPLETING ALL 14 WAYPOINTS + CELEBRATION:
+  alive = 0.05 × 3000 = 150
+  Milestones (14 WPs): ~217
+  Celebration: 15×10 + 80 = 230
+  Navigation rewards: ~200+
+  Total completing ≈ 800+
 
-⚠️ Ratio 27:1 — LAZY ROBOT GUARANTEED
+✅ Ratio 5:1 — completing dominates
 ```
 
-**Fix template** (apply before training):
-```python
-alive_bonus = 0.05        # 0.05 × 6000 = 300
-arrival_bonus = 200.0     # > alive_budget
-# Add stair milestones: 10.0 × N checkpoints
-# Add bridge crossing bonus: 30.0
-# Add height_progress: 8.0
-termination = -100.0
-```
+### 6.2 Waypoint Progression Rewards
 
-### 6.2 Stair-Specific Rewards
+The primary navigation signal comes from `waypoint_approach` (step-delta toward current WP) and milestone bonuses (one-time on first arrival). The reward function is generic — no per-waypoint special cases.
 
-```python
-# Knee lift bonus (only on stairs, detected by Y-position or z-gradient)
-if on_stairs:
-    for leg in ['FR', 'FL', 'RR', 'RL']:
-        calf_angle = joint_pos[f'{leg}_calf_joint']
-        knee_lift = -calf_angle  # More negative = higher lift
-        if knee_lift > 1.5:
-            reward += 0.2 * (knee_lift - 1.5)
+### 6.3 Stair-Specific Rewards
 
-# Foot slip penalty
-foot_velocities = get_foot_velocities()
-for foot_vel in foot_velocities:
-    if foot_in_contact[foot]:
-        lateral_slip = np.linalg.norm(foot_vel[:2])
-        reward -= 0.1 * lateral_slip
-```
-
-### 6.3 Bridge-Specific Rewards
-
-```python
-# Lateral deviation penalty on bridge (y≈15.3 to y≈20.3)
-if on_bridge:
-    bridge_center_x = -3.0  # Left route bridge centerline
-    lateral_error = abs(robot_x - bridge_center_x)
-    reward -= 0.3 * max(lateral_error - 0.5, 0.0)  # Free zone: ±0.5m
-```
+Stair climbing/descending challenges are handled by generic rewards:
+- **height_progress**: Rewards z-axis gain when climbing
+- **foot_clearance + stair_boost**: Terrain-zone driven, amplified on stairs
+- **swing_contact_penalty + stair_scale**: Reduced on stairs (foot-edge contact expected)
 
 ---
 

@@ -1,4 +1,4 @@
-# Section 012 Task Reference — Bridge-Priority Multi-Phase Navigation
+# Section 012 Task Reference — Ordered Multi-Waypoint Full-Collection Navigation
 
 > **This file contains task-specific concrete values** for Section 012 (Stage 2B — stairs, arch bridge, hongbao collection).
 > For abstract methodology, see `.github/copilot-instructions.md` and `.github/skills/`.
@@ -10,39 +10,57 @@
 
 | Environment ID | Terrain | Status |
 |----------------|---------|--------|
-| `vbot_navigation_section012` | Section02: entry → left stairs up → arch bridge → stairs down → under-bridge collect → exit | **IMPLEMENTED** — bridge-priority state machine, 69-dim obs, warm-start ready |
+| `vbot_navigation_section012` | Section02: entry → right-side stones → under-bridge → bridge (out-and-back) → exit → celebrate | **IMPLEMENTED** — ordered waypoint navigation, 69-dim obs, warm-start ready |
 
-## Strategy: Bridge-Priority Fixed Route
+## Strategy: Right-Side-First Ordered Route (14 waypoints)
+
+The course is treated as a **multi-navigation problem**: every reward center (competition scoring zone) is an ordered waypoint. The robot follows a strict fixed route that collects ALL rewards.
 
 ```
-  Phase 0: WAVE_TO_STAIR — 入口平台 → 左楼梯底  WP=[-3, 12.3]
-  Phase 1: CLIMB_STAIR   — 左楼梯底 → 楼梯顶    WP=[-3, 14.5] + z>2.3
-  Phase 2: CROSS_BRIDGE   — 过桥 (3个虚拟导航点)
-           sub_idx 0: bridge_entry [-3, 15.8]
-           sub_idx 1: bridge_mid   [-3, 17.83]  ← 桥上红包触发区
-           sub_idx 2: bridge_exit  [-3, 20.0]   + z>2.3
-  Phase 3: DESCEND_STAIR — 下左楼梯             WP=[-3, 23.2]
-  Phase 4: COLLECT_UNDER_BRIDGE — 收集桥下红包   nearest-uncollected targeting
-  Phase 5: REACH_EXIT    — 到达终点平台          WP=[0, 24.33] r=0.8
-  Phase 6: CELEBRATION   — 庆祝跳跃             IDLE→JUMP→DONE
+Route: Right-side first, collect stones, go under bridge, climb up far end,
+       cross bridge to collect hongbao, turn around, descend, exit → celebrate.
+
+  WP 0: right_approach         (2.0, 12.0)   virtual  r=1.5
+  WP 1: stone_hongbao_1        (0.36, 15.84) reward   r=1.2  → +3pts
+  WP 2: stone_hongbao_2        (3.50, 15.84) reward   r=1.2  → +3pts
+  WP 3: stone_hongbao_3        (2.00, 17.83) reward   r=1.2  → +3pts
+  WP 4: stone_hongbao_4        (0.36, 19.72) reward   r=1.2  → +3pts
+  WP 5: stone_hongbao_5        (3.50, 19.72) reward   r=1.2  → +3pts
+  WP 6: under_bridge_far       (-3.0, 19.5)  reward   r=1.5  z<2.2 → +5pts
+  WP 7: under_bridge_near      (-3.0, 16.0)  reward   r=1.5  z<2.2 → +5pts
+  WP 8: bridge_climb_base      (-3.0, 22.5)  virtual  r=1.5
+  WP 9: bridge_far_entry       (-3.0, 20.0)  virtual  r=1.5  z>2.3
+  WP10: bridge_hongbao         (-3.0, 17.83) reward   r=2.0  z>2.3 → +10pts
+  WP11: bridge_turnaround      (-3.0, 20.0)  virtual  r=1.5  z>2.3
+  WP12: bridge_descent         (-3.0, 22.5)  virtual  r=1.5
+  WP13: exit_platform          (0.0, 24.33)  goal     r=0.8  → +5pts (celebration)
+  CELEBRATION: 10 jumps at exit platform
 ```
 
-Total virtual waypoints: 9 (including 3 bridge sub-WPs + 2 under-bridge targets).
-AutoML `compute_score` normalizes by `max_wp=9.0`.
+Total waypoints: 14 (7 reward + 6 virtual + 1 goal).
+`wp_idx` = count of reached waypoints (0 → 14, monotonic). AutoML normalizes by `max_wp=14.0`.
+
+### Waypoint Kinds
+
+| Kind | Meaning | Bonus |
+|------|---------|-------|
+| `reward` | Competition scoring zone — awards milestone bonus on first arrival | Per-waypoint bonus from `scales` |
+| `virtual` | Transit waypoint — guides route between reward zones | Per-waypoint bonus (smaller) |
+| `goal` | Final destination — triggers celebration on arrival | Goal bonus |
 
 ## Competition Scoring — Section 2 (60 pts total)
 
 Source: `MotrixArena_S1_计分规则讲解.md`
 
-| Scoring Item | Points | Mapped Phase | Reward Key |
+| Scoring Item | Points | Waypoint(s) | Reward Key |
 |-------------|--------|-------------|------------|
-| 通过波浪地形到达楼梯 | +10 | Phase 0 → 1 | `wave_traversal_bonus` (30.0) |
-| 从左楼梯到达吊桥 | +5 | Phase 1 → 2 | `stair_top_bonus` (25.0) |
-| 经过吊桥途径拜年红包 | +10 | Phase 2 complete | `bridge_crossing_bonus` (50.0) |
-| 从楼梯口下来到达平台 | +5 | Phase 3 → 5 | `stair_down_bonus` (20.0) |
-| 庆祝动作 | +5 | Phase 6 | `celebration_bonus` (80.0) |
-| 河床石头上贺礼红包 | +3×5=15 | (optional) | `stone_hongbao_bonus` (8.0 each) |
-| 桥底下拜年红包 | +5×2=10 | Phase 4 | `under_bridge_bonus` (15.0 each) |
+| 河床石头上贺礼红包 (×5) | +3×5=15 | WP1-5 | `stone_hongbao_bonus` (8.0 each) |
+| 桥底下拜年红包 (×2) | +5×2=10 | WP6-7 | `under_bridge_bonus` (15.0 each) |
+| 经过吊桥途径拜年红包 | +10 | WP10 | `bridge_hongbao_bonus` (30.0) |
+| 通过波浪地形到达楼梯 | +10 | implicit (terrain traversal) | `traversal_bonus` (20.0) |
+| 从左楼梯到达吊桥 | +5 | WP8-9 transition | virtual WP bonuses |
+| 从楼梯口下来到达平台 | +5 | WP12-13 transition | virtual WP bonuses |
+| 庆祝动作 | +5 | WP13 (celebration) | `celebration_bonus` (80.0) |
 | **Total** | **60** | | |
 
 ## Terrain Description — Section 02
@@ -54,28 +72,28 @@ Y: 8.8   12.4  14.2  15.3  20.3  21.4  23.2  24.3
     |--entry--|--stairs up--|----bridge----|--stairs down--|--exit--|
     z=1.294   z→2.79         z≈2.51~2.71    z→1.37        z=1.294
 
-Bridge-priority route (LEFT): x ≈ -3.0 throughout
+Right-side-first route: x ≈ +2.0 for stones, x ≈ -3.0 for bridge/under-bridge
 ```
 
-### Left Route — Steep Stairs + Arch Bridge (主线)
+### Right Route — Stone Hongbaos (WP0-5)
 
 | Element | Center/Range | Key Stats | Notes |
 |---------|-------------|-----------|-------|
 | Entry platform | (0, 10.33, 1.294) | Section01 exit | Robot spawns here |
-| Left stairs up (10 steps) | x=-3.0, y=12.43→14.23 | ΔZ≈0.15/step, z: 1.369→2.794 | Steep — higher per-step clearance needed |
-| Arch bridge | x≈-3.0, y=15.31→20.33 | 23 segments, z≈2.51→2.71, width ~2.64m | Narrow with railings |
-| Bridge Hong Bao | (-3.0, 17.83) | r=2.0, z>2.3 | +10 pts, collected naturally while crossing |
-| Under-bridge Hong Bao ×2 | (-3, 16) + (-3, 19.5) | r=1.5, z<2.2 | +5 pts each, after descent |
-| Left stairs down (10 steps) | x=-3.0, y=21.4→23.2 | ΔZ≈0.15/step, z: 2.794→1.369 | Descending — balance challenge |
-| Exit platform | (0, 24.33, 1.294) | Final goal | Celebration zone |
+| Right stairs up (10 steps) | x=2.0, y=12.4→14.2 | ΔZ≈0.10/step, z: 1.32→2.29 | Gentler slope |
+| 5 spheres (stone hongbao) | see WP1-5 coordinates | R=0.75, +3 pts each on top | Main collection targets |
+| Right stairs down (10 steps) | x=2.0 | ΔZ≈0.10/step | Gentler descent |
 
-### Right Route — Gentle Stairs + Obstacles (不走)
+### Left Route — Bridge & Under-Bridge (WP6-12)
 
 | Element | Center/Range | Key Stats | Notes |
 |---------|-------------|-----------|-------|
-| Right stairs up (10 steps) | x=2.0 | ΔZ≈0.10/step, z: 1.319→2.294 | Gentler but has obstacles |
-| 5 spheres (stone hongbao) | R=0.75, y=15.8~19.7 | +3 pts each on top | Not on main route |
-| Right stairs down (10 steps) | x=2.0 | ΔZ≈0.10/step | Gentler descent |
+| Under-bridge Hong Bao ×2 | (-3, 16) + (-3, 19.5) | r=1.5, z<2.2 | +5 pts each, collected before climbing |
+| Left stairs up (10 steps) | x=-3.0, y=21.4→23.2 (far end) | ΔZ≈0.15/step, z: 1.37→2.79 | Steep — climb from far end |
+| Arch bridge | x≈-3.0, y=15.31→20.33 | 23 segments, z≈2.51→2.71, width ~2.64m | Narrow with railings |
+| Bridge Hong Bao | (-3.0, 17.83) | r=2.0, z>2.3 | +10 pts, out-and-back to collect |
+| Left stairs down (10 steps) | x=-3.0, y=21.4→23.2 | ΔZ≈0.15/step, z: 2.79→1.37 | Descending same stairs |
+| Exit platform | (0, 24.33, 1.294) | Final goal | Celebration zone |
 
 ### Key Terrain Parameters
 
@@ -124,21 +142,29 @@ waypoint_facing:        0.15   # 面朝当前WP
 position_tracking:      0.05   # 弱距离信号
 alive_bonus:            0.05   # 条件式 (0.05×6000=300)
 
-# ===== 一次性里程碑奖励 =====
-wave_traversal_bonus:  30.0    # Phase 0→1, +10竞赛分
-stair_top_bonus:       25.0    # Phase 1→2, +5竞赛分
-bridge_crossing_bonus: 50.0    # Phase 2完成, +10竞赛分
-stair_down_bonus:      20.0    # Phase 3→4, +5竞赛分
-bridge_hongbao_bonus:  30.0    # 桥上红包 (过桥自然收集)
-under_bridge_bonus:    15.0    # 每个桥下红包 ×2
-stone_hongbao_bonus:    8.0    # 每个石头红包 ×5 (非主线)
-celebration_bonus:     80.0    # 庆祝动作, +5竞赛分
-phase_completion_bonus: 15.0   # 通用Phase完成
+# ===== 一次性航点里程碑奖励 (对应 Section012Route 14个航点) =====
+# 每个航点的bonus值通过 bonus_key → reward_config.scales 映射
+# reward类航点:
+stone_hongbao_bonus:    8.0    # 每个石头红包 ×5 (WP1-5)
+under_bridge_bonus:    15.0    # 每个桥下红包 ×2 (WP6-7)
+bridge_hongbao_bonus:  30.0    # 桥上红包 ×1 (WP10)
+# virtual类航点:
+right_approach_bonus:  10.0    # WP0: 右侧入口
+climb_base_bonus:      12.0    # WP8: 楼梯底
+bridge_far_entry_bonus: 20.0   # WP9: 桥远端入口
+bridge_turnaround_bonus: 15.0  # WP11: 桥上掉头
+bridge_descent_bonus:  10.0    # WP12: 下桥
+# goal类航点:
+exit_bonus:            20.0    # WP13: 终点平台
 
-# ===== Zone吸引力 & 高度进步 =====
-zone_approach:          5.0    # 红包/得分区接近
+# ===== 庆祝跳跃 =====
+per_jump_bonus:        15.0    # 每跳一次的奖金 (×10跳)
+celebration_bonus:     80.0    # 完成全部跳跃的终极奖金
+jump_reward:            8.0    # 庆祝跳跃连续奖励 (z_above_standing)
+
+# ===== 高度进步 & 地形里程碑 =====
 height_progress:       12.0    # 爬楼梯z增量
-traversal_bonus:       20.0    # 地形里程碑
+traversal_bonus:       20.0    # Y轴地形里程碑 (4个)
 
 # ===== 步态 & 抬脚 =====
 foot_clearance:         0.02   # 摆动相抬脚
@@ -146,9 +172,6 @@ foot_clearance_stair_boost: 3.0  # 楼梯区放大
 stance_ratio:           0.08   # ~2足着地
 swing_contact_penalty: -0.025  # 摆动相触地
 swing_contact_stair_scale: 0.5  # 楼梯区降低
-
-# ===== 跳跃庆祝 =====
-jump_reward:            8.0    # 庆祝跳跃连续奖励
 
 # ===== v20: 传感器惩罚 =====
 impact_penalty:        -0.02   # trunk冲击
@@ -176,13 +199,14 @@ STANDING STILL for 6000 steps:
   No milestone bonuses (never moves)
   Total standing ≈ 150
 
-COMPLETING ALL PHASES (est. 3000 steps):
+COMPLETING ALL WAYPOINTS (est. 3000 steps):
   alive_bonus: 0.05 × 3000 = 150
   waypoint_approach: dominant per-step (up to ~200 cumulative)
-  Milestones: 30+25+50+20+30+15×2+80+15×6 = 370
-  Total completing ≈ 720+
+  Milestones (14 WPs): 10+8×5+15×2+30+12+20+15+10+20 = 217
+  Celebration: 15×10 + 80 = 230
+  Total completing ≈ 800+
   
-  Ratio: Completing (720) >> Standing (150) ✅
+  Ratio: Completing (800) >> Standing (150) ✅
 ```
 
 ## PPO Hyperparameters (warm-start aligned)
@@ -221,38 +245,43 @@ Requirements:
 - **LR**: already set to 5e-5 (same as section011, no further reduction needed for initial experiments)
 - **Optimizer state**: reset on warm-start (stale momentum from different task)
 
-## Scoring Zones (from cfg.py)
+## Ordered Route Waypoints (from cfg.py: Section012Route)
 
-| Zone | Center | Radius | Z Constraint | Points |
-|------|--------|--------|-------------|--------|
-| Bridge hongbao | (-3.0, 17.83) | 2.0 | z > 2.3 | +10 |
-| Under-bridge #1 | (-3.0, 16.0) | 1.5 | z < 2.2 | +5 |
-| Under-bridge #2 | (-3.0, 19.5) | 1.5 | z < 2.2 | +5 |
-| Stone hongbao ×5 | see cfg.py | 1.0 | — | +3 each |
-| Celebration | (0.0, 24.33) | 1.5 | z > 1.0 | +5 |
+| WP# | Label | Position (x,y) | Kind | Radius | Z Constraint | Bonus Key | Default | Competition Pts |
+|-----|-------|----------------|------|--------|-------------|-----------|---------|----------------|
+| 0 | right_approach | (2.0, 12.0) | virtual | 1.5 | — | `right_approach_bonus` | 10.0 | — |
+| 1 | stone_hongbao_1 | (0.36, 15.84) | reward | 1.2 | — | `stone_hongbao_bonus` | 8.0 | +3 |
+| 2 | stone_hongbao_2 | (3.50, 15.84) | reward | 1.2 | — | `stone_hongbao_bonus` | 8.0 | +3 |
+| 3 | stone_hongbao_3 | (2.00, 17.83) | reward | 1.2 | — | `stone_hongbao_bonus` | 8.0 | +3 |
+| 4 | stone_hongbao_4 | (0.36, 19.72) | reward | 1.2 | — | `stone_hongbao_bonus` | 8.0 | +3 |
+| 5 | stone_hongbao_5 | (3.50, 19.72) | reward | 1.2 | — | `stone_hongbao_bonus` | 8.0 | +3 |
+| 6 | under_bridge_far | (-3.0, 19.5) | reward | 1.5 | z < 2.2 | `under_bridge_bonus` | 15.0 | +5 |
+| 7 | under_bridge_near | (-3.0, 16.0) | reward | 1.5 | z < 2.2 | `under_bridge_bonus` | 15.0 | +5 |
+| 8 | bridge_climb_base | (-3.0, 22.5) | virtual | 1.5 | — | `climb_base_bonus` | 12.0 | — |
+| 9 | bridge_far_entry | (-3.0, 20.0) | virtual | 1.5 | z > 2.3 | `bridge_far_entry_bonus` | 20.0 | — |
+| 10 | bridge_hongbao | (-3.0, 17.83) | reward | 2.0 | z > 2.3 | `bridge_hongbao_bonus` | 30.0 | +10 |
+| 11 | bridge_turnaround | (-3.0, 20.0) | virtual | 1.5 | z > 2.3 | `bridge_turnaround_bonus` | 15.0 | — |
+| 12 | bridge_descent | (-3.0, 22.5) | virtual | 1.5 | — | `bridge_descent_bonus` | 10.0 | — |
+| 13 | exit_platform | (0.0, 24.33) | goal | 0.8 | — | `exit_bonus` | 20.0 | +5 (celebration) |
 
-## Virtual Waypoints (BridgeNav)
+### Celebration Configuration
 
-| Phase | Waypoint | Position | Radius | Z Check | Info |
-|-------|----------|----------|--------|---------|------|
-| 0 | wave_to_stair | (-3.0, 12.3) | 1.2 | — | Left stair base |
-| 1 | stair_top | (-3.0, 14.5) | 1.2 | z > 2.3 | Must climb stairs |
-| 2.0 | bridge_entry | (-3.0, 15.8) | 1.5 | z > 2.3 | Bridge start |
-| 2.1 | bridge_mid | (-3.0, 17.83) | 1.5 | z > 2.3 | Bridge center |
-| 2.2 | bridge_exit | (-3.0, 20.0) | 1.5 | z > 2.3 | Bridge end |
-| 3 | stair_down_bottom | (-3.0, 23.2) | 1.2 | — | Bottom of descent |
-| 4 | under-bridge (nearest) | variable | 1.5 | z < 2.2 | 2 targets |
-| 5 | exit_platform | (0.0, 24.33) | 0.8 | — | Final goal |
-| 6 | celebration | at exit | — | — | Jump sequence |
+| Parameter | Value |
+|-----------|-------|
+| `required_jumps` | 10 |
+| `celebration_jump_threshold` | 1.55 (z above which a jump is counted) |
+| `celebration_landing_z` | 1.50 (z below which landing is detected) |
+| `per_jump_bonus` | 15.0 per successful jump |
+| `celebration_bonus` | 80.0 on completing all jumps |
 
 ## Predicted Exploits
 
 | Exploit | Description | Prevention |
 |---------|-------------|------------|
-| **Stair-base camper** | Robot stays at stair base, collects alive + approach | alive_bonus conditional, milestones dominate |
-| **Bridge bouncer** | Oscillates on bridge without crossing | step-delta approach (no-retreat), sub-WP progression |
-| **Under-bridge farmer** | Stays below bridge collecting z-approach | z-constraint on bridge scoring zones (z>2.3) |
-| **Phase-skip jump** | Robot tries to skip phases | State machine enforces sequential progression |
+| **Standing-still farmer** | Robot stays at spawn, collects alive | alive_bonus conditional on upright, milestones dominate |
+| **Waypoint-skip jump** | Robot tries to skip ahead | Ordered route enforces sequential wp_current progression |
+| **Z-constraint cheat** | Tries to collect bridge hongbao from below | z_min=2.3 on WP9-11 |
+| **Under-bridge from above** | Tries to collect under-bridge from bridge | z_max=2.2 on WP6-7 |
 | **Score-clear exploit** | Robot falls intentionally to reset score_clear | score_clear_factor=0.3 (loses 30% bonuses on termination) |
 
 ## AutoML Search Space (section012)
@@ -270,8 +299,8 @@ uv run starter_kit_schedule/scripts/automl.py --mode stage --budget-hours 8 --hp
 
 | File | Purpose |
 |------|---------|
-| [starter_kit/navigation2/vbot/cfg.py](../../../starter_kit/navigation2/vbot/cfg.py) | Section012 config: ScoringZones, BridgeNav, CourseBounds, RewardConfig |
-| [starter_kit/navigation2/vbot/vbot_section012_np.py](../../../starter_kit/navigation2/vbot/vbot_section012_np.py) | Bridge-priority state machine implementation (~900 lines) |
+| [starter_kit/navigation2/vbot/cfg.py](../../../starter_kit/navigation2/vbot/cfg.py) | Section012 config: Waypoint, OrderedRoute, Section012Route (14 WPs), CourseBounds, RewardConfig |
+| [starter_kit/navigation2/vbot/vbot_section012_np.py](../../../starter_kit/navigation2/vbot/vbot_section012_np.py) | Ordered waypoint navigation implementation (~900 lines) |
 | [starter_kit/navigation2/vbot/rl_cfgs.py](../../../starter_kit/navigation2/vbot/rl_cfgs.py) | Section012 PPO hyperparameters (warm-start aligned) |
 | [starter_kit/navigation2/vbot/xmls/scene_section012.xml](../../../starter_kit/navigation2/vbot/xmls/scene_section012.xml) | Section 02 MJCF scene |
 | [starter_kit_schedule/scripts/automl.py](../../../starter_kit_schedule/scripts/automl.py) | AutoML with REWARD_SEARCH_SPACE_SECTION012 |

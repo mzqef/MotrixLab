@@ -14,28 +14,29 @@
 # ==============================================================================
 
 """
-VBot Section012 桥优先多目标导航环境 — 基于 Section011 状态机架构
+VBot Section012 有序多航点全收集导航环境
 
 竞赛规则 (Section 2 = 60分):
   +10: 通过波浪地形到达楼梯
-  +5:  从左楼梯到达吊桥
+  +5:  从楼梯到达河床/吊桥
   +10: 经过吊桥途径拜年红包到达楼梯口
   +5:  从楼梯口下来到达丙午大吉平台
   +5:  庆祝动作
-  +3×5: 河床石头贺礼红包 (右路线, 本策略暂不主动追求)
-  +5×2: 桥底下拜年红包 (过桥后激活收集)
+  +3×5=15: 河床石头上贺礼红包
+  +5×2=10: 桥底下拜年红包
 
-桥优先导航状态机:
-  Phase 0 (WAVE_TO_STAIR):       通过波浪地形到达左楼梯底
-  Phase 1 (CLIMB_STAIR):         爬左楼梯到达桥入口
-  Phase 2 (CROSS_BRIDGE):        过桥 — 虚拟导航点 entry→mid→exit
-  Phase 3 (DESCEND_STAIR):       下楼梯到达底部
-  Phase 4 (COLLECT_UNDER_BRIDGE): 过桥后收集桥下红包
-  Phase 5 (REACH_EXIT):          到达丙午大吉平台
-  Phase 6 (CELEBRATION):         在平台上跳跃庆祝
+策略: 有序航点全收集 (右侧优先)
+  1) 右侧河床收集5个石头红包 (固定顺序)
+  2) 桥下收集2个拜年红包
+  3) 远端上桥收集桥上拜年红包
+  4) 原路返回下桥
+  5) 到达终点平台
+  6) 庆祝跳跃 (~10次，可配置)
 
-wp_idx = 里程碑计数 (0-N, 追踪总进度)
-观测: 69维 (与section011对齐, 含trunk_acc + actuator_torques)
+航点由 cfg.OrderedRoute 定义: 每个航点含坐标、类型
+(reward/virtual/goal)、到达半径、可选z约束、和奖金配置。
+机器人严格按顺序依次到达。wp_idx = 已完成航点数。
+观测: 69维 (与其他section对齐, 含trunk_acc + actuator_torques)
 """
 
 import numpy as np
@@ -49,38 +50,21 @@ from motrix_envs.math.quaternion import Quaternion
 from .cfg import VBotSection012EnvCfg, TerrainScaleHelper
 
 # ============================================================
-# 庆祝状态机常量 (与section011一致)
+# 庆祝状态机常量 (多次跳跃)
 # ============================================================
 CELEB_IDLE = 0
 CELEB_JUMP = 1
-CELEB_DONE = 2
-
-# ============================================================
-# 导航阶段常量
-# ============================================================
-PHASE_WAVE_TO_STAIR = 0       # 波浪地形→左楼梯底
-PHASE_CLIMB_STAIR = 1         # 爬左楼梯
-PHASE_CROSS_BRIDGE = 2        # 过桥 (3个虚拟WP)
-PHASE_DESCEND_STAIR = 3       # 下楼梯
-PHASE_COLLECT_UNDER_BRIDGE = 4  # 收集桥下红包
-PHASE_REACH_EXIT = 5          # 到达终点平台
-PHASE_CELEBRATION = 6         # 庆祝
-
-
-def generate_repeating_array(num_period, num_reset, period_counter):
-    """生成重复数组，用于在固定位置中循环选择"""
-    idx = []
-    for i in range(num_reset):
-        idx.append((period_counter + i) % num_period)
-    return np.array(idx)
+CELEB_LANDING = 2
+CELEB_DONE = 3
 
 
 @registry.env("vbot_navigation_section012", "np")
 class VBotSection012Env(NpEnv):
     """
-    VBot Section02 桥优先多目标导航 + 跳跃庆祝
+    VBot Section02 有序多航点全收集导航 + 跳跃庆祝
     地形: 入口平台 → 楼梯 → 拱桥/球障碍 → 楼梯 → 出口平台
-    观测: 69维 (与section011对齐)
+    策略: 右侧优先收集石头红包 → 桥下红包 → 远端上桥收集桥上红包 → 原路返回 → 终点 → 庆祝
+    观测: 69维 (通用对齐)
     """
     _cfg: VBotSection012EnvCfg
 
@@ -123,9 +107,8 @@ class VBotSection012Env(NpEnv):
 
         self.navigation_stats_step = 0
 
-        # 初始化得分区 & 导航系统
-        self._init_scoring_zones(cfg)
-        self._init_bridge_nav(cfg)
+        # 初始化有序路线导航系统
+        self._init_ordered_route(cfg)
 
     # ============================================================
     # 初始化方法
@@ -180,80 +163,42 @@ class VBotSection012Env(NpEnv):
         # 关节扭矩限制 (与section011一致)
         self.torque_limits = np.array([17, 17, 34, 17, 17, 34, 17, 17, 34, 17, 17, 34], dtype=np.float32)
 
-    def _init_scoring_zones(self, cfg):
-        """初始化竞赛得分区 — 桥上红包、桥下红包、石头红包、庆祝区"""
-        if hasattr(cfg, 'scoring_zones'):
-            sz = cfg.scoring_zones
-            # 桥上拜年红包
-            self.bridge_hongbao_center = np.array(sz.bridge_hongbao_center, dtype=np.float32)
-            self.bridge_hongbao_radius = sz.bridge_hongbao_radius
-            self.bridge_hongbao_min_z = sz.bridge_hongbao_min_z
-            # 桥下拜年红包 (2个)
-            self.under_bridge_centers = np.array(sz.under_bridge_centers, dtype=np.float32)
-            self.under_bridge_radius = sz.under_bridge_radius
-            self.under_bridge_max_z = sz.under_bridge_max_z
-            self.num_under_bridge = len(sz.under_bridge_centers)
-            # 河床石头红包 (5个)
-            self.stone_hongbao_centers = np.array(sz.stone_hongbao_centers, dtype=np.float32)
-            self.stone_hongbao_radius = sz.stone_hongbao_radius
-            self.num_stone_hongbao = len(sz.stone_hongbao_centers)
-            # 庆祝区
-            self.celebration_center = np.array(sz.celebration_center, dtype=np.float32)
-            self.celebration_radius = sz.celebration_radius
-            self.celebration_min_z = sz.celebration_min_z
-            self.has_scoring_zones = True
-            print(f"[Info] Section012得分区: 桥上1红包, {self.num_under_bridge}桥下红包, "
-                  f"{self.num_stone_hongbao}石头红包, 庆祝区")
-        else:
-            self.has_scoring_zones = False
-            self.num_under_bridge = 2
-            self.num_stone_hongbao = 5
+    def _init_ordered_route(self, cfg):
+        """初始化有序航点导航系统 — 通用实现，路线由 cfg.ordered_route 定义"""
+        route = cfg.ordered_route
+        wps = route.waypoints
 
-    def _init_bridge_nav(self, cfg):
-        """初始化桥优先导航系统"""
-        if hasattr(cfg, 'bridge_nav'):
-            bn = cfg.bridge_nav
-            # 虚拟航点
-            self.wp_wave_to_stair = np.array(bn.wave_to_stair, dtype=np.float32)
-            self.wp_stair_top = np.array(bn.stair_top, dtype=np.float32)
-            self.wp_stair_top_min_z = bn.stair_top_min_z
-            self.wp_bridge_entry = np.array(bn.bridge_entry, dtype=np.float32)
-            self.wp_bridge_mid = np.array(bn.bridge_mid, dtype=np.float32)
-            self.wp_bridge_exit = np.array(bn.bridge_exit, dtype=np.float32)
-            self.wp_bridge_min_z = bn.bridge_min_z
-            self.wp_stair_down_bottom = np.array(bn.stair_down_bottom, dtype=np.float32)
-            self.wp_exit_platform = np.array(bn.exit_platform, dtype=np.float32)
-            self.wp_radius = bn.waypoint_radius
-            self.bridge_wp_radius = bn.bridge_wp_radius
-            self.wp_final_radius = bn.final_radius
-            self.celeb_jump_threshold = bn.celebration_jump_threshold
-        else:
-            # 默认值
-            self.wp_wave_to_stair = np.array([-3.0, 12.3], dtype=np.float32)
-            self.wp_stair_top = np.array([-3.0, 14.5], dtype=np.float32)
-            self.wp_stair_top_min_z = 2.3
-            self.wp_bridge_entry = np.array([-3.0, 15.8], dtype=np.float32)
-            self.wp_bridge_mid = np.array([-3.0, 17.83], dtype=np.float32)
-            self.wp_bridge_exit = np.array([-3.0, 20.0], dtype=np.float32)
-            self.wp_bridge_min_z = 2.3
-            self.wp_stair_down_bottom = np.array([-3.0, 23.2], dtype=np.float32)
-            self.wp_exit_platform = np.array([0.0, 24.33], dtype=np.float32)
-            self.wp_radius = 1.2
-            self.bridge_wp_radius = 1.5
-            self.wp_final_radius = 0.8
-            self.celeb_jump_threshold = 1.55
+        # 航点属性 (预计算numpy数组，用于向量化操作)
+        self.num_route_waypoints = len(wps)
+        self.wp_xy = np.array([w.xy for w in wps], dtype=np.float32)          # [N, 2]
+        self.wp_radius = np.array([w.radius for w in wps], dtype=np.float32)  # [N]
+        self.wp_z_min = np.array([w.z_min for w in wps], dtype=np.float32)    # [N]
+        self.wp_z_max = np.array([w.z_max for w in wps], dtype=np.float32)    # [N]
+        self.wp_labels = [w.label for w in wps]
+        self.wp_kinds = [w.kind for w in wps]
 
-        # 过桥虚拟WP序列 (Phase 2内的sub-index)
-        self.bridge_waypoints = np.array([
-            self.wp_bridge_entry,
-            self.wp_bridge_mid,
-            self.wp_bridge_exit
-        ], dtype=np.float32)  # [3, 2]
+        # 预计算每个航点的奖金值 (从reward_scales查找)
+        scales = cfg.reward_config.scales
+        self.wp_bonus = np.array([
+            scales.get(w.bonus_key, w.bonus_default) if w.bonus_key else w.bonus_default
+            for w in wps
+        ], dtype=np.float32)  # [N]
 
-        print(f"[Info] 桥优先导航: 波浪→左楼梯→过桥(3WP)→下楼梯→桥下红包→终点→庆祝")
+        # 庆祝配置
+        self.required_jumps = route.required_jumps
+        self.celeb_jump_threshold = route.celebration_jump_threshold
+        self.celeb_landing_z = route.celebration_landing_z
+
+        # 终点航点 (最后一个goal类型航点的坐标，用作fallback目标)
+        self.goal_xy = self.wp_xy[-1].copy()
+
+        labels = ", ".join(f"{w.label}({w.kind})" for w in wps)
+        print(f"[Info] 有序路线导航: {self.num_route_waypoints}航点, "
+              f"{self.required_jumps}次庆祝跳跃")
+        print(f"[Info] 路线: {labels}")
 
     # ============================================================
-    # 传感器 & 物理辅助 (与section011一致)
+    # 传感器 & 物理辅助
     # ============================================================
 
     def _get_foot_contact_forces(self, data: mtx.SceneData) -> np.ndarray:
@@ -454,245 +399,106 @@ class VBotSection012Env(NpEnv):
     # ============================================================
 
     def _update_waypoint_state(self, info, robot_xy, robot_heading, speed_xy, gyro_z, current_z):
-        """桥优先多目标导航状态机
+        """通用有序航点推进 — 严格顺序到达，到达goal后进入庆祝。
 
-        Phase 0 (WAVE_TO_STAIR):       到达左楼梯底 wp_wave_to_stair
-        Phase 1 (CLIMB_STAIR):         爬到楼梯顶 wp_stair_top (z>2.3)
-        Phase 2 (CROSS_BRIDGE):        过桥3个虚拟WP (bridge_sub_idx 0→1→2)
-        Phase 3 (DESCEND_STAIR):       下楼梯底 wp_stair_down_bottom
-        Phase 4 (COLLECT_UNDER_BRIDGE): 收集桥下红包 (2个, 过桥后才激活)
-        Phase 5 (REACH_EXIT):          到达终点平台 wp_exit_platform
-        Phase 6 (CELEBRATION):         跳跃庆祝
+        向量化实现: 每步仅检查当前目标航点，到达后自动推进到下一个。
+        wp_idx = 已完成航点数量 (单调递增, 0 → num_route_waypoints)。
         """
-        nav_phase = info["nav_phase"]
-        celeb_state = info["celeb_state"]
+        wp_current = info["wp_current"]    # [n] int32 — 当前目标航点索引
+        wp_reached = info["wp_reached"]    # [n, N] bool — 各航点是否已到达
+        celeb_state = info["celeb_state"]  # [n] int32
+        jump_count = info["jump_count"]    # [n] int32
         n = self._num_envs
-        scales = self._cfg.reward_config.scales
 
         milestone_bonus = np.zeros(n, dtype=np.float32)
-        phase_bonus = np.zeros(n, dtype=np.float32)
         celeb_bonus = np.zeros(n, dtype=np.float32)
         jump_reward = np.zeros(n, dtype=np.float32)
-        bridge_hongbao_tb = np.zeros(n, dtype=np.float32)
-        under_bridge_tb = np.zeros(n, dtype=np.float32)
-        stone_hongbao_tb = np.zeros(n, dtype=np.float32)
 
-        # --- Phase 0: 波浪地形→左楼梯底 ---
-        in_p0 = (nav_phase == PHASE_WAVE_TO_STAIR)
-        if np.any(in_p0):
-            d = np.linalg.norm(robot_xy - self.wp_wave_to_stair[np.newaxis, :], axis=1)
-            arrived = in_p0 & (d < self.wp_radius)
-            first = arrived & ~info.get("wave_reached", np.zeros(n, dtype=bool))
-            info["wave_reached"] = info.get("wave_reached", np.zeros(n, dtype=bool)) | arrived
-            milestone_bonus += np.where(first, scales.get("wave_traversal_bonus", 30.0), 0.0)
-            nav_phase = np.where(arrived, PHASE_CLIMB_STAIR, nav_phase)
-            phase_bonus += np.where(first, scales.get("phase_completion_bonus", 15.0), 0.0)
+        # --- 航点推进 (可能连续推进多步, 处理紧邻航点) ---
+        max_advances = min(3, self.num_route_waypoints)  # 每step最多推进3个航点
+        for _ in range(max_advances):
+            not_done = wp_current < self.num_route_waypoints
+            if not np.any(not_done):
+                break
 
-        # --- Phase 1: 爬左楼梯 (需要z>stair_top_min_z) ---
-        in_p1 = (nav_phase == PHASE_CLIMB_STAIR)
-        if np.any(in_p1):
-            d = np.linalg.norm(robot_xy - self.wp_stair_top[np.newaxis, :], axis=1)
-            z_ok = current_z > self.wp_stair_top_min_z
-            arrived = in_p1 & (d < self.wp_radius) & z_ok
-            first = arrived & ~info.get("stair_top_reached", np.zeros(n, dtype=bool))
-            info["stair_top_reached"] = info.get("stair_top_reached", np.zeros(n, dtype=bool)) | arrived
-            milestone_bonus += np.where(first, scales.get("stair_top_bonus", 25.0), 0.0)
-            nav_phase = np.where(arrived, PHASE_CROSS_BRIDGE, nav_phase)
-            phase_bonus += np.where(first, scales.get("phase_completion_bonus", 15.0), 0.0)
-            # 进入过桥阶段时初始化bridge_sub_idx
-            info["bridge_sub_idx"] = np.where(arrived, 0, info.get("bridge_sub_idx", np.zeros(n, dtype=np.int32)))
+            # 收集当前航点属性 (clip防越界)
+            safe_idx = np.clip(wp_current, 0, self.num_route_waypoints - 1)
+            target_xy = self.wp_xy[safe_idx]        # [n, 2]
+            target_r = self.wp_radius[safe_idx]     # [n]
+            target_z_lo = self.wp_z_min[safe_idx]   # [n]
+            target_z_hi = self.wp_z_max[safe_idx]   # [n]
 
-        # --- Phase 2: 过桥 (3个虚拟WP, bridge_sub_idx 0→1→2) ---
-        in_p2 = (nav_phase == PHASE_CROSS_BRIDGE)
-        if np.any(in_p2):
-            bridge_sub_idx = info.get("bridge_sub_idx", np.zeros(n, dtype=np.int32))
-            for sub_i in range(3):
-                sub_mask = in_p2 & (bridge_sub_idx == sub_i)
-                if np.any(sub_mask):
-                    wp = self.bridge_waypoints[sub_i]
-                    d = np.linalg.norm(robot_xy - wp[np.newaxis, :], axis=1)
-                    z_ok = current_z > self.wp_bridge_min_z
-                    arrived = sub_mask & (d < self.bridge_wp_radius) & z_ok
-                    if np.any(arrived):
-                        bridge_sub_idx = np.where(arrived, bridge_sub_idx + 1, bridge_sub_idx)
-            info["bridge_sub_idx"] = bridge_sub_idx
+            dist = np.linalg.norm(robot_xy - target_xy, axis=1)
+            z_ok = (current_z >= target_z_lo) & (current_z <= target_z_hi)
+            arrived = not_done & (dist < target_r) & z_ok
 
-            # 所有3个WP通过 → 完成过桥
-            bridge_done = in_p2 & (bridge_sub_idx >= 3)
-            first_bridge = bridge_done & ~info.get("bridge_crossed", np.zeros(n, dtype=bool))
-            info["bridge_crossed"] = info.get("bridge_crossed", np.zeros(n, dtype=bool)) | bridge_done
-            milestone_bonus += np.where(first_bridge, scales.get("bridge_crossing_bonus", 50.0), 0.0)
-            phase_bonus += np.where(first_bridge, scales.get("phase_completion_bonus", 15.0), 0.0)
-            nav_phase = np.where(bridge_done, PHASE_DESCEND_STAIR, nav_phase)
+            # first arrival only
+            already = wp_reached[np.arange(n), safe_idx]
+            first = arrived & ~already
 
-            # 桥上红包: 过桥中途自然收集 (bridge_mid附近)
-            if self.has_scoring_zones:
-                d_hb = np.linalg.norm(robot_xy - self.bridge_hongbao_center[np.newaxis, :], axis=1)
-                z_hb = current_z > self.bridge_hongbao_min_z
-                hongbao_reached = in_p2 & (d_hb < self.bridge_hongbao_radius) & z_hb
-                first_hb = hongbao_reached & ~info.get("bridge_hongbao_collected", np.zeros(n, dtype=bool))
-                info["bridge_hongbao_collected"] = info.get("bridge_hongbao_collected", np.zeros(n, dtype=bool)) | hongbao_reached
-                hb_val = np.where(first_hb, scales.get("bridge_hongbao_bonus", 30.0), 0.0)
-                milestone_bonus += hb_val
-                bridge_hongbao_tb += hb_val
+            if not np.any(first):
+                break
 
-        # --- Phase 3: 下楼梯 ---
-        in_p3 = (nav_phase == PHASE_DESCEND_STAIR)
-        if np.any(in_p3):
-            d = np.linalg.norm(robot_xy - self.wp_stair_down_bottom[np.newaxis, :], axis=1)
-            arrived = in_p3 & (d < self.wp_radius)
-            first = arrived & ~info.get("stair_down_reached", np.zeros(n, dtype=bool))
-            info["stair_down_reached"] = info.get("stair_down_reached", np.zeros(n, dtype=bool)) | arrived
-            milestone_bonus += np.where(first, scales.get("stair_down_bonus", 20.0), 0.0)
-            nav_phase = np.where(arrived, PHASE_COLLECT_UNDER_BRIDGE, nav_phase)
-            phase_bonus += np.where(first, scales.get("phase_completion_bonus", 15.0), 0.0)
+            # 标记到达 + 发放奖金
+            wp_reached[np.arange(n), safe_idx] = wp_reached[np.arange(n), safe_idx] | arrived
+            milestone_bonus += np.where(first, self.wp_bonus[safe_idx], 0.0)
+            wp_current = np.where(first, wp_current + 1, wp_current)
 
-        # --- Phase 4: 收集桥下红包 (过桥后才激活, 2个) ---
-        in_p4 = (nav_phase == PHASE_COLLECT_UNDER_BRIDGE)
-        if np.any(in_p4) and self.has_scoring_zones:
-            ub_reached = info.get("under_bridge_reached", np.zeros((n, self.num_under_bridge), dtype=bool))
-            for i in range(self.num_under_bridge):
-                d = np.linalg.norm(robot_xy - self.under_bridge_centers[i][np.newaxis, :], axis=1)
-                z_ok = current_z < self.under_bridge_max_z
-                first_collect = in_p4 & (d < self.under_bridge_radius) & z_ok & ~ub_reached[:, i]
-                ub_reached[:, i] |= (in_p4 & (d < self.under_bridge_radius) & z_ok)
-                ub_val = np.where(first_collect, scales.get("under_bridge_bonus", 15.0), 0.0)
-                milestone_bonus += ub_val
-                under_bridge_tb += ub_val
-            info["under_bridge_reached"] = ub_reached
-            # 两个都收集或y已过桥区 → 晋级
-            all_ub = np.all(ub_reached, axis=1)
-            past_bridge = robot_xy[:, 1] > 21.5
-            can_advance = in_p4 & (all_ub | past_bridge)
-            nav_phase = np.where(can_advance, PHASE_REACH_EXIT, nav_phase)
-        elif np.any(in_p4):
-            # 无得分区定义时直接跳过
-            nav_phase = np.where(in_p4, PHASE_REACH_EXIT, nav_phase)
-
-        # --- 石头红包: 任何阶段都可以顺路收集 (不影响主线进度) ---
-        if self.has_scoring_zones:
-            stone_reached = info.get("stone_hongbao_reached", np.zeros((n, self.num_stone_hongbao), dtype=bool))
-            for i in range(self.num_stone_hongbao):
-                d = np.linalg.norm(robot_xy - self.stone_hongbao_centers[i][np.newaxis, :], axis=1)
-                first_collect = (d < self.stone_hongbao_radius) & ~stone_reached[:, i]
-                stone_reached[:, i] |= (d < self.stone_hongbao_radius)
-                sv = np.where(first_collect, scales.get("stone_hongbao_bonus", 8.0), 0.0)
-                milestone_bonus += sv
-                stone_hongbao_tb += sv
-            info["stone_hongbao_reached"] = stone_reached
-
-        # --- Phase 5: 到达终点平台 ---
-        in_p5 = (nav_phase == PHASE_REACH_EXIT)
-        if np.any(in_p5):
-            d = np.linalg.norm(robot_xy - self.wp_exit_platform[np.newaxis, :], axis=1)
-            arrived = in_p5 & (d < self.wp_final_radius)
-            first = arrived & ~info.get("exit_reached", np.zeros(n, dtype=bool))
-            info["exit_reached"] = info.get("exit_reached", np.zeros(n, dtype=bool)) | arrived
-            milestone_bonus += np.where(first, scales.get("phase_completion_bonus", 15.0), 0.0)
-            nav_phase = np.where(arrived, PHASE_CELEBRATION, nav_phase)
-
-        # --- 更新wp_idx (进度指标) ---
-        wp_idx = np.zeros(n, dtype=np.int32)
-        wp_idx += info.get("wave_reached", np.zeros(n, dtype=bool)).astype(np.int32)
-        wp_idx += info.get("stair_top_reached", np.zeros(n, dtype=bool)).astype(np.int32)
-        wp_idx += np.clip(info.get("bridge_sub_idx", np.zeros(n, dtype=np.int32)), 0, 3)
-        wp_idx += info.get("stair_down_reached", np.zeros(n, dtype=bool)).astype(np.int32)
-        wp_idx += np.sum(info.get("under_bridge_reached", np.zeros((n, self.num_under_bridge), dtype=bool)), axis=1).astype(np.int32)
-        wp_idx += info.get("exit_reached", np.zeros(n, dtype=bool)).astype(np.int32)
+        # --- 更新 wp_idx ---
+        wp_idx = np.sum(wp_reached, axis=1).astype(np.int32)
+        info["wp_current"] = wp_current
+        info["wp_reached"] = wp_reached
         info["wp_idx"] = wp_idx
-        info["nav_phase"] = nav_phase
 
-        # --- Phase 6: 庆祝 (跳跃) ---
-        in_celeb = (nav_phase == PHASE_CELEBRATION)
-        start_celeb = in_celeb & (celeb_state == CELEB_IDLE)
+        # --- 庆祝: 到达所有航点后跳跃 ---
+        all_done = (wp_current >= self.num_route_waypoints)
+
+        # IDLE → JUMP
+        start_celeb = all_done & (celeb_state == CELEB_IDLE)
         if np.any(start_celeb):
             celeb_state = np.where(start_celeb, CELEB_JUMP, celeb_state)
-            info["celeb_anchor_xy"] = np.where(
-                start_celeb[:, np.newaxis], robot_xy,
-                info.get("celeb_anchor_xy", np.zeros((n, 2), dtype=np.float32))
-            )
 
-        jumping = in_celeb & (celeb_state == CELEB_JUMP)
+        # JUMP: 奖励向上运动, 检测跳跃峰值
+        jumping = all_done & (celeb_state == CELEB_JUMP)
         if np.any(jumping):
             z_above_standing = np.maximum(current_z - 1.5, 0.0)
-            jump_reward += np.where(jumping, scales.get("jump_reward", 8.0) * z_above_standing, 0.0)
+            jump_reward += np.where(
+                jumping, self._cfg.reward_config.scales.get("jump_reward", 8.0) * z_above_standing, 0.0
+            )
             jumped = jumping & (current_z > self.celeb_jump_threshold)
             if np.any(jumped):
-                celeb_state = np.where(jumped, CELEB_DONE, celeb_state)
-                celeb_bonus += np.where(jumped, scales.get("celebration_bonus", 80.0), 0.0)
+                jump_count = np.where(jumped, jump_count + 1, jump_count)
+                celeb_bonus += np.where(
+                    jumped, self._cfg.reward_config.scales.get("per_jump_bonus", 15.0), 0.0
+                )
+                all_jumps_done = jumped & (jump_count >= self.required_jumps)
+                still_jumping = jumped & (jump_count < self.required_jumps)
+                celeb_state = np.where(all_jumps_done, CELEB_DONE, celeb_state)
+                celeb_state = np.where(still_jumping, CELEB_LANDING, celeb_state)
+                celeb_bonus += np.where(
+                    all_jumps_done, self._cfg.reward_config.scales.get("celebration_bonus", 80.0), 0.0
+                )
+
+        # LANDING → JUMP (等待落地)
+        landing = all_done & (celeb_state == CELEB_LANDING)
+        if np.any(landing):
+            landed = landing & (current_z < self.celeb_landing_z)
+            celeb_state = np.where(landed, CELEB_JUMP, celeb_state)
 
         info["celeb_state"] = celeb_state
+        info["jump_count"] = jump_count
 
-        wp_bonus = milestone_bonus + phase_bonus
-        info["_bridge_hongbao_tb"] = bridge_hongbao_tb
-        info["_under_bridge_tb"] = under_bridge_tb
-        info["_stone_hongbao_tb"] = stone_hongbao_tb
-        info["_phase_bonus_tb"] = phase_bonus
-        return info, wp_bonus, celeb_bonus, jump_reward
+        return info, milestone_bonus, celeb_bonus, jump_reward
 
     def _get_current_target(self, info, robot_xy):
-        """获取当前导航目标 — 基于Phase和sub-index"""
-        nav_phase = info["nav_phase"]
-        n = len(nav_phase)
-        targets = np.tile(self.wp_exit_platform, (n, 1))  # 默认: 终点
-
-        # Phase 0: 波浪→左楼梯底
-        m0 = nav_phase == PHASE_WAVE_TO_STAIR
-        if np.any(m0):
-            targets[m0] = self.wp_wave_to_stair
-
-        # Phase 1: 爬楼梯
-        m1 = nav_phase == PHASE_CLIMB_STAIR
-        if np.any(m1):
-            targets[m1] = self.wp_stair_top
-
-        # Phase 2: 过桥 (基于bridge_sub_idx选择当前WP)
-        m2 = nav_phase == PHASE_CROSS_BRIDGE
-        if np.any(m2):
-            bridge_sub = info.get("bridge_sub_idx", np.zeros(n, dtype=np.int32))
-            for sub_i in range(3):
-                sub_mask = m2 & (bridge_sub == sub_i)
-                if np.any(sub_mask):
-                    targets[sub_mask] = self.bridge_waypoints[sub_i]
-            # bridge_sub >= 3 的env已经晋级, 但防御性处理
-            done_mask = m2 & (bridge_sub >= 3)
-            if np.any(done_mask):
-                targets[done_mask] = self.wp_bridge_exit
-
-        # Phase 3: 下楼梯
-        m3 = nav_phase == PHASE_DESCEND_STAIR
-        if np.any(m3):
-            targets[m3] = self.wp_stair_down_bottom
-
-        # Phase 4: 收集桥下红包 — 导航到最近的未收集桥下红包
-        m4 = nav_phase == PHASE_COLLECT_UNDER_BRIDGE
-        if np.any(m4) and self.has_scoring_zones:
-            ub_reached = info.get("under_bridge_reached", np.zeros((n, self.num_under_bridge), dtype=bool))
-            p4_envs = np.where(m4)[0]
-            for env_i in p4_envs:
-                uncollected = ~ub_reached[env_i]
-                if np.any(uncollected):
-                    dists = np.linalg.norm(robot_xy[env_i] - self.under_bridge_centers, axis=1)
-                    dists = np.where(uncollected, dists, 1e6)
-                    nearest_idx = np.argmin(dists)
-                    targets[env_i] = self.under_bridge_centers[nearest_idx]
-                else:
-                    targets[env_i] = self.wp_exit_platform
-
-        # Phase 5: 终点
-        m5 = nav_phase == PHASE_REACH_EXIT
-        if np.any(m5):
-            targets[m5] = self.wp_exit_platform
-
-        # Phase 6: 庆祝 (原地)
-        m6 = nav_phase == PHASE_CELEBRATION
-        if np.any(m6):
-            targets[m6] = self.wp_exit_platform
-
-        return targets
+        """获取当前导航目标 — 有序航点索引直接查表"""
+        wp_current = info["wp_current"]
+        n = len(wp_current)
+        safe_idx = np.clip(wp_current, 0, self.num_route_waypoints - 1)
+        return self.wp_xy[safe_idx].copy()
 
     # ============================================================
-    # apply_action & torques (与section011一致)
+    # apply_action & torques
     # ============================================================
 
     def apply_action(self, actions: np.ndarray, state: NpEnvState):
@@ -769,7 +575,7 @@ class VBotSection012Env(NpEnv):
 
         # --- 当前导航目标 ---
         target_xy = self._get_current_target(info, robot_xy)
-        in_celeb = (info["nav_phase"] >= PHASE_CELEBRATION)
+        in_celeb = (info["wp_current"] >= self.num_route_waypoints)
 
         position_error = target_xy - robot_xy
         distance_to_target = np.linalg.norm(position_error, axis=1)
@@ -777,11 +583,9 @@ class VBotSection012Env(NpEnv):
         pose_commands = np.column_stack([target_xy, np.zeros(self._num_envs, dtype=np.float32)])
         info["pose_commands"] = pose_commands
 
-        # 到达当前WP?
-        current_wp_radius = np.where(
-            info["nav_phase"] >= PHASE_REACH_EXIT, self.wp_final_radius,
-            np.where(info["nav_phase"] == PHASE_CROSS_BRIDGE, self.bridge_wp_radius, self.wp_radius)
-        )
+        # 到达当前WP? (使用当前航点半径)
+        safe_idx = np.clip(info["wp_current"], 0, self.num_route_waypoints - 1)
+        current_wp_radius = self.wp_radius[safe_idx]
         reached_wp = distance_to_target < current_wp_radius
 
         # 运动命令
@@ -866,7 +670,7 @@ class VBotSection012Env(NpEnv):
             "distance_to_target": distance_to_target,
             "reached_fraction": reached_wp.astype(np.float32),
             "wp_idx_mean": info["wp_idx"].astype(np.float32),
-            "nav_phase_mean": info["nav_phase"].astype(np.float32),
+            "wp_current_mean": info["wp_current"].astype(np.float32),
             "celeb_state_mean": info["celeb_state"].astype(np.float32),
         }
         return state
@@ -1038,24 +842,6 @@ class VBotSection012Env(NpEnv):
         traversal_total += np.where(m4_first, scales.get("traversal_bonus", 20.0), 0.0)
         info["milestones_reached"] = milestones_reached
 
-        # ===== Zone吸引力: 桥下红包接近delta (仅Phase 4) =====
-        zone_approach_reward = np.zeros(n, dtype=np.float32)
-        zone_approach_scale = scales.get("zone_approach", 5.0)
-        if self.has_scoring_zones and zone_approach_scale > 0:
-            in_p4 = (info["nav_phase"] == PHASE_COLLECT_UNDER_BRIDGE)
-            if np.any(in_p4):
-                ub_reached = info.get("under_bridge_reached", np.zeros((n, self.num_under_bridge), dtype=bool))
-                for i in range(self.num_under_bridge):
-                    d = np.linalg.norm(robot_xy - self.under_bridge_centers[i][np.newaxis, :], axis=1)
-                    last_key = f"last_ub_dist_{i}"
-                    last_d = info.get(last_key, d.copy())
-                    delta = last_d - d
-                    uncollected = ~ub_reached[:, i]
-                    active = in_p4 & uncollected
-                    delta_reward = np.clip(delta * zone_approach_scale * 10.0, -0.3, 2.0)
-                    zone_approach_reward += np.where(active, delta_reward, 0.0)
-                    info[last_key] = d.copy()
-
         # ===== 楼梯区抬脚 =====
         # v54: TerrainZone-driven clearance boost with pre-zone transition (replaces hardcoded on_stair)
         foot_clearance_scale = scales.get("foot_clearance", 0.02)
@@ -1129,7 +915,6 @@ class VBotSection012Env(NpEnv):
             + jump_reward
             + height_progress
             + traversal_total
-            + zone_approach_reward
             + foot_clearance_reward
             + gait_stance
             + penalties
@@ -1149,10 +934,6 @@ class VBotSection012Env(NpEnv):
             "wp_bonus": wp_bonus,
             "celeb_bonus": celeb_bonus,
             "jump_reward": jump_reward,
-            "bridge_hongbao": info.get("_bridge_hongbao_tb", np.zeros(n, dtype=np.float32)),
-            "under_bridge": info.get("_under_bridge_tb", np.zeros(n, dtype=np.float32)),
-            "stone_hongbao": info.get("_stone_hongbao_tb", np.zeros(n, dtype=np.float32)),
-            "zone_approach": zone_approach_reward,
             "height_progress": height_progress,
             "traversal_bonus": traversal_total,
             "penalties": penalties,
@@ -1160,7 +941,6 @@ class VBotSection012Env(NpEnv):
             "swing_contact_penalty": swing_penalty,
             "foot_clearance": foot_clearance_reward,
             "score_clear_penalty": score_clear_penalty,
-            "phase_completion_bonus": info.get("_phase_bonus_tb", np.zeros(n, dtype=np.float32)),
             "gait_stance": gait_stance,
             "impact_penalty": scales.get("impact_penalty", -0.02) * impact_penalty,
             "torque_saturation": scales.get("torque_saturation", -0.01) * torque_sat_penalty,
@@ -1201,9 +981,8 @@ class VBotSection012Env(NpEnv):
         data.set_dof_pos(dof_pos, self._model)
         self._model.forward_kinematic(data)
 
-        # 初始目标: Phase 0 → 左楼梯底
-        init_nav_phase = np.full(num_envs, PHASE_WAVE_TO_STAIR, dtype=np.int32)
-        temp_info = {"nav_phase": init_nav_phase}
+        # 初始目标: 第一个航点 (wp_current=0)
+        temp_info = {"wp_current": np.zeros(num_envs, dtype=np.int32)}
         first_target = self._get_current_target(temp_info, robot_init_xy)
         pose_commands = np.column_stack([first_target, np.zeros((num_envs, 1), dtype=np.float32)])
         self._update_target_marker(data, pose_commands)
@@ -1221,7 +1000,7 @@ class VBotSection012Env(NpEnv):
         target_xy = pose_commands[:, :2]
         position_error = target_xy - root_pos[:, :2]
         distance_to_target = np.linalg.norm(position_error, axis=1)
-        reached = distance_to_target < self.wp_radius
+        reached = distance_to_target < self.wp_radius[0]  # 初始时wp_current=0
         desired_vel_xy = np.clip(position_error * 1.0, -1.0, 1.0)
         desired_vel_xy = np.where(reached[:, np.newaxis], 0.0, desired_vel_xy)
         self._update_heading_arrows(data, root_pos, desired_vel_xy, base_lin_vel[:, :2])
@@ -1262,22 +1041,13 @@ class VBotSection012Env(NpEnv):
             "last_z": terrain_heights.copy(),
             "last_wp_distance": distance_to_target.copy(),
             "milestones_reached": np.zeros((num_envs, 4), dtype=bool),
-            # 桥优先导航状态
-            "nav_phase": np.full(num_envs, PHASE_WAVE_TO_STAIR, dtype=np.int32),
+            # 有序航点导航状态
+            "wp_current": np.zeros(num_envs, dtype=np.int32),
+            "wp_reached": np.zeros((num_envs, self.num_route_waypoints), dtype=bool),
             "wp_idx": np.zeros(num_envs, dtype=np.int32),
-            "bridge_sub_idx": np.zeros(num_envs, dtype=np.int32),
-            # 里程碑追踪
-            "wave_reached": np.zeros(num_envs, dtype=bool),
-            "stair_top_reached": np.zeros(num_envs, dtype=bool),
-            "bridge_crossed": np.zeros(num_envs, dtype=bool),
-            "bridge_hongbao_collected": np.zeros(num_envs, dtype=bool),
-            "stair_down_reached": np.zeros(num_envs, dtype=bool),
-            "under_bridge_reached": np.zeros((num_envs, self.num_under_bridge), dtype=bool),
-            "stone_hongbao_reached": np.zeros((num_envs, self.num_stone_hongbao), dtype=bool),
-            "exit_reached": np.zeros(num_envs, dtype=bool),
             # 庆祝状态机
             "celeb_state": np.full(num_envs, CELEB_IDLE, dtype=np.int32),
-            "celeb_anchor_xy": np.zeros((num_envs, 2), dtype=np.float32),
+            "jump_count": np.zeros(num_envs, dtype=np.int32),
             # 累积奖金 (终止清零用)
             "accumulated_bonus": np.zeros(num_envs, dtype=np.float32),
             "oob_terminated": np.zeros(num_envs, dtype=bool),

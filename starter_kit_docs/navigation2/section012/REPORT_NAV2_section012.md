@@ -178,3 +178,60 @@ Fully aligned with section011 v20 for warm-start checkpoint loading:
 ---
 
 *This report is append-only. Never overwrite existing content — the history is a permanent record.*
+
+---
+
+## 8. Architecture Redesign v2.0 — Ordered Multi-Waypoint Full-Collection
+
+**Date**: Session 3, February 2026
+
+### Motivation
+
+The bridge-priority state machine (v1.0, Section 6) had several limitations:
+- **Hard-coded phases**: 7 `PHASE_*` constants with per-phase special-case logic (~175 lines)
+- **Stone hongbaos not on main route**: Stone rewards were "optional" side-collection, leaving 15 pts on the table
+- **Bridge before under-bridge**: The old route went up-and-over first, then collected under-bridge — missed the natural "collect ground-level rewards first" order
+- **Not reusable**: Phase definitions, per-phase target selection, and per-zone approach rewards were all section012-specific
+
+### Changes Made
+
+| File | Change | Status |
+|------|--------|--------|
+| `cfg.py` | Added reusable `Waypoint` + `OrderedRoute` dataclasses; replaced inner `ScoringZones` + `BridgeNav` with `Section012Route(OrderedRoute)` containing 14 ordered waypoints | ✅ Done |
+| `vbot_section012_np.py` | Replaced 7-phase FSM with generic ordered waypoint progression; removed `_init_scoring_zones`/`_init_bridge_nav`; new `_init_ordered_route`, vectorized `_update_waypoint_state`, simplified `_get_current_target`, `_compute_reward`, `reset` | ✅ Done |
+| `Task_Reference.md` | Full rewrite: new strategy, 14-WP route table, updated reward config, celebration config | ✅ Done |
+| `Tutorial.md` | Rewritten for ordered route strategy, removed broken-budget warnings, updated config section | ✅ Done |
+| `Tutorial_RL_Reward_Engineering.md` | Rewritten for generic waypoint rewards, removed per-phase code examples, added reusable pattern docs | ✅ Done |
+
+### New Right-Side-First Route (14 Waypoints)
+
+```
+WP 0: right_approach         (2.0, 12.0)   virtual
+WP 1-5: stone_hongbao_1~5    zigzag         reward  ← +15 pts total
+WP 6-7: under_bridge_far/near (-3.0, ...)   reward  ← +10 pts total
+WP 8: bridge_climb_base      (-3.0, 22.5)   virtual (far end)
+WP 9: bridge_far_entry       (-3.0, 20.0)   virtual z>2.3
+WP10: bridge_hongbao         (-3.0, 17.83)  reward  ← +10 pts
+WP11: bridge_turnaround      (-3.0, 20.0)   virtual z>2.3
+WP12: bridge_descent         (-3.0, 22.5)   virtual
+WP13: exit_platform          (0.0, 24.33)   goal    ← +5 pts (celebration)
+CELEBRATION: 10 jumps (configurable)
+```
+
+### Key Design Changes from v1.0
+
+1. **Right-side first**: Collects all 5 stone hongbaos (15 pts) before going to bridge area
+2. **Under-bridge before bridge**: Collect under-bridge hongbaos (10 pts) at ground level before climbing
+3. **Out-and-back on bridge**: Climb from far end (y≈22.5), walk to center (y≈17.83) for hongbao, turn around, descend same stairs
+4. **Multi-jump celebration**: 10 jumps (configurable) instead of single-jump, with IDLE→JUMP→LANDING→JUMP... FSM
+5. **Generic implementation**: `Waypoint`/`OrderedRoute` are reusable dataclasses; `_update_waypoint_state` handles any ordered route without per-WP code
+6. **No zone_approach**: Removed the per-zone approach reward (was sector012-specific); generic `waypoint_approach` suffices
+7. **Vectorized numpy**: All waypoint checks use batch operations with `np.clip(wp_current, 0, N-1)` indexing
+
+### Reward Budget (v2.0)
+
+```
+Standing: 0.05 × 3000 (conditional) ≈ 150
+Completing: milestones(~217) + celebration(230) + approach(200) + alive(150) ≈ 800+
+Ratio: 5.3:1 in favor of completing ✅
+```

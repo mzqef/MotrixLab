@@ -1,8 +1,8 @@
-# Tutorial: RL Reward Engineering for Section 012 — Stairs + Bridge + Obstacles
+# Tutorial: RL Reward Engineering for Section 012 — Ordered Multi-Waypoint Navigation
 
-**Case Study: VBot navigating Section 02 of the MotrixArena S1 obstacle course**
+**Case Study: VBot collecting ALL rewards on Section 02 via a strict ordered route**
 
-> This tutorial covers reward engineering specific to Section 012 — stair climbing/descending, arch bridge traversal, and sphere/cone obstacle avoidance.
+> This tutorial covers reward engineering specific to Section 012 — the ordered multi-waypoint full-collection strategy through stones, under-bridge, bridge out-and-back, and celebration.
 
 > **Prerequisite**: Read `starter_kit_docs/navigation1/Tutorial_RL_Reward_Engineering.md` for foundational lessons.
 > For slope-specific reward engineering, see `starter_kit_docs/navigation2/section011/Tutorial_RL_Reward_Engineering.md`.
@@ -15,199 +15,133 @@
 | Aspect | Value |
 |--------|-------|
 | Environment | `vbot_navigation_section012` |
-| Terrain | Stairs (left/right routes) → bridge/spheres → stairs down → exit |
-| Distance | ~14.5m |
+| Strategy | Ordered multi-waypoint (14 WPs), right-side-first fixed route |
+| Terrain | Entry → right stairs + stones → under-bridge → bridge out-and-back → exit |
+| Distance | ~14.5m straight, ~25m+ actual route |
 | Episode | 6000 steps (60s) |
 | Points | **60 pts** (57% of Stage 2 total) |
+| Celebration | 10 configurable jumps at exit |
 
-**Architecture**: Single-target navigation with potential for waypoint guidance through stairs/bridge. Two route choices (left steep stairs + bridge vs right gentle stairs + obstacles).
+**Architecture**: Generic ordered waypoint progression. The `_update_waypoint_state` function handles all waypoints uniformly — no per-waypoint special cases in the reward function.
 
 ---
 
-## 2. Reward Budget Audit (CRITICAL — Not Yet Fixed)
+## 2. Reward Budget Audit (Verified ✅)
 
 > **Core Principle** (from Navigation1): Before training, compute max reward for desired vs degenerate behavior.
 
-### Current Config (BROKEN)
+### Current Config (Fixed)
 
 ```
-STANDING STILL for 6000 steps (alive=0.3):
-  alive = 0.3 × 6000 = 1,800
-  position_tracking = exp(-14.5/5) × 1.5 ≈ 0.08/step → 480
-  heading_tracking ≈ 0.5/step → 3,000
-  Total standing ≈ 5,280+
+STANDING STILL for 6000 steps (alive=0.05, conditional):
+  alive = 0.05 × 3000 (upright fraction) = 150
+  Total standing ≈ 150
 
-COMPLETING TASK:
-  arrival_bonus = 80
+COMPLETING ALL 14 WAYPOINTS + 10 JUMPS:
+  alive = 150
+  Milestones: ~217 (14 waypoint bonuses)
+  Celebration: 15×10 + 80 = 230
+  waypoint_approach: ~200 cumulative
+  forward_velocity: ~150
+  Total completing ≈ 800+
 
-⚠️ STANDING (5,280) >> ARRIVAL (80) — Ratio: 66:1
-LAZY ROBOT ABSOLUTELY GUARANTEED
-```
-
-### Required Fix
-
-```python
-# Target anti-laziness config for section012:
-alive_bonus = 0.05        # 0.05 × 6000 = 300
-arrival_bonus = 200.0     # > alive_budget
-termination = -100.0
-
-# Add stair progression rewards:
-stair_step_bonus = 5.0     # per stair step climbed (10 × 5 = 50)
-bridge_crossing_bonus = 30.0  # one-time for completing bridge
-height_progress = 8.0      # z-delta climbing reward (proven in Section 011)
-descent_progress = 4.0     # z-delta descending reward (controlled descent)
-
-# Add terrain-specific penalties:
-knee_lift_bonus = 0.2      # on stairs only
-foot_slip_penalty = -0.1   # stance phase lateral sliding
-bridge_lateral_penalty = -0.3  # deviation from bridge centerline
-```
-
-### Fixed Budget Projection
-
-```
-STANDING STILL for 6000 steps:
-  alive = 0.05 × 6000 = 300
-  Total standing ≈ 800
-
-COMPLETING TASK:
-  arrival_bonus = 200
-  stair_step_bonus = 10 × 5 × 2 = 100 (up + down, both routes)
-  bridge_crossing_bonus = 30
-  height_progress ≈ 40-80
-  forward ≈ 200-400
-  Total completing ≈ 570-810 + navigation rewards
-
-✅ Budget becomes balanced (with navigation rewards, completing >> standing)
+✅ Completing (800+) >> Standing (150) — budget is sound
 ```
 
 ---
 
-## 3. Stair-Specific Reward Engineering
+## 3. Ordered Waypoint Reward Engineering
 
-### 3.1 The Stair Climbing Challenge
+### 3.1 Generic Waypoint Progression
 
-Stairs are fundamentally harder than slopes because each step is a discrete obstacle:
-
-| Factor | Slope (Section 011) | Stairs (Section 012) |
-|--------|---------------------|---------------------|
-| Surface | Continuous incline | Discrete steps (ΔZ=0.10-0.15m) |
-| Foot clearance | Minimal | Must clear step edge |
-| Gait | Smooth forward walk | Step-by-step with high knee lift |
-| Fall pattern | Slide backward | Trip on step lip, fall forward/backward |
-| Speed | Moderate | Slow (precision > speed) |
-
-### 3.2 Knee Lift Bonus
-
-Standard flat-ground gait drags feet — on stairs, this catches the step edge and trips the robot.
+The core reward signal is **waypoint_approach** (step-delta to current WP) + **milestone_bonus** (one-time on first arrival). This is uniform across all 14 waypoints — no per-WP special cases needed.
 
 ```python
-# Reward higher calf flexion when on stairs
-# Detect stairs by Y-position range or terrain gradient
-if 12.4 < robot_y < 14.3 or 21.4 < robot_y < 23.2:  # On stair zones
-    for leg_idx in range(4):
-        calf_angle = joint_pos[calf_indices[leg_idx]]
-        knee_lift = -calf_angle  # More negative angle = higher lift
-        if knee_lift > 1.5:  # Default calf angle = -1.8, so lift = 1.8
-            reward += knee_lift_bonus * (knee_lift - 1.5)
+# step-delta approach reward (generic)
+wp_delta = last_wp_distance - distance_to_current_wp
+wp_approach = clip(wp_delta * waypoint_approach_scale, -0.5, 5.0)
+
+# milestone bonus (generic, from Waypoint.bonus_key → scales)
+if first_arrival_at_wp:
+    milestone_bonus = scales[wp.bonus_key]  # e.g., 8.0 for stone, 30.0 for bridge
 ```
 
-**Warning**: Don't make knee_lift_bonus too high — it can encourage "marching in place" instead of forward progress. Balance with forward_velocity.
+### 3.2 Z-Constraint Waypoints
 
-### 3.3 Height Progress for Stairs
+Some waypoints have altitude constraints that prevent cheating:
+- **Under-bridge (WP6-7)**: `z_max=2.2` — must be below bridge deck
+- **Bridge (WP9-11)**: `z_min=2.3` — must be on the bridge, not underneath
 
-Reuse Section 011's height_progress concept but adapt for stair geometry:
+The arrival check is: `dist < radius AND z_min ≤ current_z ≤ z_max`.
 
-```python
-# Reward z-axis gain (climbing stairs)
-z_progress = current_z - last_z
-# For stairs: clip more tightly (each step is ΔZ ≈ 0.10-0.15, not continuous)
-height_reward = height_progress_scale * np.clip(z_progress, -0.02, 0.2)
+### 3.3 Virtual Waypoints as Route Guides
+
+Virtual waypoints don't correspond to competition scoring zones but guide the route:
+- **WP0 (right_approach)**: Pulls robot toward right side before stones
+- **WP8 (bridge_climb_base)**: Guides robot to far stair base (avoids near-end approach)
+- **WP9, WP11**: Enforce robot is on bridge (z>2.3) before/after hongbao
+
+Virtual WP bonuses are smaller (10-20) than reward WP bonuses (8-30) to keep focus on scoring zones.
+
+### 3.4 Celebration Multi-Jump
+
+After reaching WP13 (exit), the celebration FSM activates:
 ```
-
-### 3.4 Stair Step Milestones
-
-One-time bonuses for reaching specific heights on stairs:
-
-```python
-# Left stairs: z checkpoints at 1.5, 1.8, 2.1, 2.4, 2.7
-# Right stairs: z checkpoints at 1.4, 1.6, 1.8, 2.0, 2.2
-stair_milestones = [1.5, 1.8, 2.1, 2.4, 2.7]  # Adjust per route
-for i, z_target in enumerate(stair_milestones):
-    if robot_z > z_target and i not in reached_milestones:
-        reward += stair_step_bonus
-        reached_milestones.add(i)
+IDLE → JUMP → LANDING → JUMP → ... (10 times) → DONE
 ```
-
-### 3.5 Foot Slip Penalty
-
-On stair edges, feet can slide backward — penalize this:
-
-```python
-# Penalize lateral/backward foot sliding during stance
-for foot_idx in range(4):
-    if foot_in_contact[foot_idx]:
-        foot_vel_xy = foot_velocities[foot_idx, :2]
-        slip_magnitude = np.linalg.norm(foot_vel_xy)
-        reward -= foot_slip_penalty * slip_magnitude
-```
+- **jump_reward**: Continuous reward for `z_above_standing` during JUMP state
+- **per_jump_bonus**: One-time bonus per successful jump peak (z > threshold)
+- **celebration_bonus**: Large bonus when all jumps complete
 
 ---
 
-## 4. Bridge-Specific Reward Engineering
+## 4. Terrain-Specific Challenges
 
-### 4.1 Narrow Path Challenge
+### 4.1 Stair Climbing/Descending
 
-Bridge width (~2.64m) vs robot effective width (~0.5m with legs) = ~1m margin per side. Railings prevent falling off but colliding with them wastes energy and slows progress.
+Handled by terrain-zone-driven rewards (`_terrain_scale`):
+- `foot_clearance × stair_boost`: Amplified on stair zones to encourage knee lift
+- `swing_contact_penalty × stair_scale`: Reduced on stairs (foot-edge contact is expected)
+- `height_progress`: Generic z-delta reward, naturally rewards stair climbing
 
-### 4.2 Lateral Deviation Penalty
+### 4.2 Narrow Bridge (out-and-back)
 
-```python
-# On bridge (detected by y-position and z-height):
-if 15.3 < robot_y < 20.3 and robot_z > 2.5:
-    bridge_center_x = -3.0  # Left route bridge centerline
-    lateral_error = abs(robot_x - bridge_center_x)
-    # Free zone: ±0.5m from center (1m total = safe corridor)
-    penalty = bridge_lateral_penalty * max(lateral_error - 0.5, 0.0)
-    reward += penalty  # Negative — it's a penalty
-```
-
-### 4.3 Bridge Crossing Bonus
-
-One-time reward for successfully crossing the bridge:
-
-```python
-# Detect bridge crossing: reach y > 20.0 at z > 2.3
-if robot_y > 20.0 and robot_z > 2.3 and not bridge_crossed:
-    reward += bridge_crossing_bonus  # 30.0
-    bridge_crossed = True
-```
+| Challenge | Reward Signal |
+|-----------|---------------|
+| Narrow path (~2.64m) | Generic waypoint_approach keeps robot on route |
+| Altitude requirement (z>2.3) | Z-constraint on WP9-11 prevents cheating |
+| Out-and-back pattern | WP9→WP10→WP11 forces walk-to-center, then turn around |
+| Descent from same end | WP12 at far stair base guides return path |
 
 ---
 
-## 5. Obstacle Avoidance Rewards
+## 5. Reusable Design Pattern
 
-### 5.1 Contact Penalty (Right Route)
+### 5.1 Waypoint & OrderedRoute Dataclasses
 
-```python
-# Penalize collision with sphere/cone obstacle bodies
-obstacle_contacts = get_contact_forces_with_obstacles()
-if any(obstacle_contacts > threshold):
-    reward -= obstacle_collision_penalty  # e.g., -5.0 per collision step
-```
-
-### 5.2 Observation Extension (Advanced)
-
-To add obstacle awareness to the policy, extend the observation space:
+The `Waypoint` and `OrderedRoute` dataclasses in `cfg.py` are designed to be reusable across any section:
 
 ```python
-# Relative positions of nearest obstacles
-obstacle_rel_pos = obstacle_positions - robot_position  # [N, 3]
-extended_obs = np.concatenate([base_obs, obstacle_rel_pos.flatten()])
+@dataclass
+class Waypoint:
+    xy: tuple[float, float]      # Target position
+    label: str                    # Human-readable name
+    kind: str = "reward"          # "reward" | "virtual" | "goal"
+    radius: float = 1.2          # Arrival detection radius
+    z_min: float = -10.0         # Altitude constraint (lower bound)
+    z_max: float = 100.0         # Altitude constraint (upper bound)
+    bonus_key: str = ""          # Key in reward_config.scales
+    bonus_default: float = 0.0   # Fallback if key missing
 ```
 
-**Tradeoff**: Changes observation dim → breaks warm-start from section011. Only use if obstacle avoidance is the bottleneck.
+To create a new section's route, subclass `OrderedRoute` and define waypoints. The environment logic (`_init_ordered_route`, `_update_waypoint_state`, `_get_current_target`) works generically.
+
+### 5.2 Adding New Waypoints
+
+To add a waypoint to the route:
+1. Add a `Waypoint(...)` entry in `Section012Route.__post_init__` at the desired position
+2. Add the `bonus_key` to `reward_config.scales` with a value
+3. No changes needed in `vbot_section012_np.py` — the vectorized numpy arrays auto-resize
 
 ---
 
