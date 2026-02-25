@@ -40,9 +40,9 @@ from .cfg import VBotSection011EnvCfg, TerrainScaleHelper
 # 庆祝状态机常量
 # ============================================================
 CELEB_IDLE = 0        # 未开始庆祝
-CELEB_JUMP = 1        # 在高台上, 准备/正在跳跃
-CELEB_LANDING = 2     # 跳到高点后等待落地 (z回到standing以下)
-CELEB_DONE = 3        # 所有跳跃完成
+CELEB_TURNING = 1     # 在高台上, 正在执行庆祝动作
+CELEB_SETTLING = 2    # 完成一次动作后等待稳定
+CELEB_DONE = 3        # 所有庆祝动作完成
 
 # 机器人躯干矩形足印半尺寸 (m) — 来自vbot.xml collision_middle_box
 # 用于 footprint-contains 检测: 区域中心点是否落在机器人矩形投影内
@@ -213,9 +213,9 @@ class VBotSection011Env(NpEnv):
         wn = cfg.waypoint_nav
         self.wp_radius = wn.waypoint_radius
         self.wp_final_radius = wn.final_radius
-        self.celeb_jump_threshold = getattr(wn, 'celebration_jump_threshold', 1.55)
-        self.required_jumps = getattr(wn, 'required_jumps', 3)
-        self.celeb_landing_z = getattr(wn, 'celebration_landing_z', 1.50)
+        self.celeb_turn_threshold = getattr(wn, 'celebration_turn_threshold', 1.55)
+        self.required_turns = getattr(wn, 'required_turns', 3)
+        self.celeb_settle_z = getattr(wn, 'celebration_settle_z', 1.50)
         print(f"[Info] 分阶段导航: {self.num_smileys}笑脸 → {self.num_red_packets}红包 → 高台 → 庆祝")
 
     # ============================================================
@@ -435,7 +435,7 @@ class VBotSection011Env(NpEnv):
           Phase 0: 收集全部3个笑脸 (任意顺序, 进入半径内即收集)
           Phase 1: 全部笑脸后收集全部3个红包 (任意顺序, 门控于全部笑脸)
           Phase 2: 全部红包后爬到高台 (z > celebration_min_z)
-          Phase 3: 跳跃庆祝 (JUMP → DONE)
+          Phase 3: 庆祝动作 (TURNING → DONE)
 
         wp_idx = smileys_count + red_packets_count + platform_reached (0-7)
         当 wp_idx >= 7 (num_waypoints) → 进入庆祝阶段
@@ -451,7 +451,7 @@ class VBotSection011Env(NpEnv):
         red_packet_bonus_tb = np.zeros(n, dtype=np.float32)  # TensorBoard individual tracking
         phase_bonus = np.zeros(n, dtype=np.float32)
         celeb_bonus = np.zeros(n, dtype=np.float32)
-        jump_reward = np.zeros(n, dtype=np.float32)
+        turn_reward = np.zeros(n, dtype=np.float32)
 
         # --- Phase APPROACH → 0: 进入bump区 (y >= -1.5) ---
         in_approach = (nav_phase == self.PHASE_APPROACH)
@@ -535,44 +535,44 @@ class VBotSection011Env(NpEnv):
         info["wp_idx"] = wp_idx
         info["nav_phase"] = nav_phase
 
-        # --- Phase 3: 多次跳跃庆祝 (v27: 跳N次) ---
+        # --- Phase 3: 庆祝动作 (v27: 执行N次) ---
         in_celeb = (nav_phase == self.PHASE_CELEBRATION)
-        jump_count = info["jump_count"]
+        turn_count = info["turn_count"]
 
-        # IDLE -> JUMP (进入庆祝阶段)
+        # IDLE -> TURNING (进入庆祝阶段)
         start_celeb = in_celeb & (celeb_state == CELEB_IDLE)
         if np.any(start_celeb):
-            celeb_state = np.where(start_celeb, CELEB_JUMP, celeb_state)
+            celeb_state = np.where(start_celeb, CELEB_TURNING, celeb_state)
 
-        # JUMP: 奖励向上运动, 检测跳跃峰值
-        jumping = in_celeb & (celeb_state == CELEB_JUMP)
-        if np.any(jumping):
+        # TURNING: 奖励向上运动, 检测动作完成
+        turning = in_celeb & (celeb_state == CELEB_TURNING)
+        if np.any(turning):
             # 连续奖励: z越高越好 (platform standing z ≈ 1.55)
             z_above_standing = np.maximum(current_z - 1.5, 0.0)
-            jump_reward += np.where(jumping, scales.get("jump_reward", 8.0) * z_above_standing, 0.0)
+            turn_reward += np.where(turning, scales.get("turn_reward", 8.0) * z_above_standing, 0.0)
 
-            # 跳跃检测: z超过阈值 → 转入LANDING等待落地
-            jumped = jumping & (current_z > self.celeb_jump_threshold)
-            if np.any(jumped):
-                jump_count = np.where(jumped, jump_count + 1, jump_count)
-                # 每次跳跃给一次性奖励
-                celeb_bonus += np.where(jumped, scales.get("per_jump_bonus", 15.0), 0.0)
-                # 检查是否完成所有跳跃
-                all_done = jumped & (jump_count >= self.required_jumps)
-                still_jumping = jumped & (jump_count < self.required_jumps)
+            # 动作检测: z超过阈值 → 转入SETTLING等待稳定
+            turned = turning & (current_z > self.celeb_turn_threshold)
+            if np.any(turned):
+                turn_count = np.where(turned, turn_count + 1, turn_count)
+                # 每次完成给一次性奖励
+                celeb_bonus += np.where(turned, scales.get("per_turn_bonus", 15.0), 0.0)
+                # 检查是否完成所有庆祝
+                all_done = turned & (turn_count >= self.required_turns)
+                still_turning = turned & (turn_count < self.required_turns)
                 celeb_state = np.where(all_done, CELEB_DONE, celeb_state)
-                celeb_state = np.where(still_jumping, CELEB_LANDING, celeb_state)
-                # 完成全部跳跃的额外大奖
+                celeb_state = np.where(still_turning, CELEB_SETTLING, celeb_state)
+                # 完成全部庆祝的额外大奖
                 celeb_bonus += np.where(all_done, scales.get("celebration_bonus", 50.0), 0.0)
 
-        # LANDING: 等待落地 (z回到standing以下), 然后重新进入JUMP
-        landing = in_celeb & (celeb_state == CELEB_LANDING)
-        if np.any(landing):
-            landed = landing & (current_z < self.celeb_landing_z)
-            if np.any(landed):
-                celeb_state = np.where(landed, CELEB_JUMP, celeb_state)
+        # SETTLING: 等待稳定 (z回到standing以下), 然后重新进入TURNING
+        settling = in_celeb & (celeb_state == CELEB_SETTLING)
+        if np.any(settling):
+            settled = settling & (current_z < self.celeb_settle_z)
+            if np.any(settled):
+                celeb_state = np.where(settled, CELEB_TURNING, celeb_state)
 
-        info["jump_count"] = jump_count
+        info["turn_count"] = turn_count
         info["celeb_state"] = celeb_state
 
         # zone_bonus 包含笑脸+红包+高台一次性奖励
@@ -581,7 +581,7 @@ class VBotSection011Env(NpEnv):
         info["_smiley_bonus_tb"] = smiley_bonus_tb
         info["_red_packet_bonus_tb"] = red_packet_bonus_tb
         info["_phase_bonus_tb"] = phase_bonus
-        return info, wp_bonus, celeb_bonus, jump_reward
+        return info, wp_bonus, celeb_bonus, turn_reward
 
     def _get_current_target(self, info, robot_xy):
         """v25 Ordered targeting: nearest side → middle → far side.
@@ -728,7 +728,7 @@ class VBotSection011Env(NpEnv):
         current_z = root_pos[:, 2]
         speed_xy = np.linalg.norm(base_lin_vel[:, :2], axis=1)
         # --- 航点 & 庆祝更新 ---
-        info, wp_bonus, celeb_bonus, jump_reward = \
+        info, wp_bonus, celeb_bonus, turn_reward = \
             self._update_waypoint_state(info, robot_xy, robot_heading, current_z)
 
         # --- 当前导航目标 (基于阶段 + 最近未收集区域) ---
@@ -825,7 +825,7 @@ class VBotSection011Env(NpEnv):
             data, info, velocity_commands, base_lin_vel, gyro, projected_gravity,
             joint_vel, distance_to_target, position_error, reached_wp,
             terminated, robot_heading, robot_xy, current_z, speed_xy,
-            wp_bonus, celeb_bonus, jump_reward, in_celeb
+            wp_bonus, celeb_bonus, turn_reward, in_celeb
         )
 
         state.obs = obs
@@ -837,6 +837,7 @@ class VBotSection011Env(NpEnv):
         self._success_truncate = celeb_done
 
         # v44: 停滞检测 — 若机器人长时间不动则截断
+        enable_stag = getattr(cfg, 'enable_stagnation_truncate', True)
         stag_cfg_window = getattr(cfg, 'stagnation_window_steps', 1000)
         stag_cfg_dist = getattr(cfg, 'stagnation_min_distance', 0.5)
         stag_cfg_grace = getattr(cfg, 'stagnation_grace_steps', 500)
@@ -851,7 +852,8 @@ class VBotSection011Env(NpEnv):
         # 检测停滞: 超过窗口时间仍未移动, 且不在庆祝阶段, 且过了grace期
         steps_since_anchor = ep_steps - info["stagnation_anchor_step"]
         stagnant = (
-            (steps_since_anchor > stag_cfg_window)
+            enable_stag
+            & (steps_since_anchor > stag_cfg_window)
             & (ep_steps >= stag_cfg_grace)
             & ~in_celeb
         )
@@ -870,7 +872,7 @@ class VBotSection011Env(NpEnv):
             "wp_idx_mean": info["wp_idx"].astype(np.float32),
             "nav_phase_mean": info["nav_phase"].astype(np.float32),
             "celeb_state_mean": info["celeb_state"].astype(np.float32),
-            "jump_count_mean": info["jump_count"].astype(np.float32),
+            "turn_count_mean": info["turn_count"].astype(np.float32),
             "action_scale_mean": info["current_action_scale"].astype(np.float32).reshape(-1),
             "bump_entry_frac": in_bump_zone,
             "max_y_progress": max_y_reached,
@@ -900,7 +902,8 @@ class VBotSection011Env(NpEnv):
             gxy = np.linalg.norm(projected_gravity[:, :2], axis=1)
             gz = projected_gravity[:, 2]
             tilt_angle = np.arctan2(gxy, np.abs(gz))
-            hard_terminated |= tilt_angle > np.deg2rad(70)  # 70°: 明确摔倒, 坡道15°不受影响
+            hard_tilt = getattr(self._cfg, 'hard_tilt_deg', 70.0)
+            hard_terminated |= tilt_angle > np.deg2rad(hard_tilt)
 
         # 超出边界 — 竞赛规则: 直接终止
         bounds = getattr(self._cfg, 'course_bounds', None)
@@ -929,26 +932,28 @@ class VBotSection011Env(NpEnv):
         soft_terminated = np.zeros(n, dtype=bool)
 
         # 基座接触地面 — grace period内可能是初始着陆抖动
-        try:
-            base_contact_value = self._model.get_sensor_value("base_contact", data)
-            # motrixsim 0.5+ returns 3D force vector (n, 3); compute magnitude
-            if base_contact_value.ndim >= 2 and base_contact_value.shape[-1] == 3:
-                force_mag = np.linalg.norm(base_contact_value, axis=-1)  # (n,)
-                base_contact = (force_mag > 0.01).flatten()[:n]
-            elif base_contact_value.ndim == 0:
-                base_contact = np.array([float(base_contact_value) > 0.01], dtype=bool)
-            else:
-                base_contact = (base_contact_value.flatten() > 0.01)[:n]
-        except Exception:
-            base_contact = np.zeros(n, dtype=bool)
-        soft_terminated |= base_contact
+        if getattr(self._cfg, 'enable_base_contact_term', True):
+            try:
+                base_contact_value = self._model.get_sensor_value("base_contact", data)
+                # motrixsim 0.5+ returns 3D force vector (n, 3); compute magnitude
+                if base_contact_value.ndim >= 2 and base_contact_value.shape[-1] == 3:
+                    force_mag = np.linalg.norm(base_contact_value, axis=-1)  # (n,)
+                    base_contact = (force_mag > 0.01).flatten()[:n]
+                elif base_contact_value.ndim == 0:
+                    base_contact = np.array([float(base_contact_value) > 0.01], dtype=bool)
+                else:
+                    base_contact = (base_contact_value.flatten() > 0.01)[:n]
+            except Exception:
+                base_contact = np.zeros(n, dtype=bool)
+            soft_terminated |= base_contact
 
-        # 中等倾斜 (50-70°) — grace期间允许恢复, 之后终止
-        if projected_gravity is not None:
+        # 中等倾斜 — grace期间允许恢复, 之后终止
+        soft_tilt = getattr(self._cfg, 'soft_tilt_deg', 50.0)
+        if projected_gravity is not None and soft_tilt > 0:
             gxy = np.linalg.norm(projected_gravity[:, :2], axis=1)
             gz = projected_gravity[:, 2]
             tilt_angle = np.arctan2(gxy, np.abs(gz))
-            soft_terminated |= tilt_angle > np.deg2rad(50)  # 50°: 不稳定但可能恢复
+            soft_terminated |= tilt_angle > np.deg2rad(soft_tilt)
 
         # Apply grace period only to soft terminations
         grace_steps = getattr(self._cfg, 'grace_period_steps', 0)
@@ -967,7 +972,7 @@ class VBotSection011Env(NpEnv):
     def _compute_reward(self, data, info, velocity_commands, base_lin_vel, gyro,
                          projected_gravity, joint_vel, distance_to_target, position_error,
                          reached_wp, terminated, robot_heading, robot_xy, current_z,
-                         speed_xy, wp_bonus, celeb_bonus, jump_reward, in_celeb):
+                         speed_xy, wp_bonus, celeb_bonus, turn_reward, in_celeb):
         scales = self._cfg.reward_config.scales
         n = self._num_envs
 
@@ -1278,7 +1283,7 @@ class VBotSection011Env(NpEnv):
             nav_reward
             + wp_bonus
             + celeb_bonus
-            + jump_reward
+            + turn_reward
             + height_progress
             + height_approach
             + slope_orientation_reward
@@ -1305,7 +1310,7 @@ class VBotSection011Env(NpEnv):
             "alive_bonus": alive_bonus,
             "wp_bonus": wp_bonus,
             "celeb_bonus": celeb_bonus,
-            "jump_reward": jump_reward,
+            "turn_reward": turn_reward,
             "smiley_bonus": smiley_total,
             "red_packet_bonus": red_packet_total,
             "zone_approach": zone_approach_reward,
@@ -1349,8 +1354,12 @@ class VBotSection011Env(NpEnv):
 
         # v24: 设置初始朝向为+Y方向 (yaw=π/2), 让机器人面向目标
         # 默认四元数[0,0,0,1]朝向+X, 需要绕Z轴旋转90°
-        init_quat = self._euler_to_quat(0, 0, np.pi / 2)  # [qx, qy, qz, qw]
+        # env_overrides可通过reset_yaw_scale控制初始朝向随机化
+        reset_yaw_scale = getattr(cfg, 'reset_yaw_scale', 0.1)
+        base_yaw = np.pi / 2
+        yaw_noise = np.random.uniform(-np.pi * reset_yaw_scale, np.pi * reset_yaw_scale, size=(num_envs,))
         for env_idx in range(num_envs):
+            init_quat = self._euler_to_quat(0, 0, base_yaw + yaw_noise[env_idx])
             dof_pos[env_idx, self._base_quat_start:self._base_quat_end] = init_quat
             if self._robot_arrow_body is not None:
                 for s, e in [(self._robot_arrow_dof_start + 3, self._robot_arrow_dof_end),
@@ -1442,9 +1451,9 @@ class VBotSection011Env(NpEnv):
             "nav_phase": np.full(num_envs, self.PHASE_APPROACH, dtype=np.int32),
             "wp_idx": np.zeros(num_envs, dtype=np.int32),
             "platform_reached": np.zeros(num_envs, dtype=bool),
-            # 庆祝状态机 (v27: 多次跳跃)
+            # 庆祝状态机 (v27: N次庆祝动作)
             "celeb_state": np.full(num_envs, CELEB_IDLE, dtype=np.int32),
-            "jump_count": np.zeros(num_envs, dtype=np.int32),
+            "turn_count": np.zeros(num_envs, dtype=np.int32),
             # 得分区追踪
             "smileys_reached": np.zeros((num_envs, self.num_smileys), dtype=bool),
             "red_packets_reached": np.zeros((num_envs, self.num_red_packets), dtype=bool),

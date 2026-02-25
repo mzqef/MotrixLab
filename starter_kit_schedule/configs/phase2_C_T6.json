@@ -1,5 +1,5 @@
 {
-  "run_tag": "stage2_fulltrain_C_T6",
+  "run_tag": "phase2_C_T6",
   "env_name": "vbot_navigation_section011",
   "starter_kit_dir": "D:\\MotrixLab\\starter_kit\\navigation2",
   "reward_scales": {
@@ -36,26 +36,26 @@
     "dof_pos": -0.024062057509588425
   },
   "rl_overrides": {
-    "learning_rate": 0.0007,
-    "entropy_loss_scale": 0.006838535487840921,
-    "policy_hidden_layer_sizes": [
-      512,
-      256,
-      128
-    ],
-    "value_hidden_layer_sizes": [
-      512,
-      256,
-      128
-    ],
+    "learning_rate": 1.05e-04,
+    "entropy_loss_scale": 0.00478697,
+    "policy_hidden_layer_sizes": [512, 256, 128],
+    "value_hidden_layer_sizes": [512, 256, 128],
     "rollouts": 24,
     "learning_epochs": 6,
     "mini_batches": 16,
     "discount_factor": 0.999,
-    "max_env_steps": 100000000,
+    "max_env_steps": 50000000,
     "seed": 42,
     "check_point_interval": 500
   },
-  "checkpoint": "runs/vbot_navigation_section011/26-02-22_05-30-41-234319_PPO/checkpoints/agent_25000.pt",
-  "freeze_preprocessor": true
+  "checkpoint": "runs/vbot_navigation_section011/26-02-25_18-12-22-617985_PPO/checkpoints/agent_10000.pt",
+  "freeze_preprocessor": true,
+  "env_overrides": {
+    "termination_mode": "relaxed",
+    "hard_tilt_deg": 85.0,
+    "soft_tilt_deg": 0.0,
+    "enable_base_contact_term": false,
+    "enable_stagnation_truncate": false,
+    "grace_period_steps": 500
+  }
 }

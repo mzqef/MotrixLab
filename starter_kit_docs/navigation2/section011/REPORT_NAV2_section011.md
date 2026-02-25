@@ -917,3 +917,97 @@ Performed bulk cleanup of `/runs/vbot_navigation_section011/` to reclaim disk sp
 | BrB T2 | 3.416 | 56.3% | Stage Two warm-start |
 
 **Key insight**: Branch A top-3 achieved higher peak wp_idx_mean (3.88-3.94) vs Branch B top-3 (3.38-3.42). However, Branch B trials achieved higher reached% (55-58% vs 50-52%), suggesting they found a more conservative but more reliable traversal strategy.
+
+---
+
+## 15. Stage Two Full Training — 100M Steps from AutoML Champions (2026-02-23)
+
+Four Stage Two AutoML champions were trained to 100M steps each using their exact reward configs and 0.3× LR warm-start from their respective AutoML checkpoints.
+
+### Run Mapping
+
+| Branch | Trial | S2 Run Directory | LR | Entropy | Term |
+|--------|-------|-----------------|-----|---------|------|
+| A | T4 | `26-02-23_13-49-12-918060_PPO` | 1.52e-4 | 5.91e-3 | -50 |
+| B | T10 | `26-02-23_16-27-16-527358_PPO` | 1.51e-4 | 2.57e-3 | -50 |
+| C | T6 | `26-02-23_19-08-02-906445_PPO` | 2.10e-4 | 4.79e-3 | -100 |
+| A | T13 | `26-02-23_11-08-08-977856_PPO` | 1.70e-4 | 7.00e-3 | -50 |
+
+### Results (sorted by peak wp_idx_mean)
+
+| Rank | Run | Peak wp | @iter | Final wp | @iter | Collapse |
+|------|-----|---------|-------|----------|-------|----------|
+| **1** | **A_T4** | **5.635** | 11500 | 0.889 | 48500 | -84% |
+| 2 | B_T10 | 5.351 | 12000 | 0.424 | 48500 | -92% |
+| 3 | C_T6 | 4.975 | 12000 | 0.210 | 48500 | -96% |
+| 4 | A_T13 | 4.773 | 9500 | 0.540 | 48500 | -89% |
+
+### Key Observations
+
+1. **All four collapsed 84-96% after peak** — catastrophic forgetting across the board. Peak occurs at iter 9500-12000 (~20-25M steps), then performance degrades for the remaining 75M steps.
+2. **A_T4 is champion** with wp=5.635, passing 5+ waypoints on average. Strong navigation but no celebration.
+3. **Convergence zone**: All peaks clustered around iter 10000-12000 (~20-25M steps), suggesting this is the optimal warm-start fine-tuning horizon.
+4. **Collapse pattern confirms**: 100M is far too long for warm-start runs with these LRs. Future runs should be capped at 25-50M steps max.
+
+### Stage 3b Decision
+
+Rather than separate Stage 3 (relaxed termination) + Stage 4 (celebration) warm-starts (which failed due to double warm-start disruption), **Stage 3b combines both changes in a single training from Stage 2 peaks**. This avoids compounding warm-start instability.
+
+---
+
+## 16. Stage 3b Combined — Relaxed Termination + Right-Turn Celebration (2026-02-25)
+
+### Design
+
+Stage 3b combines two modifications into a single warm-start from Stage 2 peak checkpoints:
+1. **Relaxed termination**: `hard_tilt=85°`, `soft_tilt=OFF`, `base_contact=OFF`, `stagnation=OFF`, `grace=500`
+2. **Right-turn celebration** (v2): Replaced 10 jumps with 3 right turns (90° yaw each). State machine: `CELEB_IDLE→CELEB_TURNING→CELEB_SETTLING→CELEB_DONE`. Turn detected by accumulated heading delta > π/2. Settling: |gyro_z| < 0.3 rad/s.
+
+**Motivation**: Stage 4 (celebration-only retrain from Stage 3 peaks) failed catastrophically due to double warm-start disruption. Stage 3b avoids this by applying both changes to Stage 2 peaks in one shot.
+
+### Training Parameters
+
+| Property | Value |
+|----------|-------|
+| Steps | 25M (~12000 iters) |
+| LR | 0.3× Stage 2 LR (per-run) |
+| Checkpoint | Stage 2 peak (per-run) |
+| Freeze preprocessor | Yes |
+| Batch runner | `_run_stage3b_combined.py` (sequential) |
+
+### Run Mapping
+
+| Branch | S2 Checkpoint | S3b LR | S3b Entropy | S3b Run Directory |
+|--------|--------------|--------|-------------|-------------------|
+| A_T4 | `agent_11500.pt` | 1.52e-4 | 5.91e-3 | `26-02-25_17-02-32-972679_PPO` |
+| B_T10 | `agent_12000.pt` | 1.51e-4 | 2.57e-3 | `26-02-25_17-33-33-268422_PPO` |
+| C_T6 | `agent_12000.pt` | 2.10e-4 | 4.79e-3 | `26-02-25_18-12-22-617985_PPO` |
+| A_T13 | `agent_9500.pt` | 1.70e-4 | 7.00e-3 | `26-02-25_18-47-37-429702_PPO` |
+
+### Results (sorted by peak wp_idx_mean)
+
+| Rank | Run | Peak wp | @iter | Celeb | Reached% | Turns | Final wp | Status |
+|------|-----|---------|-------|-------|----------|-------|----------|--------|
+| **1** | **A_T4** | **6.258** | 10500 | 0.815 | 77.8% | 0.941 | 4.715 | Late decline |
+| 2 | B_T10 | 5.271 | 6500 | 0.434 | 45.2% | 0.376 | 1.385 | **Collapsed** |
+| 3 | A_T13 | 4.950 | 9500 | 0.822 | 60.0% | **2.401** | 3.998 | Late decline |
+| 4 | C_T6 | 4.605 | 10000 | 0.829 | 53.4% | 0.964 | 4.252 | Stable |
+
+### Analysis
+
+1. **A_T4 champion again** (wp=6.258 peak). Consistent winner across S2 and S3b. Reached=77.8% is excellent — nearly 4 out of 5 episodes reach the celebration platform.
+2. **B_T10 collapsed again** — peak at iter 6500 then crashed to 1.385. Low entropy (2.57e-3) likely insufficient for recovery from the celebration learning disruption. Same pattern as Stage 4.
+3. **A_T13 best celebrator** — 2.4 turns average is exceptional (close to completing all 3 turns). High entropy (7.00e-3) enabled exploration of the celebration behavior.
+4. **C_T6 most stable** — smallest peak-to-final gap (4.605→4.252, only -8%). High celeb score (0.829) with steady turns (0.964).
+5. **Relaxed termination + celebration in one shot works** — A_T4 achieved wp=6.258 vs S2's 5.635 (+11%) while also learning celebration. Validates the Stage 3b design.
+
+### Phase 2 Plan
+
+Phase 2: Full training from Stage 3b peaks at 0.5× S3b LR, 50M steps. Target: consolidate gains and push celebration completion higher.
+
+| Branch | S3b Peak Checkpoint | Phase 2 LR |
+|--------|-------------------|------------|
+| A_T4 | `agent_10500.pt` | 7.60e-5 |
+| B_T10 | `agent_6500.pt` | 7.55e-5 |
+| C_T6 | `agent_10000.pt` | 1.05e-4 |
+| A_T13 | `agent_9500.pt` | 8.50e-5 |

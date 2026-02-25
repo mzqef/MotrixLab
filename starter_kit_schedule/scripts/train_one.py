@@ -53,6 +53,7 @@ def main():
     run_tag = config.get("run_tag", f"exp_{int(time.time())}")
     reward_scales = config.get("reward_scales", {})
     rl_overrides = config.get("rl_overrides", {})
+    env_overrides = config.get("env_overrides", {})
     env_name = config.get("env_name", "vbot_navigation_section001")
 
     # Convert list values to tuples for PPO config fields that expect tuples
@@ -78,6 +79,14 @@ def main():
             # env._cfg.reward_config.scales is the same dict as env.reward_scales (alias),
             # so in-place update modifies both references
             env._cfg.reward_config.scales.update(reward_scales)
+        # Apply env_overrides: set cfg attributes (termination params, reset_yaw_scale, etc.)
+        if name == env_name and env_overrides:
+            for eo_key, eo_val in env_overrides.items():
+                if hasattr(env._cfg, eo_key):
+                    setattr(env._cfg, eo_key, eo_val)
+                    print(f"[Pipeline] env_override: {eo_key} = {eo_val}")
+                else:
+                    print(f"[Pipeline] WARNING: env_override key '{eo_key}' not found in cfg, skipping")
         return env
 
     env_registry.make = _patched_make

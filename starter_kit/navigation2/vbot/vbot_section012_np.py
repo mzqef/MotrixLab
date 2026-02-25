@@ -31,7 +31,7 @@ VBot Section012 有序多航点全收集导航环境
   3) 远端上桥收集桥上拜年红包
   4) 原路返回下桥
   5) 到达终点平台
-  6) 庆祝跳跃 (~10次，可配置)
+  6) 庆祝动作 (~10次，可配置)
 
 航点由 cfg.OrderedRoute 定义: 每个航点含坐标、类型
 (reward/virtual/goal)、到达半径、可选z约束、和奖金配置。
@@ -53,8 +53,8 @@ from .cfg import VBotSection012EnvCfg, TerrainScaleHelper
 # 庆祝状态机常量 (多次跳跃)
 # ============================================================
 CELEB_IDLE = 0
-CELEB_JUMP = 1
-CELEB_LANDING = 2
+CELEB_TURNING = 1
+CELEB_SETTLING = 2
 CELEB_DONE = 3
 
 
@@ -185,16 +185,16 @@ class VBotSection012Env(NpEnv):
         ], dtype=np.float32)  # [N]
 
         # 庆祝配置
-        self.required_jumps = route.required_jumps
-        self.celeb_jump_threshold = route.celebration_jump_threshold
-        self.celeb_landing_z = route.celebration_landing_z
+        self.required_turns = route.required_turns
+        self.celeb_turn_threshold = route.celebration_turn_threshold
+        self.celeb_settle_z = route.celebration_settle_z
 
         # 终点航点 (最后一个goal类型航点的坐标，用作fallback目标)
         self.goal_xy = self.wp_xy[-1].copy()
 
         labels = ", ".join(f"{w.label}({w.kind})" for w in wps)
         print(f"[Info] 有序路线导航: {self.num_route_waypoints}航点, "
-              f"{self.required_jumps}次庆祝跳跃")
+              f"{self.required_turns}次庆祝动作")
         print(f"[Info] 路线: {labels}")
 
     # ============================================================
@@ -407,12 +407,12 @@ class VBotSection012Env(NpEnv):
         wp_current = info["wp_current"]    # [n] int32 — 当前目标航点索引
         wp_reached = info["wp_reached"]    # [n, N] bool — 各航点是否已到达
         celeb_state = info["celeb_state"]  # [n] int32
-        jump_count = info["jump_count"]    # [n] int32
+        turn_count = info["turn_count"]    # [n] int32
         n = self._num_envs
 
         milestone_bonus = np.zeros(n, dtype=np.float32)
         celeb_bonus = np.zeros(n, dtype=np.float32)
-        jump_reward = np.zeros(n, dtype=np.float32)
+        turn_reward = np.zeros(n, dtype=np.float32)
 
         # --- 航点推进 (可能连续推进多步, 处理紧邻航点) ---
         max_advances = min(3, self.num_route_waypoints)  # 每step最多推进3个航点
@@ -453,42 +453,42 @@ class VBotSection012Env(NpEnv):
         # --- 庆祝: 到达所有航点后跳跃 ---
         all_done = (wp_current >= self.num_route_waypoints)
 
-        # IDLE → JUMP
+        # IDLE → TURNING
         start_celeb = all_done & (celeb_state == CELEB_IDLE)
         if np.any(start_celeb):
-            celeb_state = np.where(start_celeb, CELEB_JUMP, celeb_state)
+            celeb_state = np.where(start_celeb, CELEB_TURNING, celeb_state)
 
-        # JUMP: 奖励向上运动, 检测跳跃峰值
-        jumping = all_done & (celeb_state == CELEB_JUMP)
-        if np.any(jumping):
+        # TURNING: 奖励向上运动, 检测动作完成
+        turning = all_done & (celeb_state == CELEB_TURNING)
+        if np.any(turning):
             z_above_standing = np.maximum(current_z - 1.5, 0.0)
-            jump_reward += np.where(
-                jumping, self._cfg.reward_config.scales.get("jump_reward", 8.0) * z_above_standing, 0.0
+            turn_reward += np.where(
+                turning, self._cfg.reward_config.scales.get("turn_reward", 8.0) * z_above_standing, 0.0
             )
-            jumped = jumping & (current_z > self.celeb_jump_threshold)
-            if np.any(jumped):
-                jump_count = np.where(jumped, jump_count + 1, jump_count)
+            turned = turning & (current_z > self.celeb_turn_threshold)
+            if np.any(turned):
+                turn_count = np.where(turned, turn_count + 1, turn_count)
                 celeb_bonus += np.where(
-                    jumped, self._cfg.reward_config.scales.get("per_jump_bonus", 15.0), 0.0
+                    turned, self._cfg.reward_config.scales.get("per_turn_bonus", 15.0), 0.0
                 )
-                all_jumps_done = jumped & (jump_count >= self.required_jumps)
-                still_jumping = jumped & (jump_count < self.required_jumps)
-                celeb_state = np.where(all_jumps_done, CELEB_DONE, celeb_state)
-                celeb_state = np.where(still_jumping, CELEB_LANDING, celeb_state)
+                all_turns_done = turned & (turn_count >= self.required_turns)
+                still_turning = turned & (turn_count < self.required_turns)
+                celeb_state = np.where(all_turns_done, CELEB_DONE, celeb_state)
+                celeb_state = np.where(still_turning, CELEB_SETTLING, celeb_state)
                 celeb_bonus += np.where(
-                    all_jumps_done, self._cfg.reward_config.scales.get("celebration_bonus", 80.0), 0.0
+                    all_turns_done, self._cfg.reward_config.scales.get("celebration_bonus", 80.0), 0.0
                 )
 
-        # LANDING → JUMP (等待落地)
-        landing = all_done & (celeb_state == CELEB_LANDING)
+        # SETTLING → TURNING (等待稳定)
+        landing = all_done & (celeb_state == CELEB_SETTLING)
         if np.any(landing):
-            landed = landing & (current_z < self.celeb_landing_z)
-            celeb_state = np.where(landed, CELEB_JUMP, celeb_state)
+            landed = landing & (current_z < self.celeb_settle_z)
+            celeb_state = np.where(landed, CELEB_TURNING, celeb_state)
 
         info["celeb_state"] = celeb_state
-        info["jump_count"] = jump_count
+        info["turn_count"] = turn_count
 
-        return info, milestone_bonus, celeb_bonus, jump_reward
+        return info, milestone_bonus, celeb_bonus, turn_reward
 
     def _get_current_target(self, info, robot_xy):
         """获取当前导航目标 — 有序航点索引直接查表"""
@@ -570,7 +570,7 @@ class VBotSection012Env(NpEnv):
         speed_xy = np.linalg.norm(base_lin_vel[:, :2], axis=1)
 
         # --- 航点 & 庆祝更新 ---
-        info, wp_bonus, celeb_bonus, jump_reward = \
+        info, wp_bonus, celeb_bonus, turn_reward = \
             self._update_waypoint_state(info, robot_xy, robot_heading, speed_xy, gyro[:, 2], current_z)
 
         # --- 当前导航目标 ---
@@ -655,7 +655,7 @@ class VBotSection012Env(NpEnv):
             data, info, base_lin_vel, gyro, projected_gravity,
             joint_vel, distance_to_target, position_error, reached_wp,
             terminated, robot_heading, robot_xy, current_z, speed_xy,
-            wp_bonus, celeb_bonus, jump_reward, in_celeb
+            wp_bonus, celeb_bonus, turn_reward, in_celeb
         )
 
         state.obs = obs
@@ -756,7 +756,7 @@ class VBotSection012Env(NpEnv):
     def _compute_reward(self, data, info, base_lin_vel, gyro,
                          projected_gravity, joint_vel, distance_to_target, position_error,
                          reached_wp, terminated, robot_heading, robot_xy, current_z,
-                         speed_xy, wp_bonus, celeb_bonus, jump_reward, in_celeb):
+                         speed_xy, wp_bonus, celeb_bonus, turn_reward, in_celeb):
         scales = self._cfg.reward_config.scales
         n = self._num_envs
 
@@ -912,7 +912,7 @@ class VBotSection012Env(NpEnv):
             nav_reward
             + wp_bonus
             + celeb_bonus
-            + jump_reward
+            + turn_reward
             + height_progress
             + traversal_total
             + foot_clearance_reward
@@ -933,7 +933,7 @@ class VBotSection012Env(NpEnv):
             "alive_bonus": alive_bonus,
             "wp_bonus": wp_bonus,
             "celeb_bonus": celeb_bonus,
-            "jump_reward": jump_reward,
+            "turn_reward": turn_reward,
             "height_progress": height_progress,
             "traversal_bonus": traversal_total,
             "penalties": penalties,
@@ -1047,7 +1047,7 @@ class VBotSection012Env(NpEnv):
             "wp_idx": np.zeros(num_envs, dtype=np.int32),
             # 庆祝状态机
             "celeb_state": np.full(num_envs, CELEB_IDLE, dtype=np.int32),
-            "jump_count": np.zeros(num_envs, dtype=np.int32),
+            "turn_count": np.zeros(num_envs, dtype=np.int32),
             # 累积奖金 (终止清零用)
             "accumulated_bonus": np.zeros(num_envs, dtype=np.float32),
             "oob_terminated": np.zeros(num_envs, dtype=bool),

@@ -192,6 +192,9 @@ class AutoMLConfig:
     # Seed configs: JSON files whose HP+reward are used as the first N trials
     seed_configs: List[str] = field(default_factory=list)
 
+    # Environment overrides (termination params, reset_yaw_scale, etc.)
+    env_overrides: Dict[str, Any] = field(default_factory=dict)
+
 
 @dataclass
 class AutoMLState:
@@ -306,10 +309,10 @@ REWARD_SEARCH_SPACE_SECTION011 = {
     # ===== 一次性奖金 =====
     "waypoint_bonus": {"type": "uniform", "low": 10.0, "high": 60.0},        # T10=27.2 ±60%
     "phase_bonus": {"type": "uniform", "low": 40.0, "high": 180.0},          # T10=99.8 ±60%
-    # ===== 庆祝 & 跳跃奖励 =====
-    "per_jump_bonus": {"type": "uniform", "low": 15.0, "high": 80.0},        # T10=46.8 ±60%
+    # ===== 庆祝动作奖励 =====
+    "per_turn_bonus": {"type": "uniform", "low": 15.0, "high": 80.0},        # T10=46.8 ±60%
     "celebration_bonus": {"type": "uniform", "low": 50.0, "high": 250.0},    # T10=126.6 ±60%
-    "jump_reward": {"type": "uniform", "low": 2.0, "high": 15.0},            # T10=7.55 ±70%
+    "turn_reward": {"type": "uniform", "low": 2.0, "high": 15.0},            # T10=7.55 ±70%
     # ===== 惩罚 — T10 had light penalties; test slightly wider =====
     "termination": {"type": "choice", "values": [-100, -75, -50, -25]},       # v56: lighter range (T3/T4 died with -200/-100)
     "orientation": {"type": "uniform", "low": -0.03, "high": -0.003},         # T10=-0.011 ±65%
@@ -362,8 +365,8 @@ REWARD_SEARCH_SPACE_SECTION012 = {
     "foot_clearance": {"type": "uniform", "low": 0.01, "high": 0.06},       # cfg=0.02
     "foot_clearance_stair_boost": {"type": "uniform", "low": 1.0, "high": 5.0},  # cfg=3.0
     "foot_clearance_pre_zone_ratio": {"type": "uniform", "low": 0.3, "high": 1.0},  # v54: transition zone boost strength
-    # === Celebration (jump-based) ===
-    "jump_reward": {"type": "uniform", "low": 3.0, "high": 15.0},           # cfg=8.0
+    # === Celebration ===
+    "turn_reward": {"type": "uniform", "low": 3.0, "high": 15.0},           # cfg=8.0
     # === Gait quality ===
     "stance_ratio": {"type": "uniform", "low": 0.0, "high": 0.2},           # cfg=0.08
     "swing_contact_penalty": {"type": "uniform", "low": -0.08, "high": -0.005},  # cfg=-0.025
@@ -382,7 +385,7 @@ REWARD_SEARCH_SPACE_SECTION012 = {
 }
 
 # --- Section013 (金球/坡道/hfield, 25pt section, ball-navigation + celebration) ---
-# Ball-zone navigation: approach → collect 3 gold balls → climb final platform → 10-jump celebration
+# Ball-zone navigation: approach → collect 3 gold balls → climb final platform → celebration
 # Ranges centered on cfg.py defaults (derived from section011 T10 winner values)
 REWARD_SEARCH_SPACE_SECTION013 = {
     # === Navigation core (section011 T10 anchored, ±60%) ===
@@ -397,10 +400,10 @@ REWARD_SEARCH_SPACE_SECTION013 = {
     # === 一次性奖金 ===
     "waypoint_bonus": {"type": "uniform", "low": 20.0, "high": 120.0},       # cfg=50.0 (per ball)
     "phase_bonus": {"type": "uniform", "low": 5.0, "high": 40.0},            # cfg=15.0
-    # === 庆祝 & 跳跃奖励 ===
-    "per_jump_bonus": {"type": "uniform", "low": 20.0, "high": 120.0},       # cfg=60.0
+    # === 庆祝动作奖励 ===
+    "per_turn_bonus": {"type": "uniform", "low": 20.0, "high": 120.0},       # cfg=60.0
     "celebration_bonus": {"type": "uniform", "low": 50.0, "high": 300.0},    # cfg=140.0
-    "jump_reward": {"type": "uniform", "low": 3.0, "high": 25.0},            # cfg=10.0
+    "turn_reward": {"type": "uniform", "low": 3.0, "high": 25.0},            # cfg=10.0
     # === 球区shaping (section013特有) ===
     "ball_contact_reward": {"type": "uniform", "low": 1.0, "high": 10.0},    # cfg=4.0
     "ball_unstable_contact_penalty": {"type": "uniform", "low": -15.0, "high": -2.0},  # cfg=-8.0
@@ -499,8 +502,8 @@ REWARD_COMPONENT_CATEGORIES = {
     # Section011 terrain
     "height_progress": "terrain",
     "traversal_bonus": "terrain",
-    # Section011 celebration (v20: jump-based, no spin)
-    "jump_reward": "navigation",
+    # Section011 celebration
+    "turn_reward": "navigation",
     "phase_completion_bonus": "navigation",
     # Section011 gait quality
     "stance_ratio": "gait",
@@ -1004,6 +1007,10 @@ class AutoMLPipeline:
             config_data["checkpoint"] = self.config.checkpoint
             config_data["freeze_preprocessor"] = self.config.freeze_preprocessor
 
+        # Pass env_overrides (termination params, reset_yaw_scale, etc.)
+        if self.config.env_overrides:
+            config_data["env_overrides"] = self.config.env_overrides
+
         # Write config JSON
         config_dir = self.log_dir / "configs"
         config_dir.mkdir(parents=True, exist_ok=True)
@@ -1243,6 +1250,8 @@ def parse_args():
                        help="Warm-start all trials from this checkpoint")
     parser.add_argument("--freeze-preprocessor", action="store_true",
                        help="Freeze preprocessor (RunningStandardScaler) during warm-start")
+    parser.add_argument("--env-overrides", type=str, default=None,
+                       help="JSON string of env config overrides (e.g. termination params, reset_yaw_scale)")
 
     return parser.parse_args()
 
@@ -1261,6 +1270,7 @@ def main():
         seed_configs=args.seed_configs or [],
         checkpoint=args.checkpoint,
         freeze_preprocessor=args.freeze_preprocessor,
+        env_overrides=json.loads(args.env_overrides) if args.env_overrides else {},
     )
 
     # Load from YAML if provided

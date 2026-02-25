@@ -27,8 +27,8 @@
     "traversal_bonus": 0.0,
     "foot_clearance": 0.053,
     "foot_clearance_bump_boost": 4.39,
-    "jump_reward": 10.0,
-    "per_jump_bonus": 25.0,
+    "turn_reward": 10.0,
+    "per_turn_bonus": 25.0,
     "celebration_bonus": 80.0,
     "stance_ratio": 0.041,
     "vel_heading_alignment": 0.0,
@@ -71,9 +71,9 @@
     "max_episode_seconds": 60.0,
     "max_episode_steps": 6000,
     "grace_period_steps": 100,
-    "celebration_jump_threshold": 1.55,
-    "required_jumps": 3,
-    "celebration_landing_z": 1.50
+    "celebration_turn_threshold": 1.55,
+    "required_turns": 3,
+    "celebration_settle_z": 1.50
   },
   "training_history": {
     "warm_start_source": "26-02-17_10-45-19-130319_PPO/checkpoints/agent_5000.pt (v29 pre-peak, wp_idx=5.41)",

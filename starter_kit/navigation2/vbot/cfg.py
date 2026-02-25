@@ -162,9 +162,9 @@ BASE_REWARD_SCALES: dict[str, float] = {
     "height_progress": 0.0,                        # v52: not needed — existing forward rewards sufficient (zone_approach, wp_approach, forward_velocity)
     "height_approach": 0.0,                        # v52: not needed — robots already reach ramp with zone+forward rewards
     "height_oscillation": -2.0,                    # unchanged (not in search)
-    # ===== 跳跃 & 庆祝 =====
-    "jump_reward": 10.093,                         # T14: ~same
-    "per_jump_bonus": 59.641,                      # T14: 2.4× (v47=25.0)
+    # ===== 庆祝动作 =====
+    "turn_reward": 10.093,                         # T14: ~same
+    "per_turn_bonus": 59.641,                      # T14: 2.4× (v47=25.0)
     "celebration_bonus": 141.242,                  # T14: 1.77× (v47=80.0)
     # ===== 稳定性惩罚 =====
     "orientation": -0.026,                         # T14: ~same (v47=-0.027)
@@ -224,6 +224,12 @@ class VBotStairsEnvCfg(EnvCfg):
     stagnation_min_distance: float = 0.6  # 6秒内至少走0.6m才算"在动"
     stagnation_grace_steps: int = 300     # 前3秒不检测停滞(给机器人起步时间)
 
+    # 可配置终止参数 (env_overrides可覆盖)
+    hard_tilt_deg: float = 70.0           # 硬终止倾斜角度 (>此角度立即终止)
+    soft_tilt_deg: float = 50.0           # 软终止倾斜角度 (0=禁用, grace期后终止)
+    enable_base_contact_term: bool = True  # 基座接触地面终止
+    enable_stagnation_truncate: bool = True  # 停滞检测截断
+
     noise_config: NoiseConfig = field(default_factory=NoiseConfig)
     control_config: ControlConfig = field(default_factory=ControlConfig)
     reward_config: RewardConfig = field(default_factory=RewardConfig)
@@ -275,9 +281,9 @@ class OrderedRoute:
     """
     waypoints: list = field(default_factory=list)   # List[Waypoint]
     # 庆祝配置
-    required_jumps: int = 10                        # 庆祝跳跃次数 (可配置)
-    celebration_jump_threshold: float = 1.55        # 跳跃检测z阈值
-    celebration_landing_z: float = 1.50             # 落地判定z阈值
+    required_turns: int = 10                        # 庆祝动作次数 (可配置)
+    celebration_turn_threshold: float = 1.55        # 动作检测z阈值
+    celebration_settle_z: float = 1.50              # 稳定判定z阈值
 
 
 @registry.envcfg("vbot_navigation_long_course")
@@ -421,11 +427,11 @@ class VBotSection011EnvCfg(VBotStairsEnvCfg):
         # 航点到达半径
         waypoint_radius = 1.0  # 笑脸/红包zone半径较大，走到附近即可
         final_radius = 0.5     # 高台目标更精确
-        # 庆祝旋转参数
-        celebration_jump_threshold = 1.55  # v16b: 实测站立z≈1.52, 小跳+0.03m即可
-        # v27: 多次跳跃庆祝
-        required_jumps = 10               # 需要跳10次才算完成庆祝
-        celebration_landing_z = 1.50      # 落地判定: z < 1.50 = 已着地, 可以再跳
+        # 庆祝参数
+        celebration_turn_threshold = 1.55  # v16b: 实测站立z≈1.52, 小跳+0.03m即可
+        # v27: 多次庆祝动作
+        required_turns = 10               # 需要做10次才算完成庆祝
+        celebration_settle_z = 1.50       # 稳定判定: z < 1.50 = 已稳定, 可以再执行
 
 
     scoring_zones: ScoringZones = field(default_factory=ScoringZones)
@@ -546,9 +552,9 @@ class VBotSection012EnvCfg(VBotStairsEnvCfg):
             Waypoint(xy=(0.0, 24.33),   label="exit_platform",      kind="goal",     radius=0.8,
                      bonus_key="exit_bonus", bonus_default=30.0),
         ])
-        required_jumps: int = 10
-        celebration_jump_threshold: float = 1.55
-        celebration_landing_z: float = 1.50
+        required_turns: int = 10
+        celebration_turn_threshold: float = 1.55
+        celebration_settle_z: float = 1.50
     @dataclass
     class CourseBounds:
         """赛道边界 (超出=终止+清零得分)
@@ -658,13 +664,13 @@ class VBotSection013EnvCfg(VBotStairsEnvCfg):
         Phase APPROACH: 入口 → 坡道/hfield区域
         Phase BALLS: 收集3个金球得分区 (任意顺序)
         Phase CLIMB: 到达最终平台
-        Phase CELEBRATION: 跳跃庆祝 (10次)
+        Phase CELEBRATION: 庆祝动作 (10次)
         """
         waypoint_radius = 1.2  # 金球区到达半径
         final_radius = 0.8     # 最终平台精确到达
-        celebration_jump_threshold = 1.85  # 最终平台z=1.494, 站立+0.3=1.79, 跳+0.06
-        required_jumps = 10
-        celebration_landing_z = 1.75  # 落地判定
+        celebration_turn_threshold = 1.85  # 最终平台z=1.494, 站立+0.3=1.79, 跳+0.06
+        required_turns = 10
+        celebration_settle_z = 1.75  # 稳定判定
 
     scoring_zones: ScoringZones = field(default_factory=ScoringZones)
     waypoint_nav: WaypointNav = field(default_factory=WaypointNav)

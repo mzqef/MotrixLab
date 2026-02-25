@@ -1,5 +1,5 @@
 {
-  "run_tag": "stage3b_combined_A_T13",
+  "run_tag": "phase2_A_T13",
   "env_name": "vbot_navigation_section011",
   "starter_kit_dir": "D:\\MotrixLab\\starter_kit\\navigation2",
   "reward_scales": {
@@ -36,27 +36,19 @@
     "dof_pos": -0.056339157185246215
   },
   "rl_overrides": {
-    "learning_rate": 0.00017028,
+    "learning_rate": 8.514e-05,
     "entropy_loss_scale": 0.007,
-    "policy_hidden_layer_sizes": [
-      512,
-      256,
-      128
-    ],
-    "value_hidden_layer_sizes": [
-      512,
-      256,
-      128
-    ],
+    "policy_hidden_layer_sizes": [512, 256, 128],
+    "value_hidden_layer_sizes": [512, 256, 128],
     "rollouts": 24,
     "learning_epochs": 6,
     "mini_batches": 16,
     "discount_factor": 0.999,
-    "max_env_steps": 25000000,
+    "max_env_steps": 50000000,
     "seed": 42,
     "check_point_interval": 500
   },
-  "checkpoint": "runs/vbot_navigation_section011/26-02-23_11-08-08-977856_PPO/checkpoints/agent_9500.pt",
+  "checkpoint": "runs/vbot_navigation_section011/26-02-25_18-47-37-429702_PPO/checkpoints/agent_9500.pt",
   "freeze_preprocessor": true,
   "env_overrides": {
     "termination_mode": "relaxed",

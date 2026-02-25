@@ -1,5 +1,5 @@
 {
-  "run_tag": "stage4_right_turn_B_T10",
+  "run_tag": "phase2_B_T10",
   "env_name": "vbot_navigation_section011",
   "starter_kit_dir": "D:\\MotrixLab\\starter_kit\\navigation2",
   "reward_scales": {
@@ -37,26 +37,18 @@
   },
   "rl_overrides": {
     "learning_rate": 7.533e-05,
-    "entropy_loss_scale": 0.00180237,
-    "policy_hidden_layer_sizes": [
-      512,
-      256,
-      128
-    ],
-    "value_hidden_layer_sizes": [
-      512,
-      256,
-      128
-    ],
+    "entropy_loss_scale": 0.00257482,
+    "policy_hidden_layer_sizes": [512, 256, 128],
+    "value_hidden_layer_sizes": [512, 256, 128],
     "rollouts": 24,
     "learning_epochs": 6,
     "mini_batches": 16,
     "discount_factor": 0.999,
-    "max_env_steps": 20000000,
+    "max_env_steps": 50000000,
     "seed": 42,
     "check_point_interval": 500
   },
-  "checkpoint": "runs/vbot_navigation_section011\\26-02-25_03-30-25-172537_PPO\\checkpoints\\agent_11000.pt",
+  "checkpoint": "runs/vbot_navigation_section011/26-02-25_17-33-33-268422_PPO/checkpoints/agent_6500.pt",
   "freeze_preprocessor": true,
   "env_overrides": {
     "termination_mode": "relaxed",
