@@ -1,0 +1,61 @@
+{
+  "run_tag": "stage2_fulltrain_C_T6",
+  "env_name": "vbot_navigation_section011",
+  "starter_kit_dir": "D:\\MotrixLab\\starter_kit\\navigation2",
+  "reward_scales": {
+    "forward_velocity": 6.396916038166108,
+    "waypoint_approach": 686.2433771713647,
+    "zone_approach": 319.04025974460234,
+    "position_tracking": 2.3186534477759113,
+    "waypoint_facing": 0.760114175749671,
+    "alive_bonus": 1.820658789341651,
+    "alive_decay_horizon": 4601.931720989468,
+    "waypoint_bonus": 58.783502427552854,
+    "phase_bonus": 97.07931596178096,
+    "per_jump_bonus": 54.463792832624094,
+    "celebration_bonus": 230.19748651145645,
+    "jump_reward": 10.008848360686285,
+    "termination": -100,
+    "orientation": -0.005329571197293128,
+    "lin_vel_z": -0.014442713305576824,
+    "ang_vel_xy": -0.030968745657905403,
+    "action_rate": -0.07525640062852566,
+    "impact_penalty": -0.02249529039229585,
+    "torque_saturation": -0.04977436896163967,
+    "swing_contact_penalty": -0.014222737241203029,
+    "stance_ratio": 0.003011358001207987,
+    "foot_clearance": 0.6187594791693202,
+    "foot_clearance_bump_boost": 7.250991966698807,
+    "foot_clearance_bump_boost_pre_margin": 1.938580373525689,
+    "foot_clearance_bump_boost_post_margin": 0.2933692005449367,
+    "foot_clearance_pre_zone_ratio": 0.6652185603647203,
+    "swing_contact_bump_scale": 0.5239251111999742,
+    "drag_foot_penalty": -0.3181991376394069,
+    "stagnation_penalty": -2.4216697842754726,
+    "crouch_penalty": -2.0334422738014313,
+    "dof_pos": -0.024062057509588425
+  },
+  "rl_overrides": {
+    "learning_rate": 0.0007,
+    "entropy_loss_scale": 0.006838535487840921,
+    "policy_hidden_layer_sizes": [
+      512,
+      256,
+      128
+    ],
+    "value_hidden_layer_sizes": [
+      512,
+      256,
+      128
+    ],
+    "rollouts": 24,
+    "learning_epochs": 6,
+    "mini_batches": 16,
+    "discount_factor": 0.999,
+    "max_env_steps": 100000000,
+    "seed": 42,
+    "check_point_interval": 500
+  },
+  "checkpoint": "runs/vbot_navigation_section011/26-02-22_05-30-41-234319_PPO/checkpoints/agent_25000.pt",
+  "freeze_preprocessor": true
+}

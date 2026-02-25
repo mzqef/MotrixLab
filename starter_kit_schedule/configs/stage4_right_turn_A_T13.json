@@ -1,0 +1,69 @@
+{
+  "run_tag": "stage4_right_turn_A_T13",
+  "env_name": "vbot_navigation_section011",
+  "starter_kit_dir": "D:\\MotrixLab\\starter_kit\\navigation2",
+  "reward_scales": {
+    "forward_velocity": 5.54688981665461,
+    "waypoint_approach": 345.96851316124815,
+    "zone_approach": 166.4085250361971,
+    "position_tracking": 1.8633435744388425,
+    "waypoint_facing": 0.7638744622780222,
+    "alive_bonus": 2.8550225403573104,
+    "alive_decay_horizon": 4870.206133301648,
+    "waypoint_bonus": 60.0,
+    "phase_bonus": 66.02970492170903,
+    "per_jump_bonus": 29.395614551570233,
+    "celebration_bonus": 205.50067127384767,
+    "jump_reward": 3.6888701505718116,
+    "termination": -50,
+    "orientation": -0.020055729817884334,
+    "lin_vel_z": -0.01245045337062084,
+    "ang_vel_xy": -0.08373263523390367,
+    "action_rate": -0.07650720096579035,
+    "impact_penalty": -0.06737241380405071,
+    "torque_saturation": -0.04799010218136951,
+    "swing_contact_penalty": -0.008822089339492365,
+    "stance_ratio": 0.00021326448720302872,
+    "foot_clearance": 0.3020465180955466,
+    "foot_clearance_bump_boost": 13.554159534832273,
+    "foot_clearance_bump_boost_pre_margin": 0.9393118538114184,
+    "foot_clearance_bump_boost_post_margin": 0.571554102480999,
+    "foot_clearance_pre_zone_ratio": 0.6646645913845762,
+    "swing_contact_bump_scale": 0.20596302068112904,
+    "drag_foot_penalty": -0.25018089668549714,
+    "stagnation_penalty": -2.381925436181162,
+    "crouch_penalty": -2.339109992860512,
+    "dof_pos": -0.056339157185246215
+  },
+  "rl_overrides": {
+    "learning_rate": 8.514e-05,
+    "entropy_loss_scale": 0.0049,
+    "policy_hidden_layer_sizes": [
+      512,
+      256,
+      128
+    ],
+    "value_hidden_layer_sizes": [
+      512,
+      256,
+      128
+    ],
+    "rollouts": 24,
+    "learning_epochs": 6,
+    "mini_batches": 16,
+    "discount_factor": 0.999,
+    "max_env_steps": 20000000,
+    "seed": 42,
+    "check_point_interval": 500
+  },
+  "checkpoint": "runs/vbot_navigation_section011\\26-02-25_05-57-10-575330_PPO\\checkpoints\\agent_11500.pt",
+  "freeze_preprocessor": true,
+  "env_overrides": {
+    "termination_mode": "relaxed",
+    "hard_tilt_deg": 85.0,
+    "soft_tilt_deg": 0.0,
+    "enable_base_contact_term": false,
+    "enable_stagnation_truncate": false,
+    "grace_period_steps": 500
+  }
+}
