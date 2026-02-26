@@ -113,7 +113,8 @@ class EvalMetrics:
     success_rate: float = 0.0
     termination_rate: float = 0.0
 
-    wp_idx_mean: float = 0.0  # section011: average waypoint index reached (0-3)
+    wp_idx_mean: float = 0.0  # section011: peak waypoint index reached (0-7)
+    celeb_state: float = 0.0   # peak celebration state (0=idle, 1=turning, 2=settling, 3=done)
 
     def compute_score(self, env_name: str = "") -> float:
         """Compute weighted AutoML score — environment-aware.
@@ -168,7 +169,7 @@ class AutoMLConfig:
     hp_method: str = "bayesian"  # bayesian | random | grid
     hp_trials_per_stage: int = 20
     hp_warmup_trials: int = 8  # v56: more random exploration before Bayesian (2 seeds + 8 warmup = 10 random, then Bayesian)
-    hp_eval_steps: int = 15_000_000  # v37: 15M steps — zones start appearing ~10M, Bayesian gets real signal
+    hp_eval_steps: int = 15_000_000  # v58: 15M steps — optimal for warm-start (25M collapses)
 
     # (Reward weights are searched jointly with HP — no separate reward search phase)
 
@@ -309,10 +310,11 @@ REWARD_SEARCH_SPACE_SECTION011 = {
     # ===== 一次性奖金 =====
     "waypoint_bonus": {"type": "uniform", "low": 10.0, "high": 60.0},        # T10=27.2 ±60%
     "phase_bonus": {"type": "uniform", "low": 40.0, "high": 180.0},          # T10=99.8 ±60%
-    # ===== 庆祝动作奖励 =====
-    "per_turn_bonus": {"type": "uniform", "low": 15.0, "high": 80.0},        # T10=46.8 ±60%
-    "celebration_bonus": {"type": "uniform", "low": 50.0, "high": 250.0},    # T10=126.6 ±60%
-    "turn_reward": {"type": "uniform", "low": 2.0, "high": 15.0},            # T10=7.55 ±70%
+    # ===== 庆祝動作奖励 (v58: X轴行走 + 蹲坐) =====
+    "celeb_walk_approach": {"type": "uniform", "low": 50.0, "high": 400.0},
+    "celeb_walk_bonus": {"type": "uniform", "low": 10.0, "high": 80.0},
+    "celeb_sit_reward": {"type": "uniform", "low": 1.0, "high": 15.0},
+    "celebration_bonus": {"type": "uniform", "low": 20.0, "high": 150.0},
     # ===== 惩罚 — T10 had light penalties; test slightly wider =====
     "termination": {"type": "choice", "values": [-100, -75, -50, -25]},       # v56: lighter range (T3/T4 died with -200/-100)
     "orientation": {"type": "uniform", "low": -0.03, "high": -0.003},         # T10=-0.011 ±65%
@@ -1079,12 +1081,13 @@ class AutoMLPipeline:
             episode_length_mean=eval_result.get("final_episode_length", 0.0),
             success_rate=eval_result.get("final_reached_fraction", 0.0),
             termination_rate=termination_rate,
-            wp_idx_mean=eval_result.get("final_wp_idx_mean", 0.0),
+            wp_idx_mean=eval_result.get("peak_wp_idx_mean", eval_result.get("final_wp_idx_mean", 0.0)),
+            celeb_state=eval_result.get("peak_celeb_state", 0.0),
         )
 
         logger.info(
             f"  Result: reward={metrics.episode_reward_mean:.2f}, "
-            f"wp_idx={metrics.wp_idx_mean:.2f}, "
+            f"wp_idx={metrics.wp_idx_mean:.1f}, celeb={metrics.celeb_state:.0f}, "
             f"reached={metrics.success_rate:.2%}, elapsed={elapsed:.0f}s"
         )
 
@@ -1115,6 +1118,7 @@ class AutoMLPipeline:
                     "episode_reward_mean": metrics.episode_reward_mean,
                     "success_rate": metrics.success_rate,
                     "wp_idx_mean": metrics.wp_idx_mean,
+                    "celeb_state": metrics.celeb_state,
                 },
                 "reward_scales": reward_scales,
                 "reward_components": reward_components,

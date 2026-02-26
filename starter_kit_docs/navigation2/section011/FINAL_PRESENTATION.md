@@ -1,9 +1,11 @@
 # Section011 — Final Presentation & Reproduction Recipe
 
-> **Historical Best: wp_idx = 5.9115** (v35, warm-start chain)
-> **Stage Two AutoML COMPLETED** (`automl_20260222_124457`) — warm-start from T12 peak (wp=2.232), 15 trials, jump-10 celebration, LR≤7e-4, frozen preprocessor.
-> **Champion: T13 wp_mean=3.443, score=0.5439** (15/15 trials, 6.71h).
-> See [Task_Reference.md](Task_Reference.md) Section 9 for full reward scales table.
+> **CURRENT CHAMPION: S4 T7 — CELEB_DONE sustained, wp=7.0, 100% reached**
+> Run: `runs/vbot_navigation_section011/26-02-26_06-03-39-435963_PPO`
+> AutoML: `automl_20260226_033450` (18/20 trials completed, 6.0h)
+> Pipeline: S1 → Full 100M → S2 → S2FT → **S5 (3 right turns, full 2π yaw, relaxed term)**
+> Competition score estimate: **20/20 points**
+> **S5 RUNNING**: `automl_20260226_173838` — 6 trials, 2h budget, seeded from S4 top 5. S3/S3b/S4 stages are DISCARDED in reproduction.
 
 ---
 
@@ -16,7 +18,7 @@
 **Objectives** (20 points max):
 - Collect 3 smiley zones (+4 pts each = 12 pts) on the height field
 - Collect 3 red-packet zones (+2 pts each = 6 pts) on the ramp
-- Reach the "2026" celebration platform and perform 3 jumps (+2 pts)
+- Reach the "2026" celebration platform and perform 3 right turns (+2 pts)
 
 **Metric**: `wp_idx` — composite waypoint index encoding zone collection + phase progression (max ≈ 7.0)
 
@@ -159,7 +161,7 @@ uv run scripts/train.py --env vbot_navigation_section011 --train-backend torch \
 
 **Key discovery**: Lighter penalties + stronger navigation pull is the dominant winning pattern. 9/15 trials reached phase RED_PACKETS (wp_max≥3.0). T14's 0.484 mean at 15M cold-start is expected to significantly exceed v47's 1.40 at 50M with continued training.
 
-**100M deployment**: Training v48-T14 config from scratch to 100M steps (current).
+**100M deployment**: Training v48-T14 config from scratch to 100M steps (failed — see Discovery 7).
 
 See [Task_Reference.md](Task_Reference.md) Section 10 for future AutoML exploration plan (boundary expansion, long-horizon validation).
 
@@ -226,7 +228,7 @@ Three top trials (T12, T13, T11) trained to 100M steps with fixed LR=1e-3 (no KL
 
 #### Phase 6C: Stage Two — Warm-Start AutoML (`automl_20260222_124457`, COMPLETED)
 
-15 warm-start trials from T12's peak checkpoint, with `required_jumps = 10` (hardened from 3). Completed in **6.71 hours**.
+15 warm-start trials from T12's peak checkpoint, with `required_turns = 10` (hardened celebration). Completed in **6.71 hours**.
 
 **Infrastructure changes**:
 - `--checkpoint` and `--freeze-preprocessor` flags added to `automl.py`
@@ -261,49 +263,75 @@ uv run starter_kit_schedule/scripts/automl.py --mode stage --env vbot_navigation
     --freeze-preprocessor
 ```
 
-#### Phase 6D: Stage Two — Branch B: Warm-Start from Train B / T13 (`automl_20260222_201059`, COMPLETED)
+#### Phase 6E: Stage Two Full Training — S2FT A_T4 (2026-02-23)
 
-15 warm-start trials from **T13's** peak checkpoint (iter 21000, wp=2.033). 8 trials completed successfully, 3 failed. **5.87 hours**.
+**Goal**: Train the Stage 2B champion (A_T4) to full 100M steps with warm-start from its AutoML checkpoint.
 
-**Champion: T10** (wp_mean=3.111, suc=25.4%, LR=5.0e-4, entropy=0.0037, term=-50)
+| Property | Value |
+|----------|-------|
+| Config source | A_T4 from `automl_20260222_124457` |
+| LR | 1.52e-4 (0.3× A_T4's 5.1e-4) |
+| Preprocessor | Frozen |
+| Run dir | `26-02-23_13-49-12-918060_PPO` |
 
-| Rank | Trial | wp_mean | suc% | LR | entropy | term |
-|------|-------|---------|------|-----|---------|------|
-| 1 | **T10** | **3.111** | 25.4% | 5.0e-4 | 0.0037 | -50 |
-| 2 | T8 | 2.956 | 24.5% | 7.0e-4 | 0.0097 | -100 |
-| 3 | T2 | 2.944 | 24.6% | 7.0e-4 | 0.0059 | -75 |
-| 4 | T4 | 2.943 | 23.3% | 5.4e-4 | 0.0039 | -50 |
-| 5 | T6 | 2.859 | 24.0% | 7.0e-4 | 0.0074 | -100 |
+**Result**: Peak wp_mean=**5.635** @ iter 11500. This checkpoint became the warm-start source for Stage 4.
 
-**Branch A vs Branch B head-to-head**:
+#### Phase 6F: Stage 4 — Relaxed-Termination AutoML (`automl_20260226_033450`, COMPLETED)
 
-| Metric | Branch A (T13) | Branch B (T10) | Winner |
-|--------|---------------|---------------|--------|
-| Champion wp_mean | **3.443** | 3.111 | Branch A (+9.6%) |
-| Success rate | 25.3% | 25.4% | Tie |
-| Trials completed | 15/15 | 8/11 | Branch A |
-| Duration | 6.71h | 5.87h | — |
+**Goal**: Find celebration-completing reward weights under relaxed physics termination and random initial heading.
 
-**Conclusion**: Branch A clearly superior. Higher peak warm-start checkpoint (wp=2.232) beats more-stable-but-lower checkpoint (wp=2.033). Branch B's T10 independently converged on term=-50, confirming it as the optimizer-preferred regime.
+**Infrastructure changes** (code modifications in this session):
+1. Configurable termination fields in `cfg.py` (`hard_tilt_deg`, `soft_tilt_deg`, `enable_base_contact_term`, `enable_stagnation_truncate`)
+2. `env_overrides` infrastructure in `train_one.py` + `automl.py`
+3. Random yaw via `reset_yaw_scale` in `vbot_section011_np.py`
+4. Celebration is **right turn** (10 turns, z-threshold=1.55) — NOT jumping
 
-#### Phase 6E: Stage Two — Branch C: T11 (`automl_20260223_012907`, RUNNING)
+**env_overrides**: `hard_tilt=85°, soft_tilt=OFF, base_contact=OFF, stagnation=ON, grace=500, yaw_scale=1.0`
 
-Warm-start from Train C peak (T11, iter 25000, wp=1.919). Started 2026-02-23. 1 trial completed so far (T0 seed: wp=2.440, suc=23.7%).
+**First attempt** (`automl_20260226_001823`): Launched with `enable_stagnation_truncate=false` — crashed after 7/20 trials (long-stagnating episodes exhausted budget). Fixed to `true` in second run.
 
-T11's distinctive feature: high entropy (ent=0.0098, 3.5× T12) during Stage One. The weakest full-train candidate (-80% collapse), but broad exploration may enable unexpected discoveries in warm-start.
+**Second attempt** (`automl_20260226_033450`): **18/20 trials completed** in 6.0 hours.
 
-#### Phase 6F: Deploy Branch A Champion (NEXT)
+**All 18 trials reached peak wp_idx=7.0 and 100% reached fraction.** 5 of 18 reached CELEB_DONE (all 10 right turns). Of those 5, **T7 and T16 sustained CELEB_DONE** (final celeb_state=3.0).
 
-Branch A T13 is the confirmed overall champion (score=0.5439, wp=3.443). Next step: deploy T13 config to full 100M training or directly use for competition submission.
+**Top 5 trials:**
+
+| Trial | Peak wp | Final celeb | Peak reward | Turns | Sustained? |
+|-------|---------|-------------|-------------|-------|-----------|
+| **T7** | **7.0** | **3.0 DONE** | **19,779** | **10** | **YES** |
+| T16 | 7.0 | 3.0 DONE | 11,842 | 10 | YES |
+| T4 | 7.0 | 2.0 (regressed) | 23,229 | 10 | NO |
+| T15 | 7.0 | 2.0 (regressed) | 15,143 | 10 | NO |
+| T6 | 7.0 | 2.0 | 30,362 | 4 | — |
+
+**Champion: T7** — sustained CELEB_DONE with highest reward among sustained trials (19,779 vs T16's 11,842). Celebration learned at step 7,070.
+
+**T7 run directory**: `runs/vbot_navigation_section011/26-02-26_06-03-39-435963_PPO`
+
+#### Phase 6G: Stage 5 — 3-Turn Celebration AutoML (`automl_20260226_173838`, RUNNING)
+
+**Goal**: Re-train from S2FT A_T4 peak with simplified celebration (3 right turns instead of 10), full 2π random initial yaw, and relaxed termination. Seeded from S4 top 5 configs.
+
+**Key config changes** (permanent in cfg.py):
+- `reset_yaw_scale` = 1.0 (full 2π uniform yaw at reset)
+- `required_turns` = 3 (was 10)
+- Removed `celebration_turn_threshold` / `celebration_settle_z` from Section011 WaypointNav (code defaults used: 1.55 / 1.50)
+
+**Setup**: 6 trials (5 seeds from S4 top 5: T7, T16, T4, T15, T6 + 1 Bayesian), 2h budget, warm-start from S2FT A_T4 peak (`agent_11500.pt`), frozen preprocessor.
+
+**env_overrides**: `hard_tilt=85°, soft_tilt=OFF, base_contact=OFF, stagnation=ON, grace=500`
+
+> **Note**: S3, S3b, and S4 stages are **discarded** in reproduction. S5 directly replaces S4 by starting from the same S2FT checkpoint with simplified celebration.
 
 ---
 
-## 4. Complete Reproduction Commands
+## 4. Reproduction Commands — 4-Stage Pipeline
+
+> **S3, S3b, S4 stages are DISCARDED.** S5 directly replaces S4 by starting from the same S2FT checkpoint with 3 right turns.
 
 ### Prerequisites
 
 ```powershell
-# Python 3.10, UV package manager
 uv sync --all-packages --all-extras
 ```
 
@@ -311,62 +339,68 @@ uv sync --all-packages --all-extras
 
 ```powershell
 # ============================================================
-# STEP 1: Fresh training with v23b architecture (gradient-only)
+# STAGE 1: Cold-Start AutoML (20 trials × 10M)
 # ============================================================
-# Reward config: All bonuses set to 0.0 in cfg.py
-# RL config: LR=4.24e-4, no scheduler
-# This takes ~70 min for 50M steps
-
-uv run scripts/train.py --env vbot_navigation_section011 --train-backend torch
-# → Pick best_agent.pt or agent with highest wp_idx
-
-# ============================================================
-# STEP 2: Re-enable bonuses (v28 config) and warm-start
-# ============================================================
-# Reward config: Enable smiley/red_packet/waypoint/celebration bonuses
-# RL config: LR=1e-4 (0.25× reduction for warm-start)
-
-uv run scripts/train.py --env vbot_navigation_section011 --train-backend torch \
-    --checkpoint <step1_best_agent.pt>
-# → Expect wp_idx ≈ 5.0+
+# Winner: T12 (wp_mean=0.412, score=0.2562)
+uv run starter_kit_schedule/scripts/automl.py `
+    --mode stage --env vbot_navigation_section011 `
+    --budget-hours 8 --hp-trials 20 `
+    --seed-configs starter_kit_schedule/configs/seed_T12_warmstart.json
 
 # ============================================================
-# STEP 3: Boost later-phase bonuses (v29 config) and warm-start
+# STAGE 2A: Full 100M Training
 # ============================================================
-# Reward config: Boost to final values (smiley=20, red_packet=20, etc.)
-
-uv run scripts/train.py --env vbot_navigation_section011 --train-backend torch \
-    --checkpoint <step2_best_agent.pt>
-# → Expect wp_idx ≈ 5.8+ at agent_6000.pt
+# T12 config, fixed LR=1e-3. Peak: wp=2.232 @ iter 24500.
+uv run scripts/train.py --env vbot_navigation_section011 --train-backend torch --max-env-steps 100000000
 
 # ============================================================
-# STEP 4: KL-adaptive fine-tune from PRE-PEAK checkpoint
+# STAGE 2B: Warm-Start AutoML (15 trials × 10M)
 # ============================================================
-# RL config: lr_scheduler_type = "kl_adaptive"
-# IMPORTANT: Use agent_5000.pt (pre-peak), NOT agent_6000.pt (peak)
-
-uv run scripts/train.py --env vbot_navigation_section011 --train-backend torch \
-    --checkpoint <step3_agent_5000.pt>
-# → Expect wp_idx ≈ 5.9+ at agent_6000.pt
-
-# ============================================================
-# STEP 5: Deploy best checkpoint
-# ============================================================
-Copy-Item <step4_run>/checkpoints/agent_6000.pt `
-    starter_kit_schedule/checkpoints/vbot_navigation_section011/best_agent.pt
+# From Stage 2A peak. Winner: A_T4 (wp_mean=3.411, score=0.5399)
+uv run starter_kit_schedule/scripts/automl.py `
+    --mode stage --env vbot_navigation_section011 `
+    --budget-hours 8 --hp-trials 15 `
+    --seed-configs starter_kit_schedule/configs/seed_T12_warmstart.json `
+    --checkpoint "runs/vbot_navigation_section011/26-02-22_05-25-43-367487_PPO/checkpoints/agent_24500.pt" `
+    --freeze-preprocessor
 
 # ============================================================
-# STEP 6: Evaluate
+# STAGE 2C (S2FT): Full 100M from A_T4
 # ============================================================
-uv run starter_kit_schedule/scripts/eval_checkpoint.py \
-    --rank <step4_run_dir>
+# A_T4 reward + 0.3× LR. Peak: wp=5.635 @ iter 11500.
+uv run scripts/train.py --env vbot_navigation_section011 --train-backend torch `
+    --checkpoint "runs/.../automl_A_T4/best_agent.pt" --max-env-steps 100000000
+
+# ============================================================
+# STAGE S5: Relaxed-Term + 3 Right Turns AutoML (6 trials)
+# ============================================================
+# Seeded from S4 top 5. 3 right turns, full 2π yaw, relaxed term.
+# cfg.py: required_turns=3, reset_yaw_scale=1.0
+python _launch_s5.py
+# Or directly:
+uv run starter_kit_schedule/scripts/automl.py `
+    --mode stage --env vbot_navigation_section011 `
+    --budget-hours 2 --hp-trials 6 `
+    --checkpoint "runs/vbot_navigation_section011/26-02-23_13-49-12-918060_PPO/checkpoints/agent_11500.pt" `
+    --freeze-preprocessor `
+    --seed-configs starter_kit_schedule/configs/seed_S4_T7.json `
+        starter_kit_schedule/configs/seed_S4_T16.json `
+        starter_kit_schedule/configs/seed_S4_T4.json `
+        starter_kit_schedule/configs/seed_S4_T15.json `
+        starter_kit_schedule/configs/seed_S4_T6.json `
+    --env-overrides '{"hard_tilt_deg":85.0,"soft_tilt_deg":0.0,"enable_base_contact_term":false,"enable_stagnation_truncate":true,"grace_period_steps":500}'
+
+# ============================================================
+# EVALUATE
+# ============================================================
+uv run scripts/play.py --env vbot_navigation_section011 --policy <best_agent.pt from S5>
 ```
 
 ---
 
 ## 5. Final Configuration Files
 
-### PPO Hyperparameters (`starter_kit/navigation2/vbot/rl_cfgs.py`) — v48-T14 Active
+### PPO Hyperparameters (`starter_kit/navigation2/vbot/rl_cfgs.py`) — S4-T7 Final
 
 ```python
 @rlcfg("vbot_navigation_section011")
@@ -378,7 +412,7 @@ class VBotSection011PPOConfig(PPOCfg):
     max_env_steps: int = 100_000_000
     check_point_interval: int = 500
 
-    learning_rate: float = 4.513e-4     # v48-T14 (was 1e-4)
+    learning_rate: float = 4.171e-4     # S4-T7 (was 4.513e-4 in v48-T14)
     lr_scheduler_type: str | None = "kl_adaptive"
     rollouts: int = 24
     learning_epochs: int = 6
@@ -386,119 +420,100 @@ class VBotSection011PPOConfig(PPOCfg):
     discount_factor: float = 0.999
     lambda_param: float = 0.99
     grad_norm_clip: float = 1.0
-    entropy_loss_scale: float = 0.00775  # v48-T14 (was 4.11e-3)
+    entropy_loss_scale: float = 0.00981  # S4-T7 (was 0.00775 in v48-T14)
 
     ratio_clip: float = 0.2
     value_clip: float = 0.2
     clip_predicted_values: bool = True
 
     share_policy_value_features: bool = False
-    policy_hidden_layer_sizes: tuple[int, ...] = (512, 256, 128)  # v47: symmetric with value
+    policy_hidden_layer_sizes: tuple[int, ...] = (512, 256, 128)
     value_hidden_layer_sizes: tuple[int, ...] = (512, 256, 128)
 ```
 
-### Reward Scales (`starter_kit/navigation2/vbot/cfg.py → BASE_REWARD_SCALES`) — v48-T14 Active
+### Reward Scales — S4-T7 Final
 
-> **Current state (v48-T14):** All bonuses integrated into `BASE_REWARD_SCALES`. No separate phase-2 override needed.
-> Full table with vs-v47 comparison: [Task_Reference.md](Task_Reference.md) Section 9.
+> **S4-T7 Final.** Full config from AutoML `automl_20260226_033450` trial T7.
+> Key differences vs seed (A_T4): waypoint_approach 2.47×, phase_bonus 2.97×, foot_clearance 1.81×, LR 2.74×, entropy 1.66×.
 
-```python
-BASE_REWARD_SCALES = {
-    # === Continuous Navigation Rewards ===
-    "forward_velocity": 3.163,         # (was 2.875)
-    "waypoint_approach": 280.534,      # (was 166.5) — 1.68× stronger pull
-    "waypoint_facing": 0.610,          # (was 0.061) — 10× boost
-    "position_tracking": 0.384,
-    "alive_bonus": 1.446,
-    "alive_decay_horizon": 2383,       # (was 1500)
+```yaml
+# === Navigation (positive rewards) ===
+forward_velocity: 5.774
+waypoint_approach: 767.519          # 2.47× seed (310.6) — very strong pull
+waypoint_facing: 0.755
+zone_approach: 296.971
+position_tracking: 1.553
+alive_bonus: 2.848
+alive_decay_horizon: 3840.09
 
-    # === Zone Navigation ===
-    "zone_approach": 74.727,           # (was 35.06) — 2.13× stronger
+# === Celebration (3 Right Turns in S5; was 10 in S4) ===
+turn_reward: 4.465
+per_turn_bonus: 33.699
+celebration_bonus: 184.267
 
-    # === Terrain Adaptation ===
-    "height_progress": 28.30,
-    "height_approach": 5.0,
-    "height_oscillation": -2.0,
+# === Bonuses (one-time events) ===
+waypoint_bonus: 58.574
+phase_bonus: 177.657                # 2.97× seed (59.9) — very high phase completion bonus
+smiley_bonus: ~18.3
+red_packet_bonus: ~14.8
 
-    # === Foot Clearance ===
-    "foot_clearance": 0.150,           # (was 0.053) — 2.8× boost
-    "foot_clearance_bump_boost": 8.0,  # (was 4.39)
+# === Penalties (negative) ===
+termination: -75                    # 50% heavier than seed (-50)
+orientation: -0.026
+lin_vel_z: -0.071
+ang_vel_xy: -0.122                  # 45% heavier than seed
+action_rate: -0.056
+impact_penalty: -0.045
+torque_saturation: -0.097
+swing_contact_penalty: -0.007
 
-    # === One-Time Bonuses ===
-    "smiley_bonus": 18.254,
-    "red_packet_bonus": 14.757,
-    "waypoint_bonus": 56.069,
-    "phase_completion_bonus": 14.785,
+# === Gait / Terrain ===
+foot_clearance: 0.546               # 1.81× seed (0.302)
+foot_clearance_bump_boost: 24.684   # 1.82× seed (13.55)
+foot_clearance_bump_boost_pre_margin: 1.095
+foot_clearance_bump_boost_post_margin: 0.146
+foot_clearance_pre_zone_ratio: 0.624
+swing_contact_bump_scale: 0.783
+stance_ratio: 0.00308
 
-    # === Celebration (3-Jump) ===
-    "jump_reward": 8.636,
-    "per_jump_bonus": 59.641,          # (was 25) — 2.4×
-    "celebration_bonus": 141.242,      # (was 80) — 1.77×
-
-    # === Gait Quality ===
-    "stance_ratio": 0.041,
-
-    # === Penalties (lighter = T14 winning pattern) ===
-    "swing_contact_penalty": -0.003,   # (was -0.031) — 10× lighter
-    "swing_contact_bump_scale": 0.356,
-    "impact_penalty": -0.080,
-    "torque_saturation": -0.012,       # (was -0.025) — 2.1× lighter
-    "orientation": -0.05,
-    "lin_vel_z": -0.027,               # (was -0.195) — 7.2× lighter
-    "ang_vel_xy": -0.045,
-    "torques": -5e-6,
-    "dof_vel": -3e-5,
-    "dof_acc": -1.5e-7,
-    "action_rate": -0.008,
-    "termination": -150.0,             # (was -200) — 25% lighter
-    "score_clear_factor": 0.0,
-    "slope_orientation": 0.04,
-}
+# === Anti-loafing ===
+drag_foot_penalty: -0.426
+stagnation_penalty: -2.234
+crouch_penalty: -1.529
+dof_pos: -0.00553
 ```
 
-### Environment Config Highlights
+### Environment Config — S4-T7 Final (includes env_overrides)
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
 | `action_scale` (flat) | 0.25 | Dynamic zones override: 0.40 bump/slope |
-| `max_episode_seconds` | 120.0 | v44: doubled (was 60.0); stagnation detection replaces fixed cutoff |
-| `max_episode_steps` | 12000 | v44: doubled (was 6000) |
-| `grace_period_steps` | 100 | Soft termination grace |
-| `stagnation_window_steps` | 1000 | v44: 10 s window for stagnation check |
-| `stagnation_min_distance` | 0.5 m | v44: must travel ≥0.5 m per window |
-| `stagnation_grace_steps` | 500 | v44: no stagnation check in first 5 s |
-| `celebration_jump_threshold` | 1.55 | Jump detection height |
-| `required_jumps` | 3 | Jumps needed for celebration |
-| `celebration_landing_z` | 1.50 | Landing detection height |
+| `max_episode_seconds` | 120.0 | Stagnation detection replaces fixed cutoff |
+| `max_episode_steps` | 12000 | |
+| `hard_tilt_deg` | **85.0** | S4: relaxed from 60° — allows aggressive terrain traversal |
+| `soft_tilt_deg` | **0.0 (OFF)** | S4: disabled — no gradual penalty for tilt |
+| `enable_base_contact_term` | **false** | S4: disabled — allows body-terrain contact during turns |
+| `enable_stagnation_truncate` | **true** | S4: keeps episode length bounded |
+| `grace_period_steps` | **500** | S4: 5s grace before stagnation check | 
+| `reset_yaw_scale` | **1.0** | Default (cfg.py). S4 used env_overrides; now baked into config |
+| `stagnation_window_steps` | 1000 | 10s window for stagnation check |
+| `stagnation_min_distance` | 0.5 m | Must travel ≥0.5 m per window |
+| `required_turns` | **3** | Right turns needed for celebration (was 10 in S4) |
 | Spawn position | (0, -2.5, 0.35) ± (2.0, 0.5) | X: ±2 m (5 m wide platform), Y: ±0.5 m |
 | Target waypoints | (0,0) → (0,4.4) → (0,7.83) | Smiley → Red Packet → Celebration |
 
 ---
 
-## 6. All-Time Top-20 Leaderboard
+## 6. All-Time Leaderboard
 
-| Rank | Run (timestamp) | Version | Checkpoint | wp_idx |
-|------|----------------|---------|------------|--------|
-| **1** | **20-42-31** | **v35** | **agent_6000** | **5.9115** |
-| 2 | 10-45-19 | v29 | agent_6000 | 5.8643 |
-| 3 | 20-42-31 | v35 | agent_5500 | 5.6765 |
-| 4 | 14-36-02 | v32 | agent_6000 | 5.4923 |
-| 5 | 10-45-19 | v29 | agent_5000 | 5.4084 |
-| 6 | 20-42-31 | v35 | agent_5000 | 5.3736 |
-| 7 | 14-36-02 | v32 | agent_5500 | 5.2667 |
-| 8 | 08-20-06 | — | agent_10000 | 5.2065 |
-| 9 | 03-50-32 | — | agent_4000 | 5.0512 |
-| 10 | 20-42-31 | v35 | agent_4500 | 4.9799 |
-| 11 | 14-36-02 | v32 | agent_5000 | 4.9870 |
-| 12 | 08-20-06 | — | agent_4000 | 4.9550 |
-| 13 | 14-36-02 | v32 | agent_12000 | 4.8393 |
-| 14 | 08-20-06 | — | agent_9000 | 4.8386 |
-| 15 | 01-45-06 | — | agent_5000 | 4.7600 |
-| 16 | 01-45-06 | — | agent_4000 | 4.7485 |
-| 17 | 10-45-19 | v29 | agent_4000 | 4.7329 |
-| 18 | 20-42-31 | v35 | agent_4000 | 4.5025 |
-| 19 | 03-50-32 | — | agent_5000 | 4.2443 |
-| 20 | 20-42-31 | v35 | agent_3500 | 3.9638 |
+| Rank | Run | Stage | Checkpoint | wp_idx | CELEB_DONE | Notes |
+|------|-----|-------|------------|--------|-----------|-------|
+| **1** | **26-02-26_06-03-39** | **S4-T7** | **best_agent** | **7.0** | **YES (sustained)** | **10 turns (S4). S5 retrains with 3 turns** |
+| 2 | 26-02-26 (T16) | S4-T16 | best_agent | 7.0 | YES (sustained) | Lower reward (11.8K vs 19.8K) |
+| 3 | 26-02-26 (T4) | S4-T4 | best_agent | 7.0 | Regressed | DONE then lost |
+| 4 | 26-02-23_13-49-12 | S2FT-A_T4 | agent_11500 | 5.635 | — | Stage 2C peak |
+| 5 | 20-42-31 | v35 | agent_6000 | 5.911 | — | Legacy warm-start chain peak |
+| 6 | 10-45-19 | v29 | agent_6000 | 5.864 | — | Pre-KL-adaptive peak |
 
 ---
 
@@ -569,6 +584,14 @@ T14 was the best trial at 15M cold-start steps (wp_idx_mean=0.484). But when tra
 
 **Fix (v49)**: Added `drag_foot_penalty` (penalizes exactly the degenerate behavior) and `stagnation_penalty` (provides gradient signal before stagnation truncation). These target the specific failure mode rather than reverting to heavier general penalties.
 
+### Discovery 8: Relaxed Termination Enables Celebration (S4)
+
+Strict termination (60° tilt, base contact kill) prevents the robot from performing celebration turns on the platform. The turning motion naturally tilts the body and causes transient ground contacts. By relaxing to 85° hard tilt, disabling base contact termination, and enabling stagnation truncation (to bound episodes), the robot can freely perform the 10 right turns needed for celebration.
+
+Additionally, training with **random ±180° initial heading** (`reset_yaw_scale=1.0`) forces heading-invariant locomotion, which transfers to reliable turning behavior.
+
+**Key insight**: All 18 S4 trials reached wp=7.0 (vs previous stages where agents often got stuck at wp=5-6). The relaxed termination + stagnation guardrail combination is strictly superior to strict termination for this course.
+
 ---
 
 ## 8. Failed Experiments (What NOT To Do)
@@ -579,6 +602,9 @@ T14 was the best trial at 15M cold-start steps (wp_idx_mean=0.484). But when tra
 | v31 | LR 1e-4→5e-5 only | 1.68 | Too slow recovery from optimizer state reset |
 | v33 | LR 2e-4 + KL-adaptive | Same as v32 | KL scheduler normalizes effective LR regardless |
 | v34 | Granular ckpt, no scheduler | 3.22 | Confirms KL-adaptive is essential for warm-start |
+| S3b AutoML | Relaxed term env_overrides | Config never applied | env_overrides infrastructure wasn't connected to train_one.py |
+| S3/S3b/S4 stages | 10 right turns, various term configs | Discarded | Superseded by S5 (3 turns, same checkpoint) |
+| S4 attempt 1 | stagnation_truncate=false | Crashed after 7 trials | Episodes stagnated forever, exhausted budget |
 | Manual `train.py` iteration | One-at-a-time HP search | Slow | Use AutoML for batch comparison |
 | Bonus-first training | Start with large bonuses | Stuck at 0 | Sparse rewards → no learning signal |
 
@@ -603,13 +629,13 @@ T14 was the best trial at 15M cold-start steps (wp_idx_mean=0.484). But when tra
 
 | File | Purpose |
 |------|---------|
-| `starter_kit/navigation2/vbot/cfg.py` | Environment config + reward scales |
+| `starter_kit/navigation2/vbot/cfg.py` | Environment config + reward scales + configurable termination |
 | `starter_kit/navigation2/vbot/rl_cfgs.py` | PPO hyperparameters |
-| `starter_kit/navigation2/vbot/vbot_section011_np.py` | Environment implementation |
+| `starter_kit/navigation2/vbot/vbot_section011_np.py` | Environment implementation (configurable term + random yaw) |
 | `starter_kit/navigation2/vbot/xmls/scene_section011.xml` | MuJoCo scene definition |
-| `starter_kit_schedule/checkpoints/vbot_navigation_section011/best_agent.pt` | **Deployed best checkpoint (v35)** |
-| `starter_kit_schedule/configs/vbot_navigation_section011/v35_best_wpidx591.json` | Full config archive |
-| `starter_kit_docs/navigation2/section011/REPORT_NAV2_section011.md` | Chronological experiment log (§1-§69) |
+| `runs/vbot_navigation_section011/26-02-26_06-03-39-435963_PPO/checkpoints/best_agent.pt` | **S4-T7 final champion checkpoint** |
+| `starter_kit_schedule/configs/seed_stage3_A_T4_relaxed.json` | S4 seed config (A_T4 + relaxed overrides) |
+| `starter_kit_docs/navigation2/section011/REPORT_NAV2_section011.md` | Chronological experiment log (§1-§18) |
 | `starter_kit_docs/navigation2/section011/Task_Reference.md` | Task-specific reference data |
 
 ---
@@ -642,7 +668,9 @@ v29 agent_6000.pt            │
                           v35 (KL-adaptive + pre-peak — wp_idx=5.91 @ agent_6000.pt) ★ BEST (warm-start)
 ```
 
-### Fresh-Start Chain (v46 → v48-T14 → v49 → Stage One → Full Train → Stage Two)
+### Fresh-Start Chain (v46 → Stage One → Full Train → Stage Two → S2FT → S5 ★)
+
+> **S3, S3b, S4 stages are DISCARDED.** Only the S4 seed configs (reward weights) are reused in S5.
 
 ```
 v46 (fresh config: v35 rewards + PHASE_APPROACH=-1 + waypoint_facing 0.061→0.61)
@@ -659,44 +687,31 @@ T14 100M deployment — ★ FAILED at 78% (backward-dragging local optimum)
     ▼  [+drag_foot_penalty, +stagnation_penalty]
 v49/v55 (anti-local-optimum + search space expansion)
     │
-    ▼  [Iterative warm-start chain: R1_T10 → 4 chain steps]
-Stage 30 (warm-start chain plateaued at wp_mean=2.787)
-    │
     ▼  [AutoML 20 trials × 10M, cold-start, v55 search space]
 Stage One AutoML (automl_20260221_203616)
     │    T12 champion: seed config survived (wp_mean=0.412, score=0.2562)
     ▼
 Full 100M Training (3 candidates: T12, T13, T11)
     │    Train A (T12) peak: wp_mean=2.232 @ iter 24500
-    │    All 3 collapsed after 50M steps (fixed LR=1e-3 too aggressive)
     ▼
-agent_24500.pt preserved ← warm-start source for Stage Two
-    │    + cfg.py: required_jumps = 3 → 10
+Stage Two AutoML — Branch A (automl_20260222_124457)
+    │    A_T4 CHAMPION: wp_mean=3.411, score=0.5399
     ▼
-Stage Two AutoML — Branch A (automl_20260222_124457, COMPLETED — 6.71h)
-    │    15 warm-start trials from T12 peak, LR ≤ 7e-4, frozen preprocessor
-    │    T13 CHAMPION: wp_mean=3.443, score=0.5439
-    ▼
-T13 config → Full deployment (NEXT)
-
-Full 100M Training — Train B (T13): peak wp=2.033 @ iter 21000
-    │    Collapsed -69% (to 0.639) — least severe of the three
-    ▼
-agent_21000.pt preserved ← warm-start source for Branch B
+S2FT — Full 100M from A_T4 (26-02-23_13-49-12-918060_PPO)
+    │    Peak: wp_mean=5.635 @ iter 11500
+    │    agent_11500.pt preserved
+    │
+    ├── [DISCARDED] S3/S3b/S4 (10 turns, various term configs) → S4 T7 was champion but superseded
     │
     ▼
-Stage Two AutoML — Branch B (automl_20260222_201059, COMPLETED — 5.87h)
-    │    8 warm-start trials from T13 peak, 3 failed
-    │    T10 CHAMPION: wp_mean=3.111, score=0.5134
+S5 AutoML (automl_20260226_173838, RUNNING)
+    │    3 right turns, full 2π yaw, relaxed term
+    │    Seeded from S4 top 5 reward configs
     ▼
-Branch A T13 confirmed as overall winner (score=0.5439 > 0.5134)
-
-Full 100M Training — Train C (T11): peak wp=1.919 @ iter 25000
-    │    Collapsed -80% (to 0.363)
-    ▼
-agent_25000.pt preserved ← warm-start source for Branch C (RUNNING)
+★ S5 CHAMPION — TBD
+```
 ```
 
 ---
 
-*Generated 2026-02-17. Updated 2026-02-23 with Branch B results (T10 champion, score=0.5134, wp=3.111 — Branch A confirmed superior), Branch C launch (running), checkpoint cleanup (20 GB freed, 9 runs preserved), and TensorBoard comparison data. Source of truth for Section011 training methodology.*
+*Generated 2026-02-17. Updated 2026-02-26 with Stage 4 T7 champion + S5 yaw default change. S4 T7: CELEB_DONE sustained (all 10 right turns completed), wp=7.0, 100% reached, peak reward=19,779. cfg.py `reset_yaw_scale` changed to 1.0 (full 2π) as permanent default. Five-stage pipeline finalized: S1 AutoML → S2A Full Train → S2B AutoML → S2C Full Train → S4 Relaxed-Term AutoML. Competition-ready: estimated 20/20 points.*

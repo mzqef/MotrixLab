@@ -162,10 +162,11 @@ BASE_REWARD_SCALES: dict[str, float] = {
     "height_progress": 0.0,                        # v52: not needed — existing forward rewards sufficient (zone_approach, wp_approach, forward_velocity)
     "height_approach": 0.0,                        # v52: not needed — robots already reach ramp with zone+forward rewards
     "height_oscillation": -2.0,                    # unchanged (not in search)
-    # ===== 庆祝动作 =====
-    "turn_reward": 10.093,                         # T14: ~same
-    "per_turn_bonus": 59.641,                      # T14: 2.4× (v47=25.0)
-    "celebration_bonus": 141.242,                  # T14: 1.77× (v47=80.0)
+    # ===== 庆祝动作 (v58: X轴行走 + 蹲坐) =====
+    "celeb_walk_approach": 200.0,                  # 接近X端点delta奖励
+    "celeb_walk_bonus": 30.0,                      # 到达X端点一次性奖励
+    "celeb_sit_reward": 5.0,                       # 蹲坐连续奖励 (每步 * z_below)
+    "celebration_bonus": 50.0,                     # 庆祝完成大奖 (蹲坐足够久)
     # ===== 稳定性惩罚 =====
     "orientation": -0.026,                         # T14: ~same (v47=-0.027)
     "lin_vel_z": -0.027,                           # T14: 7.2× lighter (v47=-0.195) ← KEY
@@ -216,7 +217,7 @@ class VBotStairsEnvCfg(EnvCfg):
     max_episode_steps: int = 2000
     sim_dt: float = 0.01
     ctrl_dt: float = 0.01
-    reset_yaw_scale: float = 0.1
+    reset_yaw_scale: float = 1.0
     max_dof_vel: float = 100.0
 
     grace_period_steps: int = 100  # 前100步(1秒) 仅保护base_contact和中等倾斜; 严重倾斜/OOB/NaN始终终止
@@ -411,27 +412,25 @@ class VBotSection011EnvCfg(VBotStairsEnvCfg):
 
     @dataclass
     class WaypointNav:
-        """多航点导航配置: 3中心航点 + zone吸引力 + 庆祝
+        """多航点导航配置: 3中心航点 + zone吸引力 + X轴行走蹲坐庆祝
 
         3中心航点 (验证过: 能可靠到达高台):
           WP0: 中心笑脸 (0, 0)    — 前进方向
           WP1: 中心红包 (0, 4.4)  — 继续前进(上坡)
-          WP2: 高台     (0, 7.83) — 到达 + 庆祝旋转
+          WP2: 高台     (0, 7.83) — 到达后进入庆祝
 
-        侧面zone通过zone_approach奖励吸引收集(代码中实现):
-          机器人在2.5m内感受到未收集zone的引力
-          配合passive zone detection (1.2m), 引导机器人顺路收集
+        庆祝流程 (v58): 到达高台 → 走向X轴端点 → 蹲坐 → 完成
         """
         # 航点坐标 [x, y] — 前进路线
         waypoints = [[0.0, 0.0], [0.0, 4.4], [0.0, 7.83]]
         # 航点到达半径
         waypoint_radius = 1.0  # 笑脸/红包zone半径较大，走到附近即可
         final_radius = 0.5     # 高台目标更精确
-        # 庆祝参数
-        celebration_turn_threshold = 1.55  # v16b: 实测站立z≈1.52, 小跳+0.03m即可
-        # v27: 多次庆祝动作
-        required_turns = 10               # 需要做10次才算完成庆祝
-        celebration_settle_z = 1.50       # 稳定判定: z < 1.50 = 已稳定, 可以再执行
+        # 庆祝参数 (v58: X轴行走 + 蹲坐)
+        celeb_x_waypoint = [4.0, 7.83]   # X轴端点目标 (平台右侧, y=庆祝区中心y)
+        celeb_walk_radius = 1.0           # X端点到达半径
+        celeb_sit_z = 1.35                # 蹲坐z阈值 (平台顶z=1.294, 站立≈1.56, 蹲坐<1.35)
+        celeb_sit_steps = 30              # 蹲坐保持步数 (30步=0.3秒)
 
 
     scoring_zones: ScoringZones = field(default_factory=ScoringZones)

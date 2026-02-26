@@ -17,7 +17,7 @@ import vbot as navigation2_vbot  # noqa: F401, E402
 from motrix_envs import registry as env_registry
 
 # --- Monkey-patch the environment class ---
-_ENV_NAME = "vbot_navigation_section013"
+_ENV_NAME = "vbot_navigation_section011"
 _meta = env_registry._envs.get(_ENV_NAME)
 if _meta is None:
     raise RuntimeError(f"Environment {_ENV_NAME} not registered")

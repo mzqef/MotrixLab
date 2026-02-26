@@ -48,17 +48,20 @@ PHASE_CELEBRATION = 3   # Gate: Reached high platform
 
 ---
 
-## 4. Celebration State Machine (v27: Multi-Jump)
+## 4. Celebration State Machine (v27: Multi-Turn)
 
 Triggered when robot is on High Platform ($z > 1.0$).
 
 | Parameter | Value | Description |
 | :--- | :--- | :--- |
-| **Jump Threshold** | $z > 1.55$ | Detects airborne state. |
-| **Land Threshold** | $z < 1.50$ | Detects landing (counts 1 jump). |
-| **Required Jumps** | **10** | Total jumps needed for completion (changed from 3 → 10 in cfg.py line 381). |
-| **Rewards** | Jump: 10.0 (step)Per Jump: 25.0Completion: 80.0 | Continuous height reward + discrete bonuses. |
-| **Observation** | `celeb_progress` | Encodes progress: 0.0 $\to$ 0.1 $\to$ 0.2 $\to$ ... $\to$ 1.0 (10 steps of 0.1). |
+| **Jump Threshold** | $z > 1.55$ (code default) | Detects airborne state. |
+| **Land Threshold** | $z < 1.50$ (code default) | Detects landing (counts 1 turn). |
+| **Required Turns** | **3** | S5: reduced from 10 to 3 right turns. |
+| **Rewards** | Turn: 10.0 (step)Per Turn: 25.0Completion: 80.0 | Continuous height reward + discrete bonuses. |
+| **Observation** | `celeb_progress` | Encodes progress: 0.0 → 0.33 → 0.67 → 1.0 (3 steps). |
+
+> **Note**: `celebration_turn_threshold` and `celebration_settle_z` removed from Section011 WaypointNav config.
+> The code uses `getattr` defaults (1.55 / 1.50). Section013 retains custom values (1.85 / 1.75).
 
 ---
 
@@ -76,12 +79,29 @@ Key inputs for policy:
 
 ## 6. Termination & Safety
 
-**Hard Terminations (Immediate, No Grace):**
-*   Tilt $> 70^\circ$, Out-of-Bounds, Joint Velocity Overflow, Joint Accel $> 80$ rad/s², NaNs.
+### 6a. Competition Rules (Official Evaluation)
 
-**Soft Terminations (100-step Grace Period):**
-*   Base Contact $> 0.01$ (allows stabilization after spawn/bumps).
-*   Medium Tilt ($50^\circ - 70^\circ$).
+The competition does **NOT** enforce angle-based termination thresholds. Per the official scoring rules (`MotrixArena_S1_计分规则讲解.md`):
+*   **摔倒 (fall)** or **越界 (out of bounds)** → lose ALL points for this section.
+*   No specific tilt angle thresholds — the robot simply runs until time expires or it physically falls/exits.
+*   This means relaxed termination in training is **closer to competition conditions** than strict termination.
+
+### 6b. Training Env Termination (Configurable via `env_overrides`)
+
+Default (strict) values — can be relaxed via `env_overrides` in AutoML/train_one:
+
+**Hard Terminations (Immediate, No Grace):**
+*   Tilt $> hard\_tilt\_deg$ (default 70°), Out-of-Bounds, Joint Velocity Overflow, Joint Accel $> 80$ rad/s², NaNs.
+
+**Soft Terminations (grace_period_steps, default 100):**
+*   Base Contact $> 0.01$ (guardable via `enable_base_contact_term`).
+*   Medium Tilt ($soft\_tilt\_deg$ – $hard\_tilt\_deg$, default 50°–70°; set `soft_tilt_deg=0` to disable).
+
+**Stagnation Truncation:** Guardable via `enable_stagnation_truncate` (default ON).
+
+**Relaxed preset** (S4 config, closer to competition): `hard_tilt_deg=85, soft_tilt_deg=0, enable_base_contact_term=false, enable_stagnation_truncate=true, grace_period_steps=500`.
+
+**Yaw initialization**: `reset_yaw_scale=1.0` (default in cfg.py since S5): spawns with `yaw ∈ uniform(-π, π)` — full 2π random heading.
 
 **Penalty:** On termination, **60%** of accumulated bonus is deducted (soft clear to encourage risk-taking).
 
@@ -248,14 +268,25 @@ The v48 search converged heavily after ~8/15 trials — most guided trials share
 
 ## 11. Multi-Stage AutoML Pipeline
 
-### Overview: Stage 1 → Full Train → Stage 2 (per branch)
+### Overview: Stage 1 → Full Train → Stage 2 → S2FT → S5
+
+> **S3, S3b, S4 stages are DISCARDED.** S5 replaces S4 with 3 right turns instead of 10.
 
 ```
 Stage 1 AutoML (20 cold-start trials)
     │
-    ├── T12 (#1) ──→ Full 100M Train A ──→ peak agent_24500.pt ──→ Stage 2 Branch A (COMPLETED)
-    ├── T13 (#2) ──→ Full 100M Train B ──→ peak agent_21000.pt ──→ Stage 2 Branch B (RUNNING)
-    └── T11 (#7) ──→ Full 100M Train C ──→ peak agent_25000.pt ──→ Stage 2 Branch C (PENDING)
+    ├── T12 (#1) ──→ Full 100M Train A ──→ peak agent_24500.pt ──→ Stage 2 Branch A
+    │                                                                    │
+    │                                                                    └──→ A_T4 champion ──→ S2FT Full 100M
+    │                                                                                              │
+    │                                                                                              └──→ peak agent_11500.pt
+    │                                                                                                       │
+    │                                                                    [DISCARDED: S3/S3b/S4]             │
+    │                                                                                                       │
+    │                                                                                                       └──→ S5 (RUNNING) ──→ ★ TBD
+    │
+    ├── T13 (#2) ──→ Full 100M Train B ──→ (DISCARDED)
+    └── T11 (#7) ──→ Full 100M Train C ──→ (DISCARDED)
 ```
 
 ### Stage One: Cold-Start (`automl_20260221_203616`) — COMPLETED
@@ -273,43 +304,76 @@ Stage 1 AutoML (20 cold-start trials)
 | B | T13 (term=-25) | 2.033 | 21000 | -69% | `26-02-22_05-28-12-324803_PPO/checkpoints/agent_21000.pt` |
 | C | T11 (ent=0.01) | 1.919 | 25000 | -80% | `26-02-22_05-30-41-234319_PPO/checkpoints/agent_25000.pt` |
 
-### Stage Two Branch A: T12 Warm-Start (`automl_20260222_124457`) — COMPLETED
+### Stage Two Branch A: T12 Warm-Start (`automl_20260222_124457`) — COMPLETED ★
 
 - 15 trials × 10M steps, warm-start from Train A peak (agent_24500.pt), **6.71 hours**
 - Seed: `seed_T12_warmstart.json` (term=-50, stag=-1.13, lr=5e-4, ent=0.0028)
-- **Champion: T13** (wp_mean=3.443, score=0.5439, entropy=0.0100, LR=5.7e-4, term=-50)
-- All 15 trials achieved wp_MAX=7.0
+- **Champion: A_T4** (wp_mean=3.411, score=0.5399, LR=5.1e-4, term=-50)
+- This branch produced the final champion lineage (A_T4 → S2FT → S4-T7)
 
 ### Stage Two Branch B: T13 Warm-Start (`automl_20260222_201059`) — COMPLETED
 
 - 8 successful trials (3 failed) × 10M steps, warm-start from Train B peak (agent_21000.pt), **5.87 hours**
-- Seed: `seed_T13_warmstart.json` (term=-25, stag=-1.13, lr=5e-4, ent=0.002)
-- **Champion: T10** (wp_mean=3.111, score=0.5134, entropy=0.0037, LR=5.0e-4, term=-50)
+- **Champion: T10** (wp_mean=3.111, score=0.5134)
 - Branch A T13 (score=0.5439) confirmed superior to Branch B T10 (score=0.5134) by 9.6%
 
-### Stage Two Branch C: T11 Warm-Start (`automl_20260223_012907`) — RUNNING
+### Stage Two Branch C: T11 Warm-Start (`automl_20260223_012907`) — COMPLETED
 
 - Warm-start from Train C peak (agent_25000.pt)
-- Seed: T11 config (term=-50, lr=5e-4, ent=0.0038)
-- T11's unique angle: high entropy (ent=0.0098, 3.5× T12)
-- Early results: T0 seed → wp=2.440, suc=23.7%
+- Inferior to branches A and B — not pursued further
+
+### S2FT: Full 100M from Branch A Champion (`26-02-23_13-49-12-918060_PPO`)
+
+- Config: A_T4 reward + 0.3× LR (=1.52e-4), frozen preprocessor
+- **Peak**: wp_mean=5.635 @ iter 11500
+- Peak checkpoint `agent_11500.pt` → warm-start source for Stage 4
+
+### Stage 4: Relaxed-Termination AutoML (`automl_20260226_033450`) — COMPLETED ★★
+
+- 18/20 trials × 15M steps, relaxed term (tilt=85°, no base_contact), stagnation ON, random yaw ±180°
+- env_overrides: `hard_tilt=85°, soft_tilt=OFF, base_contact=OFF, stagnation=ON, grace=500`
+- **ALL 18 trials reached wp=7.0**, 5/18 reached CELEB_DONE
+- **Champion: T7** — sustained CELEB_DONE, wp=7.0, 10 right turns, peak reward=19,779
+- Checkpoint: `runs/vbot_navigation_section011/26-02-26_06-03-39-435963_PPO/checkpoints/best_agent.pt`
+- **DISCARDED for reproduction** — superseded by S5 (3 turns, simplified celebration)
+
+### S5: 3-Turn Celebration AutoML (`automl_20260226_173838`) — RUNNING
+
+- 6 trials (5 seeds from S4 top 5 + 1 Bayesian), 2h budget
+- cfg.py: `required_turns=3`, `reset_yaw_scale=1.0`, removed `celebration_turn_threshold`/`celebration_settle_z`
+- Same warm-start checkpoint as S4: S2FT A_T4 peak (`agent_11500.pt`)
+- env_overrides: `hard_tilt=85°, soft_tilt=OFF, base_contact=OFF, stagnation=ON, grace=500`
+
+> **S3, S3b, S4 are DISCARDED when reproducing.** S5 directly replaces S4 with identical warm-start but simplified celebration (3 turns instead of 10).
 
 ### Reproduction
 
 ```powershell
-# Branch A (COMPLETED)
+# Stage 1: Cold-Start AutoML
+uv run starter_kit_schedule/scripts/automl.py `
+    --mode stage --env vbot_navigation_section011 `
+    --budget-hours 8 --hp-trials 20 `
+    --seed-configs starter_kit_schedule/configs/seed_T12_warmstart.json
+
+# Stage 2A Full Training (T12 winner)
+uv run scripts/train.py --env vbot_navigation_section011 --train-backend torch --max-env-steps 100000000
+
+# Stage 2B: Warm-Start AutoML (Branch A)
 uv run starter_kit_schedule/scripts/automl.py `
     --mode stage --env vbot_navigation_section011 `
     --budget-hours 8 --hp-trials 15 `
     --seed-configs starter_kit_schedule/configs/seed_T12_warmstart.json `
-    --checkpoint "runs/vbot_navigation_section011/26-02-22_05-25-43-367487_PPO/checkpoints/agent_24500.pt" `
-    --freeze-preprocessor
+    --checkpoint "runs/.../agent_24500.pt" --freeze-preprocessor
 
-# Branch B (RUNNING)
+# S2FT: Full 100M from A_T4
+uv run scripts/train.py --env vbot_navigation_section011 --train-backend torch `
+    --checkpoint "runs/.../automl_A_T4/best_agent.pt" --max-env-steps 100000000
+
+# Stage 4: Relaxed-Termination AutoML (FINAL)
 uv run starter_kit_schedule/scripts/automl.py `
     --mode stage --env vbot_navigation_section011 `
-    --budget-hours 8 --hp-trials 15 `
-    --seed-configs starter_kit_schedule/configs/seed_T13_warmstart.json `
-    --checkpoint "runs/vbot_navigation_section011/26-02-22_05-28-12-324803_PPO/checkpoints/agent_21000.pt" `
-    --freeze-preprocessor
+    --budget-hours 6 --hp-trials 20 `
+    --checkpoint "runs/.../agent_11500.pt" --freeze-preprocessor `
+    --seed-configs starter_kit_schedule/configs/seed_stage3_A_T4_relaxed.json `
+    --env-overrides '{"hard_tilt_deg":85.0,"soft_tilt_deg":0.0,"enable_base_contact_term":false,"enable_stagnation_truncate":true,"grace_period_steps":500,"reset_yaw_scale":1.0}'
 ```

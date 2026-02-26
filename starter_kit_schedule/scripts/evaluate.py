@@ -137,6 +137,15 @@ def evaluate_run(run_dir, primary_metric="Reward / Instantaneous reward (mean)")
             final_metric = list(metric_values[-n_metric:])
             key = metric_tag.split("/")[1].strip().replace(" (mean)", "")
             result[f"final_{key}"] = sum(final_metric) / len(final_metric)
+            result[f"peak_{key}"] = max(metric_values)
+
+    # Read celeb_state (celebration progress: 0=idle, 1=turning, 2=settling, 3=done)
+    celeb_data = read_tb_scalars(run_dir, "metrics / celeb_state (mean)")
+    if celeb_data:
+        _, celeb_values = zip(*celeb_data)
+        result["peak_celeb_state"] = max(celeb_values)
+        n_celeb = max(1, len(celeb_values) // 5)
+        result["final_celeb_state"] = sum(list(celeb_values[-n_celeb:])) / n_celeb
 
     # Episode length from "Episode / Total timesteps (mean)"
     ep_len_data = read_tb_scalars(run_dir, "Episode / Total timesteps (mean)")

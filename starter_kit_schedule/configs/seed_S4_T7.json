@@ -1,0 +1,53 @@
+{
+  "reward_scales": {
+    "action_rate": -0.05549169830186531,
+    "alive_bonus": 2.848059483822688,
+    "alive_decay_horizon": 3840.091888855681,
+    "ang_vel_xy": -0.12164231316286196,
+    "celebration_bonus": 184.26679283159643,
+    "crouch_penalty": -1.528836670062419,
+    "dof_pos": -0.005534595156797328,
+    "drag_foot_penalty": -0.4257697881112307,
+    "foot_clearance": 0.5460640376091139,
+    "foot_clearance_bump_boost": 24.68396036560081,
+    "foot_clearance_bump_boost_post_margin": 0.1459464168453369,
+    "foot_clearance_bump_boost_pre_margin": 1.0948211420467198,
+    "foot_clearance_pre_zone_ratio": 0.6243717342161658,
+    "forward_velocity": 5.774252587257409,
+    "impact_penalty": -0.045072571582824184,
+    "lin_vel_z": -0.07111030977999322,
+    "orientation": -0.025920562054913346,
+    "per_turn_bonus": 33.699333297102164,
+    "phase_bonus": 177.65747968677363,
+    "position_tracking": 1.5527015063386478,
+    "stagnation_penalty": -2.23424211249547,
+    "stance_ratio": 0.003079543727168488,
+    "swing_contact_bump_scale": 0.782990366341667,
+    "swing_contact_penalty": -0.007036970215775843,
+    "termination": -75,
+    "torque_saturation": -0.0972877084247562,
+    "turn_reward": 4.465289497174567,
+    "waypoint_approach": 767.5190013580673,
+    "waypoint_bonus": 58.574497290642,
+    "waypoint_facing": 0.7549839230378654,
+    "zone_approach": 296.9714050243756
+  },
+  "rl_overrides": {
+    "learning_rate": 0.0004171117229901397,
+    "entropy_loss_scale": 0.009811011690979383,
+    "policy_hidden_layer_sizes": [
+      512,
+      256,
+      128
+    ],
+    "value_hidden_layer_sizes": [
+      512,
+      256,
+      128
+    ],
+    "rollouts": 24,
+    "learning_epochs": 6,
+    "mini_batches": 16,
+    "discount_factor": 0.999
+  }
+}
