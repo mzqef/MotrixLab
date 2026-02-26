@@ -666,6 +666,32 @@ class VBotSection012Env(NpEnv):
         celeb_done = (info["celeb_state"] == CELEB_DONE)
         self._success_truncate = celeb_done
 
+        # v57: 停滞检测 — 若机器人长时间不动则截断 (庆祝阶段豁免)
+        enable_stag = getattr(cfg, 'enable_stagnation_truncate', True)
+        stag_cfg_window = getattr(cfg, 'stagnation_window_steps', 1000)
+        stag_cfg_dist = getattr(cfg, 'stagnation_min_distance', 0.5)
+        stag_cfg_grace = getattr(cfg, 'stagnation_grace_steps', 500)
+        ep_steps = info.get("steps", np.zeros(self._num_envs, dtype=np.int32))
+        anchor_xy = info["stagnation_anchor_xy"]
+        anchor_step = info["stagnation_anchor_step"]
+        dist_from_anchor = np.linalg.norm(robot_xy - anchor_xy, axis=1)
+        # 更新锚点: 机器人移动足够远 OR 到达新航点时刷新
+        moved_enough = dist_from_anchor >= stag_cfg_dist
+        wp_advanced = info["wp_current"] > info.get("stagnation_last_wp", np.zeros(self._num_envs, dtype=np.int32))
+        refresh = moved_enough | wp_advanced
+        info["stagnation_anchor_xy"] = np.where(refresh[:, np.newaxis], robot_xy, anchor_xy)
+        info["stagnation_anchor_step"] = np.where(refresh, ep_steps, anchor_step)
+        info["stagnation_last_wp"] = info["wp_current"].copy()
+        # 检测停滞: 超过窗口时间仍未移动, 且不在庆祝阶段, 且过了grace期
+        steps_since_anchor = ep_steps - info["stagnation_anchor_step"]
+        stagnant = (
+            enable_stag
+            & (steps_since_anchor > stag_cfg_window)
+            & (ep_steps >= stag_cfg_grace)
+            & ~in_celeb
+        )
+        self._stagnation_truncate = stagnant
+
         state.info["metrics"] = {
             "distance_to_target": distance_to_target,
             "reached_fraction": reached_wp.astype(np.float32),
@@ -679,6 +705,8 @@ class VBotSection012Env(NpEnv):
         super()._update_truncate()
         if hasattr(self, '_success_truncate'):
             self._state.truncated = np.logical_or(self._state.truncated, self._success_truncate)
+        if hasattr(self, '_stagnation_truncate'):
+            self._state.truncated = np.logical_or(self._state.truncated, self._stagnation_truncate)
 
     # ============================================================
     # 终止条件 (与section011一致: hard/soft分层 + grace + OOB)
@@ -688,15 +716,18 @@ class VBotSection012Env(NpEnv):
         data = state.data
         n = self._num_envs
 
-        # === HARD terminations ===
+        # === HARD terminations (never grace-protected) ===
         hard_terminated = np.zeros(n, dtype=bool)
 
+        # 摔倒检测: 倾斜角度过大 — 侧躺/翻倒必须立即终止
         if projected_gravity is not None:
             gxy = np.linalg.norm(projected_gravity[:, :2], axis=1)
             gz = projected_gravity[:, 2]
             tilt_angle = np.arctan2(gxy, np.abs(gz))
-            hard_terminated |= tilt_angle > np.deg2rad(70)
+            hard_tilt = getattr(self._cfg, 'hard_tilt_deg', 70.0)
+            hard_terminated |= tilt_angle > np.deg2rad(hard_tilt)
 
+        # 超出边界 — 竞赛规则: 直接终止
         bounds = getattr(self._cfg, 'course_bounds', None)
         if bounds is not None and robot_xy is not None and current_z is not None:
             oob_x = (robot_xy[:, 0] < bounds.x_min) | (robot_xy[:, 0] > bounds.x_max)
@@ -706,11 +737,13 @@ class VBotSection012Env(NpEnv):
             hard_terminated |= oob
             state.info["oob_terminated"] = oob
 
+        # 关节速度异常 / NaN — 物理爆炸, 必须终止
         if joint_vel is not None:
             vel_max = np.abs(joint_vel).max(axis=1)
             vel_overflow = vel_max > self._cfg.max_dof_vel
             vel_extreme = np.isnan(joint_vel).any(axis=1) | np.isinf(joint_vel).any(axis=1)
             hard_terminated |= vel_overflow | vel_extreme
+            # 关节加速度异常 — 单步速度变化>80 rad/s = 物理不稳定
             last_dof_vel = state.info.get("last_dof_vel", np.zeros_like(joint_vel))
             dof_acc_max = np.abs(joint_vel - np.clip(last_dof_vel, -100.0, 100.0)).max(axis=1)
             hard_terminated |= dof_acc_max > 80.0
@@ -718,28 +751,34 @@ class VBotSection012Env(NpEnv):
         nan_terminated = state.info.get("nan_terminated", np.zeros(n, dtype=bool))
         hard_terminated |= nan_terminated
 
-        # === SOFT terminations (grace protected) ===
+        # === SOFT terminations (grace-protected for initial stabilization) ===
         soft_terminated = np.zeros(n, dtype=bool)
 
-        try:
-            base_contact_value = self._model.get_sensor_value("base_contact", data)
-            if base_contact_value.ndim >= 2 and base_contact_value.shape[-1] == 3:
-                force_mag = np.linalg.norm(base_contact_value, axis=-1)
-                base_contact = (force_mag > 0.01).flatten()[:n]
-            elif base_contact_value.ndim == 0:
-                base_contact = np.array([float(base_contact_value) > 0.01], dtype=bool)
-            else:
-                base_contact = (base_contact_value.flatten() > 0.01)[:n]
-        except Exception:
-            base_contact = np.zeros(n, dtype=bool)
-        soft_terminated |= base_contact
+        # 基座接触地面 — grace period内可能是初始着陆抖动
+        if getattr(self._cfg, 'enable_base_contact_term', True):
+            try:
+                base_contact_value = self._model.get_sensor_value("base_contact", data)
+                # motrixsim 0.5+ returns 3D force vector (n, 3); compute magnitude
+                if base_contact_value.ndim >= 2 and base_contact_value.shape[-1] == 3:
+                    force_mag = np.linalg.norm(base_contact_value, axis=-1)
+                    base_contact = (force_mag > 0.01).flatten()[:n]
+                elif base_contact_value.ndim == 0:
+                    base_contact = np.array([float(base_contact_value) > 0.01], dtype=bool)
+                else:
+                    base_contact = (base_contact_value.flatten() > 0.01)[:n]
+            except Exception:
+                base_contact = np.zeros(n, dtype=bool)
+            soft_terminated |= base_contact
 
-        if projected_gravity is not None:
+        # 中等倾斜 — grace期间允许恢复, 之后终止
+        soft_tilt = getattr(self._cfg, 'soft_tilt_deg', 50.0)
+        if projected_gravity is not None and soft_tilt > 0:
             gxy = np.linalg.norm(projected_gravity[:, :2], axis=1)
             gz = projected_gravity[:, 2]
             tilt_angle = np.arctan2(gxy, np.abs(gz))
-            soft_terminated |= tilt_angle > np.deg2rad(50)
+            soft_terminated |= tilt_angle > np.deg2rad(soft_tilt)
 
+        # Apply grace period only to soft terminations
         grace_steps = getattr(self._cfg, 'grace_period_steps', 0)
         if grace_steps > 0:
             ep_steps = state.info.get("steps", np.zeros(n, dtype=np.int32))
@@ -788,6 +827,15 @@ class VBotSection012Env(NpEnv):
 
         # ===== 稳定性惩罚 =====
         orientation_penalty = np.sum(np.square(projected_gravity[:, :2]), axis=1)
+        
+        # v58: 楼梯方向补偿 — 在楼梯上(y∈[12.0, 14.5])期望pitch≈26.5° (sin≈0.447)
+        current_y_for_slope = robot_xy[:, 1]
+        on_stairs = (current_y_for_slope > 12.0) & (current_y_for_slope < 14.5)
+        expected_gy = np.where(on_stairs, 0.447, 0.0)
+        gy_error = np.abs(projected_gravity[:, 1] - expected_gy)
+        slope_compensation = np.where(on_stairs, np.exp(-np.square(gy_error) / 0.05), 0.0)
+        slope_orientation_reward = scales.get("slope_orientation", 0.04) * slope_compensation
+
         lin_vel_z_penalty = np.square(np.clip(base_lin_vel[:, 2], -50.0, 50.0))
         ang_vel_xy_penalty = np.sum(np.square(np.clip(gyro[:, :2], -50.0, 50.0)), axis=1)
 
@@ -916,6 +964,7 @@ class VBotSection012Env(NpEnv):
             + height_progress
             + traversal_total
             + foot_clearance_reward
+            + slope_orientation_reward
             + gait_stance
             + penalties
         )
@@ -935,6 +984,7 @@ class VBotSection012Env(NpEnv):
             "celeb_bonus": celeb_bonus,
             "turn_reward": turn_reward,
             "height_progress": height_progress,
+            "slope_orientation": slope_orientation_reward,
             "traversal_bonus": traversal_total,
             "penalties": penalties,
             "termination": termination_penalty,
@@ -965,10 +1015,13 @@ class VBotSection012Env(NpEnv):
         dof_vel = np.tile(self._init_dof_vel, (num_envs, 1))
         dof_pos[:, 3:6] = robot_init_xyz
 
+        # 初始朝向: +Y方向 (yaw=π/2) + 随机扰动, 与section011一致
+        reset_yaw_scale = getattr(cfg, 'reset_yaw_scale', 0.1)
+        base_yaw = np.pi / 2
+        yaw_noise = np.random.uniform(-np.pi * reset_yaw_scale, np.pi * reset_yaw_scale, size=(num_envs,))
         for env_idx in range(num_envs):
-            q = dof_pos[env_idx, self._base_quat_start:self._base_quat_end]
-            qn = np.linalg.norm(q)
-            dof_pos[env_idx, self._base_quat_start:self._base_quat_end] = q / qn if qn > 1e-6 else [0, 0, 0, 1]
+            init_quat = self._euler_to_quat(0, 0, base_yaw + yaw_noise[env_idx])
+            dof_pos[env_idx, self._base_quat_start:self._base_quat_end] = init_quat
             if self._robot_arrow_body is not None:
                 for s, e in [(self._robot_arrow_dof_start + 3, self._robot_arrow_dof_end),
                              (self._desired_arrow_dof_start + 3, self._desired_arrow_dof_end)]:
@@ -1051,6 +1104,10 @@ class VBotSection012Env(NpEnv):
             # 累积奖金 (终止清零用)
             "accumulated_bonus": np.zeros(num_envs, dtype=np.float32),
             "oob_terminated": np.zeros(num_envs, dtype=bool),
+            # 停滞检测锚点 (与section011一致)
+            "stagnation_anchor_xy": robot_init_xy.copy(),
+            "stagnation_anchor_step": np.zeros(num_envs, dtype=np.int32),
+            "stagnation_last_wp": np.zeros(num_envs, dtype=np.int32),
         }
 
         return obs, info

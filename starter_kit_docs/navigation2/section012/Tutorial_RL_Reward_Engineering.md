@@ -20,7 +20,7 @@
 | Distance | ~14.5m straight, ~25m+ actual route |
 | Episode | 6000 steps (60s) |
 | Points | **60 pts** (57% of Stage 2 total) |
-| Celebration | 10 configurable jumps at exit |
+| Celebration | 3 configurable right turns at exit |
 
 **Architecture**: Generic ordered waypoint progression. The `_update_waypoint_state` function handles all waypoints uniformly — no per-waypoint special cases in the reward function.
 
@@ -37,15 +37,15 @@ STANDING STILL for 6000 steps (alive=0.05, conditional):
   alive = 0.05 × 3000 (upright fraction) = 150
   Total standing ≈ 150
 
-COMPLETING ALL 14 WAYPOINTS + 10 JUMPS:
+COMPLETING ALL 14 WAYPOINTS + 3 RIGHT TURNS:
   alive = 150
   Milestones: ~217 (14 waypoint bonuses)
-  Celebration: 15×10 + 80 = 230
+  Celebration: 15×3 + 80 = 125
   waypoint_approach: ~200 cumulative
   forward_velocity: ~150
-  Total completing ≈ 800+
+  Total completing ≈ 700+
 
-✅ Completing (800+) >> Standing (150) — budget is sound
+✅ Completing (700+) >> Standing (150) — budget is sound
 ```
 
 ---
@@ -87,7 +87,7 @@ Virtual WP bonuses are smaller (10-20) than reward WP bonuses (8-30) to keep foc
 
 After reaching WP13 (exit), the celebration FSM activates:
 ```
-IDLE → JUMP → LANDING → JUMP → ... (10 times) → DONE
+IDLE → TURNING → SETTLING → TURNING → ... (3 times) → DONE
 ```
 - **jump_reward**: Continuous reward for `z_above_standing` during JUMP state
 - **per_jump_bonus**: One-time bonus per successful jump peak (z > threshold)

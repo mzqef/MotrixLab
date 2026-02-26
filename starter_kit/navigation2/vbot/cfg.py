@@ -65,9 +65,12 @@ DEFAULT_TERRAIN_ZONES: List[TerrainZone] = [
                swing_scale_key="swing_contact_bump_scale"),                              # 高度场凹凸区 (matches old hardcoded on_bump range)
     TerrainZone(y_min=2.0,   y_max=6.9,   action_scale=0.40, label="s011_slope"),      # 15°坡道
     # === Section 012 (y ≈ 8.83 → 25.33) ===
-    TerrainZone(y_min=12.33, y_max=14.33, action_scale=0.50, label="s012_stairs_up",
+    TerrainZone(y_min=8.83,  y_max=11.83, action_scale=0.40, label="s012_wave",
+               clearance_boost_key="foot_clearance_wave_boost", pre_zone_margin=0.0, post_zone_margin=0.0,
+               swing_scale_key="swing_contact_wave_scale"),                              # 入口波浪高度场 (hfield 0.1m amplitude)
+    TerrainZone(y_min=12.33, y_max=14.33, action_scale=0.80, label="s012_stairs_up",
                clearance_boost_key="foot_clearance_stair_boost", pre_zone_margin=1.0, post_zone_margin=0.3,
-               swing_scale_key="swing_contact_stair_scale"),                             # 楼梯上行
+               swing_scale_key="swing_contact_stair_scale"),                             # 楼梯上行 (0.50→0.80: 最大腿部幅度)
     TerrainZone(y_min=14.33, y_max=21.33, action_scale=0.20, label="s012_bridge_valley"),  # 桥+河谷+平台
     TerrainZone(y_min=21.33, y_max=23.33, action_scale=0.20, label="s012_stairs_down",
                clearance_boost_key="foot_clearance_stair_boost", pre_zone_margin=1.0,
@@ -168,7 +171,8 @@ BASE_REWARD_SCALES: dict[str, float] = {
     "celebration_bonus": 141.242,                  # T14: 1.77× (v47=80.0)
     # ===== 稳定性惩罚 =====
     "orientation": -0.026,                         # T14: ~same (v47=-0.027)
-    "lin_vel_z": -0.027,                           # T14: 7.2× lighter (v47=-0.195) ← KEY
+    "slope_orientation": 0.04,                     # v58: 楼梯方向补偿 (抵消前倾惩罚)
+    "lin_vel_z": -0.005,                           # v58: 极轻惩罚 (原-0.027), 允许后腿蹬上台阶
     "ang_vel_xy": -0.038,                          # T14: lighter (v47=-0.045)
     "torques": -5e-6,                              # unchanged (not in search)
     "dof_pos": -0.008,                             # v52: 轻微姿态惩罚(v51=-0.05太重导致冻结)
@@ -191,11 +195,12 @@ BASE_REWARD_SCALES: dict[str, float] = {
     "stance_ratio": 0.070,                         # T14: +70% (v47=0.041)
     "foot_clearance": 0.219,                       # T14: 1.46× (v47=0.15)
     "foot_clearance_bump_boost": 7.167,            # T14: ~same (v47=8.0)
-    "foot_clearance_stair_boost": 3.0,             # v54: centralized (was section012 fallback default)
+    "foot_clearance_stair_boost": 20.0,            # v58: 极强抬脚奖励 (原3.0), 强制跨越0.10m台阶
+    "foot_clearance_wave_boost": 3.0,              # v57: section012 entry wave hfield (0.1m amplitude, similar to bump)
     "foot_clearance_pre_zone_ratio": 0.5,          # v54→v56: matches old T10 pre-bump ratio (was 0.75, old code used 0.5)
     "swing_contact_stair_scale": 0.5,              # v54: centralized (was section012 fallback default)
+    "swing_contact_wave_scale": 0.5,               # v57: section012 entry wave — reduce swing penalty on uneven ground
     "alive_decay_horizon": 2383.0,                 # T14: 1.59× longer (v47=1500)
-    "slope_orientation": 0.0,                      # v52: not needed — robots already climb ramp via forward rewards
     # ===== v49: 拖脚惩罚 + 停滞惩罚 =====
     "drag_foot_penalty": -0.15,                    # v49→v50: 支撑相低速腿惩罚 (每条拖地腿, 统一尺度)
     "stagnation_penalty": -0.5,                    # v49: 停滞渐进惩罚 (从50%窗口开始线性增长)
@@ -281,7 +286,7 @@ class OrderedRoute:
     """
     waypoints: list = field(default_factory=list)   # List[Waypoint]
     # 庆祝配置
-    required_turns: int = 10                        # 庆祝动作次数 (可配置)
+    required_turns: int = 3                         # 庆祝动作次数 (可配置)
     celebration_turn_threshold: float = 1.55        # 动作检测z阈值
     celebration_settle_z: float = 1.50              # 稳定判定z阈值
 
@@ -430,7 +435,7 @@ class VBotSection011EnvCfg(VBotStairsEnvCfg):
         # 庆祝参数
         celebration_turn_threshold = 1.55  # v16b: 实测站立z≈1.52, 小跳+0.03m即可
         # v27: 多次庆祝动作
-        required_turns = 10               # 需要做10次才算完成庆祝
+        required_turns = 3                # 需要做3次才算完成庆祝
         celebration_settle_z = 1.50       # 稳定判定: z < 1.50 = 已稳定, 可以再执行
 
 
@@ -477,12 +482,20 @@ class VBotSection012EnvCfg(VBotStairsEnvCfg):
     model_file: str = os.path.dirname(__file__) + "/xmls/scene_section012.xml"
     max_episode_seconds: float = 60.0  # Section02复杂地形，需要更多时间
     max_episode_steps: int = 6000
-    grace_period_steps: int = 100  # 前100步(1秒) 仅保护base_contact和中等倾斜
+    grace_period_steps: int = 100  # 前100步(1秒) 保护base_contact和中等倾斜
+
+    # === Hard termination: 与section011一致 (VBotStairsEnvCfg defaults) ===
+    hard_tilt_deg: float = 70.0            # 硬终止倾斜角度 (>此角度立即终止)
+    soft_tilt_deg: float = 50.0            # 软终止倾斜角度 (grace期后终止)
+    enable_base_contact_term: bool = True   # 基座接触地面终止
+    enable_stagnation_truncate: bool = True  # 停滞检测截断
+
     @dataclass
     class InitState:
-        # 起始位置：section02入口平台（来自section01高台，z≈1.294，机器人0.5m）
-        pos = [0.0, 9.5, 1.8]
-        pos_randomization_range = [-0.3, -0.3, 0.3, 0.3]  # 小范围随机±0.3m
+        # 起始位置：右侧楼梯底部 (跳过波浪地形，强制学习爬楼梯)
+        # 右楼梯: x=2, y=12.43→14.23, 地面z≈1.32
+        pos = [2.0, 12.0, 1.8]
+        pos_randomization_range = [-0.5, -0.3, 0.5, 0.3]  # 紧凑出生: x∈[1.5,2.5], y∈[11.7,12.3]
 
         default_joint_angles = {
             "FR_hip_joint": -0.0,
@@ -514,14 +527,17 @@ class VBotSection012EnvCfg(VBotStairsEnvCfg):
           4) 过桥收集桥上拜年红包
           5) 原路返回到远端桥头，下楼梯
           6) 到达丙午大吉终点平台
-          7) 庆祝跳跃 (~10次)
+          7) 庆祝右转 (3次)
 
         航点坐标来自XML碰撞/可视体 (0131_C_section02_hotfix1.xml)。
         """
         waypoints: list = field(default_factory=lambda: [
-            # === 阶段1: 右侧路线 — 收集石头贺礼红包 (5个, 各+3竞赛分) ===
+            # === 阶段0: 楼梯技能引导 (出生点→楼梯顶部, 强化前进梯度) ===
             Waypoint(xy=(2.0, 12.0),    label="right_approach",     kind="virtual",  radius=1.5,
                      bonus_key="transit_bonus", bonus_default=10.0),
+            Waypoint(xy=(2.0, 14.5),    label="stair_top",          kind="virtual",  radius=1.2,
+                     bonus_key="transit_bonus", bonus_default=20.0),  # 楼梯顶部: 直线前进梯度, 避免斜方向引导
+            # === 阶段1: 右侧路线 — 收集石头贺礼红包 (5个, 各+3竞赛分) ===
             Waypoint(xy=(0.36, 15.84),  label="stone_1_near_left",  kind="reward",   radius=1.2,
                      bonus_key="stone_bonus", bonus_default=10.0),
             Waypoint(xy=(3.5, 15.84),   label="stone_2_near_right", kind="reward",   radius=1.2,
@@ -552,7 +568,7 @@ class VBotSection012EnvCfg(VBotStairsEnvCfg):
             Waypoint(xy=(0.0, 24.33),   label="exit_platform",      kind="goal",     radius=0.8,
                      bonus_key="exit_bonus", bonus_default=30.0),
         ])
-        required_turns: int = 10
+        required_turns: int = 3
         celebration_turn_threshold: float = 1.55
         celebration_settle_z: float = 1.50
     @dataclass

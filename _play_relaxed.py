@@ -17,13 +17,13 @@ import vbot as navigation2_vbot  # noqa: F401, E402
 from motrix_envs import registry as env_registry
 
 # --- Monkey-patch the environment class ---
-_ENV_NAME = "vbot_navigation_section013"
+_ENV_NAME = "vbot_navigation_section012"
 _meta = env_registry._envs.get(_ENV_NAME)
 if _meta is None:
     raise RuntimeError(f"Environment {_ENV_NAME} not registered")
 env_cls = _meta.env_cls_dict.get("np")
 if env_cls is None:
-    raise RuntimeError("No 'np' backend for vbot_navigation_section011")
+    raise RuntimeError("No 'np' backend for vbot_navigation_section012")
 
 _original_compute_terminated = env_cls._compute_terminated
 

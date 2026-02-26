@@ -215,7 +215,7 @@ WP10: bridge_hongbao         (-3.0, 17.83)  reward  ← +10 pts
 WP11: bridge_turnaround      (-3.0, 20.0)   virtual z>2.3
 WP12: bridge_descent         (-3.0, 22.5)   virtual
 WP13: exit_platform          (0.0, 24.33)   goal    ← +5 pts (celebration)
-CELEBRATION: 10 jumps (configurable)
+CELEBRATION: 3 right turns (configurable)
 ```
 
 ### Key Design Changes from v1.0
@@ -223,7 +223,7 @@ CELEBRATION: 10 jumps (configurable)
 1. **Right-side first**: Collects all 5 stone hongbaos (15 pts) before going to bridge area
 2. **Under-bridge before bridge**: Collect under-bridge hongbaos (10 pts) at ground level before climbing
 3. **Out-and-back on bridge**: Climb from far end (y≈22.5), walk to center (y≈17.83) for hongbao, turn around, descend same stairs
-4. **Multi-jump celebration**: 10 jumps (configurable) instead of single-jump, with IDLE→JUMP→LANDING→JUMP... FSM
+4. **Multi-turn celebration**: 3 right turns (configurable) instead of single-jump, with IDLE→TURNING→SETTLING→TURNING... FSM
 5. **Generic implementation**: `Waypoint`/`OrderedRoute` are reusable dataclasses; `_update_waypoint_state` handles any ordered route without per-WP code
 6. **No zone_approach**: Removed the per-zone approach reward (was sector012-specific); generic `waypoint_approach` suffices
 7. **Vectorized numpy**: All waypoint checks use batch operations with `np.clip(wp_current, 0, N-1)` indexing
@@ -232,6 +232,6 @@ CELEBRATION: 10 jumps (configurable)
 
 ```
 Standing: 0.05 × 3000 (conditional) ≈ 150
-Completing: milestones(~217) + celebration(230) + approach(200) + alive(150) ≈ 800+
+Completing: milestones(~217) + celebration(125) + approach(200) + alive(150) ≈ 700+
 Ratio: 5.3:1 in favor of completing ✅
 ```

@@ -16,7 +16,7 @@ Welcome! This tutorial covers the **Section 012** environment in Navigation2 —
 | **Distance** | ~14.5m (y=9.5 → y=24.0), but route covers more due to zigzag + bridge traversal |
 | **Episode** | 6000 steps (60s) |
 | **Points** | **60 pts** (highest value section — 57% of total Stage 2 score) |
-| **Celebration** | 10 configurable jumps at exit platform |
+| **Celebration** | 3 configurable right turns at exit platform |
 
 ### Key Insight: Multi-Navigation Problem
 
@@ -150,7 +150,7 @@ pos = [0.0, 9.5, 1.8]  # Entry platform (z≈1.294 + 0.5m)
 max_episode_steps = 6000  # 60 seconds
 
 # Ordered route: 14 waypoints (see cfg.py Section012Route)
-# Celebration: 10 jumps at exit platform
+# Celebration: 3 right turns at exit platform
 # Reward budget: completing (800+) >> standing (150) ✅
 ```
 
@@ -168,11 +168,11 @@ STANDING STILL for 6000 steps:
 COMPLETING ALL 14 WAYPOINTS + CELEBRATION:
   alive = 0.05 × 3000 = 150
   Milestones (14 WPs): ~217
-  Celebration: 15×10 + 80 = 230
+  Celebration: 15×3 + 80 = 125
   Navigation rewards: ~200+
-  Total completing ≈ 800+
+  Total completing ≈ 700+
 
-✅ Ratio 5:1 — completing dominates
+✅ Ratio 4.5:1 — completing dominates
 ```
 
 ### 6.2 Waypoint Progression Rewards

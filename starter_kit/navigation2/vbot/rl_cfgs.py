@@ -74,7 +74,7 @@ class navigation2:
         clip_predicted_values: bool = True
 
         share_policy_value_features: bool = False
-        policy_hidden_layer_sizes: tuple[int, ...] = (256, 128, 64)   # section011 proven
+        policy_hidden_layer_sizes: tuple[int, ...] = (512, 256, 128)   # match section011 T4 checkpoint
         value_hidden_layer_sizes: tuple[int, ...] = (512, 256, 128)   # section011 proven
 
     @rlcfg("vbot_navigation_section013")

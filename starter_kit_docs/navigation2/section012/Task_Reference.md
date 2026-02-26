@@ -34,7 +34,7 @@ Route: Right-side first, collect stones, go under bridge, climb up far end,
   WP11: bridge_turnaround      (-3.0, 20.0)  virtual  r=1.5  z>2.3
   WP12: bridge_descent         (-3.0, 22.5)  virtual  r=1.5
   WP13: exit_platform          (0.0, 24.33)  goal     r=0.8  → +5pts (celebration)
-  CELEBRATION: 10 jumps at exit platform
+  CELEBRATION: 3 right turns at exit platform
 ```
 
 Total waypoints: 14 (7 reward + 6 virtual + 1 goal).
@@ -157,10 +157,10 @@ bridge_descent_bonus:  10.0    # WP12: 下桥
 # goal类航点:
 exit_bonus:            20.0    # WP13: 终点平台
 
-# ===== 庆祝跳跃 =====
-per_jump_bonus:        15.0    # 每跳一次的奖金 (×10跳)
-celebration_bonus:     80.0    # 完成全部跳跃的终极奖金
-jump_reward:            8.0    # 庆祝跳跃连续奖励 (z_above_standing)
+# ===== 庆祝右转 =====
+per_turn_bonus:        15.0    # 每转一次的奖金 (×3次)
+celebration_bonus:     80.0    # 完成全部右转的终极奖金
+turn_reward:            8.0    # 庆祝右转连续奖励
 
 # ===== 高度进步 & 地形里程碑 =====
 height_progress:       12.0    # 爬楼梯z增量
@@ -203,10 +203,10 @@ COMPLETING ALL WAYPOINTS (est. 3000 steps):
   alive_bonus: 0.05 × 3000 = 150
   waypoint_approach: dominant per-step (up to ~200 cumulative)
   Milestones (14 WPs): 10+8×5+15×2+30+12+20+15+10+20 = 217
-  Celebration: 15×10 + 80 = 230
-  Total completing ≈ 800+
+  Celebration: 15×3 + 80 = 125
+  Total completing ≈ 700+
   
-  Ratio: Completing (800) >> Standing (150) ✅
+  Ratio: Completing (700) >> Standing (150) ✅
 ```
 
 ## PPO Hyperparameters (warm-start aligned)
@@ -268,11 +268,11 @@ Requirements:
 
 | Parameter | Value |
 |-----------|-------|
-| `required_jumps` | 10 |
-| `celebration_jump_threshold` | 1.55 (z above which a jump is counted) |
-| `celebration_landing_z` | 1.50 (z below which landing is detected) |
-| `per_jump_bonus` | 15.0 per successful jump |
-| `celebration_bonus` | 80.0 on completing all jumps |
+| `required_turns` | 3 |
+| `celebration_turn_threshold` | 1.55 (z above which a turn is counted) |
+| `celebration_settle_z` | 1.50 (z below which settling is detected) |
+| `per_turn_bonus` | 15.0 per successful right turn |
+| `celebration_bonus` | 80.0 on completing all turns |
 
 ## Predicted Exploits
 

@@ -124,8 +124,8 @@ class EvalMetrics:
         """
         if "section011" in env_name or "section012" in env_name or "section01" in env_name:
             # Section011/012: waypoint-based progression scoring
-            # section011: wp_idx ∈ [0, 7], section012: wp_idx ∈ [0, 9]
-            max_wp = 9.0 if "section012" in env_name else 7.0
+            # section011: wp_idx ∈ [0, 7], section012: wp_idx ∈ [0, 14]
+            max_wp = 14.0 if "section012" in env_name else 7.0
             wp_progress = min(self.wp_idx_mean / max_wp, 1.0)
             score = (
                 0.65 * wp_progress +                                   # zone collection = THE competition metric
@@ -337,51 +337,43 @@ REWARD_SEARCH_SPACE_SECTION011 = {
     "dof_pos": {"type": "uniform", "low": -0.06, "high": -0.005},             # T10=-0.024 ±65%
 }
 
-# --- Section012 (stairs/bridge/obstacles, 60pt section, bridge-priority) ---
-# Bridge-priority navigation: wave → left-stair → bridge(3WP) → descend → under-bridge → exit → celebrate
-# Ranges centered on cfg.py defaults, similar structure to section011
+# --- Section012 (stairs/bridge/obstacles, 60pt section, ordered-waypoint navigation) ---
+# 14-waypoint ordered route: stones → under-bridge → bridge → exit → celebrate
+# Ranges centered on BASE_REWARD_SCALES values (section011 T14 winner), ±60%
+# Note: section012 shares BASE_REWARD_SCALES with section011, same reward keys
 REWARD_SEARCH_SPACE_SECTION012 = {
-    # === Navigation core ===
-    "forward_velocity": {"type": "uniform", "low": 1.5, "high": 5.0},       # cfg=3.0
-    "waypoint_approach": {"type": "uniform", "low": 50.0, "high": 180.0},   # cfg=100.0
-    "waypoint_facing": {"type": "uniform", "low": 0.05, "high": 0.3},       # cfg=0.15
-    "alive_bonus": {"type": "uniform", "low": 0.02, "high": 0.15},          # cfg=0.05
-    "position_tracking": {"type": "uniform", "low": 0.01, "high": 0.1},     # cfg=0.05
-    # === One-time bonuses (milestone/competition-aligned) ===
-    "wave_traversal_bonus": {"type": "uniform", "low": 15.0, "high": 60.0}, # cfg=30.0
-    "stair_top_bonus": {"type": "uniform", "low": 10.0, "high": 50.0},      # cfg=25.0
-    "bridge_crossing_bonus": {"type": "uniform", "low": 25.0, "high": 100.0},  # cfg=50.0
-    "stair_down_bonus": {"type": "uniform", "low": 10.0, "high": 40.0},     # cfg=20.0
-    "bridge_hongbao_bonus": {"type": "uniform", "low": 15.0, "high": 60.0}, # cfg=30.0
-    "under_bridge_bonus": {"type": "uniform", "low": 8.0, "high": 30.0},    # cfg=15.0
-    "stone_hongbao_bonus": {"type": "uniform", "low": 3.0, "high": 20.0},   # cfg=8.0
-    "celebration_bonus": {"type": "uniform", "low": 40.0, "high": 150.0},   # cfg=80.0
-    "phase_completion_bonus": {"type": "uniform", "low": 8.0, "high": 30.0},  # cfg=15.0
-    # === Zone attraction ===
-    "zone_approach": {"type": "uniform", "low": 0.0, "high": 15.0},         # cfg=5.0
-    # === Terrain adaptation ===
-    "height_progress": {"type": "uniform", "low": 5.0, "high": 25.0},       # cfg=12.0
-    "traversal_bonus": {"type": "uniform", "low": 10.0, "high": 40.0},      # cfg=20.0
-    "foot_clearance": {"type": "uniform", "low": 0.01, "high": 0.06},       # cfg=0.02
-    "foot_clearance_stair_boost": {"type": "uniform", "low": 1.0, "high": 5.0},  # cfg=3.0
-    "foot_clearance_pre_zone_ratio": {"type": "uniform", "low": 0.3, "high": 1.0},  # v54: transition zone boost strength
-    # === Celebration ===
-    "turn_reward": {"type": "uniform", "low": 3.0, "high": 15.0},           # cfg=8.0
-    # === Gait quality ===
-    "stance_ratio": {"type": "uniform", "low": 0.0, "high": 0.2},           # cfg=0.08
-    "swing_contact_penalty": {"type": "uniform", "low": -0.08, "high": -0.005},  # cfg=-0.025
-    "swing_contact_stair_scale": {"type": "uniform", "low": 0.2, "high": 1.0},   # cfg=0.5
-    # === v20: Sensor-driven penalties ===
-    "impact_penalty": {"type": "uniform", "low": -0.08, "high": -0.005},    # cfg=-0.02
-    "torque_saturation": {"type": "uniform", "low": -0.05, "high": -0.002}, # cfg=-0.01
-    # === Stability penalties ===
-    "orientation": {"type": "uniform", "low": -0.04, "high": -0.005},       # cfg=-0.015
-    "lin_vel_z": {"type": "uniform", "low": -0.15, "high": -0.02},          # cfg=-0.06
-    "ang_vel_xy": {"type": "uniform", "low": -0.03, "high": -0.003},        # cfg=-0.01
-    "action_rate": {"type": "uniform", "low": -0.015, "high": -0.002},      # cfg=-0.005
-    # === Termination ===
-    "termination": {"type": "choice", "values": [-150, -100, -75]},
-    "score_clear_factor": {"type": "uniform", "low": 0.1, "high": 0.5},     # cfg=0.3
+    # ===== STAIR-FOCUSED MINIMAL SET (2026-02-26) =====
+    # Strategy: spawn at stair bottom, strip away all bonuses/celebration noise,
+    # focus search on the 3 levers that matter for climbing 0.10m discrete steps:
+    #   1) foot_clearance_stair_boost — force leg lifting over step edges
+    #   2) lin_vel_z — must be very light (section011 used -0.027, was 7.2x lighter than default)
+    #   3) torque_saturation — must be light to allow strong leg drive
+    #
+    # ===== Navigation core (keep strong forward pull toward stair top) =====
+    "forward_velocity": {"type": "uniform", "low": 2.0, "high": 8.0},       # BASE=3.163 — need strong forward drive into stairs
+    "waypoint_approach": {"type": "uniform", "low": 200.0, "high": 800.0},  # BASE=280.5 — strong pull toward next WP
+    "waypoint_facing": {"type": "uniform", "low": 0.3, "high": 1.0},        # BASE=0.637 — keep heading aligned
+    # ===== 存活奖励 (ZERO to prevent backward-walk exploit) =====
+    "alive_bonus": {"type": "uniform", "low": 0.0, "high": 0.05},           # BASE=1.013 — effectively disabled: robot MUST navigate forward, not survive
+    # ===== 楼梯核心: 抬脚 + 步态 =====
+    "foot_clearance": {"type": "uniform", "low": 0.15, "high": 0.6},        # BASE=0.219 — higher floor: always reward leg lifting
+    "foot_clearance_stair_boost": {"type": "uniform", "low": 15.0, "high": 25.0},  # BASE=20.0 — AGGRESSIVE: force leg lifting over step edges
+    "foot_clearance_pre_zone_ratio": {"type": "uniform", "low": 0.3, "high": 0.9},  # BASE=0.5
+    "swing_contact_stair_scale": {"type": "uniform", "low": 0.1, "high": 0.6},   # BASE=0.5 — lighter: don't punish swing phase on stairs
+    "stance_ratio": {"type": "uniform", "low": 0.03, "high": 0.12},         # BASE=0.070
+    # ===== 惩罚 (RELAXED for vertical motion — key lesson from section011) =====
+    "lin_vel_z": {"type": "uniform", "low": -0.01, "high": -0.001},          # BASE=-0.005 — MUST be very light: stairs require vertical velocity
+    "torque_saturation": {"type": "uniform", "low": -0.015, "high": -0.002}, # BASE=-0.012 — light: allow strong motor effort for step climbing
+    "action_rate": {"type": "uniform", "low": -0.012, "high": -0.002},       # BASE=-0.007 — light: dynamic actions needed for stair negotiation
+    "orientation": {"type": "uniform", "low": -0.04, "high": -0.005},        # BASE=-0.026
+    "slope_orientation": {"type": "uniform", "low": 0.01, "high": 0.08},     # BASE=0.04 — compensate for orientation penalty on stairs
+    "ang_vel_xy": {"type": "uniform", "low": -0.06, "high": -0.008},         # BASE=-0.038
+    "impact_penalty": {"type": "uniform", "low": -0.15, "high": -0.02},      # BASE=-0.100
+    "swing_contact_penalty": {"type": "uniform", "low": -0.008, "high": -0.0005},  # BASE=-0.003
+    "termination": {"type": "choice", "values": [-100, -75, -50, -25]},      # lighter: don't over-punish falls during learning
+    # NOTE: transit_bonus, stone_bonus, bridge_*, celebration_*, traversal_bonus
+    # are INTENTIONALLY EXCLUDED — fixed at cfg.py defaults. Searching them adds
+    # noise when the only goal is "learn to climb stairs".
 }
 
 # --- Section013 (金球/坡道/hfield, 25pt section, ball-navigation + celebration) ---
@@ -1272,6 +1264,10 @@ def main():
         freeze_preprocessor=args.freeze_preprocessor,
         env_overrides=json.loads(args.env_overrides) if args.env_overrides else {},
     )
+    
+    if args.stage:
+        config.stages = [args.stage]
+        config.current_stage = args.stage
 
     # Load from YAML if provided
     if args.config:
