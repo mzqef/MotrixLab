@@ -480,7 +480,7 @@ class VBotSection011Env(NpEnv):
                 smiley_bonus_tb += smiley_val
         info["smileys_reached"] = smileys_reached
 
-        # Phase 0 → 1: 全部3个笑脸收集完成 (v16: strict ALL for full score 20/20)
+        # Phase 0 → 1: 必须收集全部3个笑脸才能进入红包阶段
         all_smileys = np.all(smileys_reached, axis=1)
         in_phase0 = (nav_phase == self.PHASE_SMILEYS)
         phase0_to_1 = in_phase0 & all_smileys
@@ -507,7 +507,7 @@ class VBotSection011Env(NpEnv):
                 red_packet_bonus_tb += rp_val
         info["red_packets_reached"] = red_packets_reached
 
-        # Phase 1 → 2: 全部红包收集完成
+        # Phase 1 → 2: 必须收集全部3个红包才能进入爬坡阶段
         all_red_packets = np.all(red_packets_reached, axis=1)
         phase1_to_2 = in_phase1 & all_red_packets
         if np.any(phase1_to_2):
@@ -609,18 +609,18 @@ class VBotSection011Env(NpEnv):
 
         def _apply_ordered_targets(env_mask, reached, centers,
                                     left_idx, middle_idx, right_idx):
-            """Pick first uncollected zone in order: nearest_side → middle → far_side."""
+            """Pick first uncollected zone in fixed order: Left → Middle → Right.
+            This prevents the target from switching back and forth (zigzagging)
+            when the robot crosses the center line.
+            """
             p = np.where(env_mask)[0]
             if len(p) == 0:
                 return
 
-            robot_x = robot_xy[p, 0]  # [K]
-            on_left = robot_x < 0     # [K] bool
-
-            # Priority order per env: [near_side, middle, far_side]
-            first = np.where(on_left, left_idx, right_idx)    # near side
-            second = np.full(len(p), middle_idx, dtype=np.int32)  # middle always second
-            third = np.where(on_left, right_idx, left_idx)    # far side
+            # Fixed priority order per env: [Left, Middle, Right]
+            first = np.full(len(p), left_idx, dtype=np.int32)
+            second = np.full(len(p), middle_idx, dtype=np.int32)
+            third = np.full(len(p), right_idx, dtype=np.int32)
             priority = np.stack([first, second, third], axis=1)  # [K, 3]
 
             # Check reached status for each priority slot
