@@ -1,0 +1,281 @@
+warning: Found both a `uv.toml` file and a `[tool.uv]` section in an adjacent `pyproject.toml`. The `[tool.uv]` section will be ignored in favor of the `uv.toml` file.
+2026-03-01T02:58:37Z [INFO] Resuming AutoML: automl_20260301_002349
+2026-03-01T02:58:37Z [INFO] Starting AutoML pipeline: automl_20260301_002349
+2026-03-01T02:58:37Z [INFO] Mode: full, Budget: 48.0h
+2026-03-01T02:58:37Z [INFO] State saved to D:\MotrixLab\starter_kit_log\automl_20260301_002349\state.yaml
+2026-03-01T02:58:37Z [INFO] 
+============================================================
+2026-03-01T02:58:37Z [INFO] Starting stage: stage1_flat
+2026-03-01T02:58:37Z [INFO] ============================================================
+2026-03-01T02:58:37Z [INFO] State saved to D:\MotrixLab\starter_kit_log\automl_20260301_002349\state.yaml
+2026-03-01T02:58:37Z [INFO] Optimizing stage: stage1_flat
+2026-03-01T02:58:37Z [INFO] State saved to D:\MotrixLab\starter_kit_log\automl_20260301_002349\state.yaml
+2026-03-01T02:58:37Z [INFO] Running unified HP+reward search for stage1_flat: 20 trials
+2026-03-01T02:58:37Z [INFO]   Environment: vbot_navigation_section011
+2026-03-01T02:58:37Z [INFO]   Warm-start from: runs\vbot_navigation_section011\26-02-28_13-15-37-944448_PPO\checkpoints\agent_15000.pt
+2026-03-01T02:58:37Z [INFO]   Freeze preprocessor: True
+2026-03-01T02:58:37Z [INFO]   Reward search space: 32 parameters
+2026-03-01T02:58:37Z [INFO]   Resuming from trial 4 (skipping 4 completed)
+2026-03-01T02:58:37Z [INFO]   Current best: score=0.5992, wp_idx=3.943
+2026-03-01T02:58:37Z [INFO] Trial 5/20: lr=6.35e-04, term=-50, alive=2.422020273805233
+2026-03-01T02:58:37Z [INFO] Launching training: automl_20260301_002349_stage1_flat_i4_1772305117
+2026-03-01T02:58:37Z [INFO]   HP: lr=6.35e-04, rollouts=24
+2026-03-01T02:58:37Z [INFO]   Reward: alive=2.422020273805233, term=-50
+2026-03-01T02:58:37Z [INFO]   Steps: 15,000,000
+2026-03-01T03:21:40Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_02-58-40-314297_PPO\events.out.tfevents.1772305120.DESKTOP-2SFC2TK.30260.0
+2026-03-01T03:21:41Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_02-58-40-314297_PPO\events.out.tfevents.1772305120.DESKTOP-2SFC2TK.30260.0
+2026-03-01T03:21:41Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_02-58-40-314297_PPO\events.out.tfevents.1772305120.DESKTOP-2SFC2TK.30260.0
+2026-03-01T03:21:41Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_02-58-40-314297_PPO\events.out.tfevents.1772305120.DESKTOP-2SFC2TK.30260.0
+2026-03-01T03:21:41Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_02-58-40-314297_PPO\events.out.tfevents.1772305120.DESKTOP-2SFC2TK.30260.0
+2026-03-01T03:21:42Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_02-58-40-314297_PPO\events.out.tfevents.1772305120.DESKTOP-2SFC2TK.30260.0
+2026-03-01T03:21:42Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_02-58-40-314297_PPO\events.out.tfevents.1772305120.DESKTOP-2SFC2TK.30260.0
+2026-03-01T03:21:42Z [INFO]   Result: reward=1.70, wp_idx=3.9, celeb=0, reached=14.88%, elapsed=1383s
+2026-03-01T03:21:42Z [INFO] State saved to D:\MotrixLab\starter_kit_log\automl_20260301_002349\state.yaml
+2026-03-01T03:21:42Z [INFO]   Trial 5 complete. 15 remaining.
+2026-03-01T03:21:42Z [INFO] Trial 6/20: lr=7.00e-04, term=-50, alive=3.2673291313137525
+2026-03-01T03:21:42Z [INFO] Launching training: automl_20260301_002349_stage1_flat_i5_1772306502
+2026-03-01T03:21:42Z [INFO]   HP: lr=7.00e-04, rollouts=24
+2026-03-01T03:21:42Z [INFO]   Reward: alive=3.2673291313137525, term=-50
+2026-03-01T03:21:42Z [INFO]   Steps: 15,000,000
+2026-03-01T03:44:59Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_03-21-45-252279_PPO\events.out.tfevents.1772306505.DESKTOP-2SFC2TK.30452.0
+2026-03-01T03:44:59Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_03-21-45-252279_PPO\events.out.tfevents.1772306505.DESKTOP-2SFC2TK.30452.0
+2026-03-01T03:44:59Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_03-21-45-252279_PPO\events.out.tfevents.1772306505.DESKTOP-2SFC2TK.30452.0
+2026-03-01T03:44:59Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_03-21-45-252279_PPO\events.out.tfevents.1772306505.DESKTOP-2SFC2TK.30452.0
+2026-03-01T03:45:00Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_03-21-45-252279_PPO\events.out.tfevents.1772306505.DESKTOP-2SFC2TK.30452.0
+2026-03-01T03:45:00Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_03-21-45-252279_PPO\events.out.tfevents.1772306505.DESKTOP-2SFC2TK.30452.0
+2026-03-01T03:45:00Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_03-21-45-252279_PPO\events.out.tfevents.1772306505.DESKTOP-2SFC2TK.30452.0
+2026-03-01T03:45:00Z [INFO]   Result: reward=2.92, wp_idx=3.6, celeb=0, reached=15.05%, elapsed=1397s
+2026-03-01T03:45:00Z [INFO] State saved to D:\MotrixLab\starter_kit_log\automl_20260301_002349\state.yaml
+2026-03-01T03:45:00Z [INFO]   Trial 6 complete. 14 remaining.
+2026-03-01T03:45:00Z [INFO] Trial 7/20: lr=4.56e-04, term=-75, alive=2.5862382995430653
+2026-03-01T03:45:00Z [INFO] Launching training: automl_20260301_002349_stage1_flat_i6_1772307900
+2026-03-01T03:45:00Z [INFO]   HP: lr=4.56e-04, rollouts=24
+2026-03-01T03:45:00Z [INFO]   Reward: alive=2.5862382995430653, term=-75
+2026-03-01T03:45:00Z [INFO]   Steps: 15,000,000
+2026-03-01T04:08:04Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_03-45-03-769047_PPO\events.out.tfevents.1772307903.DESKTOP-2SFC2TK.28900.0
+2026-03-01T04:08:04Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_03-45-03-769047_PPO\events.out.tfevents.1772307903.DESKTOP-2SFC2TK.28900.0
+2026-03-01T04:08:04Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_03-45-03-769047_PPO\events.out.tfevents.1772307903.DESKTOP-2SFC2TK.28900.0
+2026-03-01T04:08:05Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_03-45-03-769047_PPO\events.out.tfevents.1772307903.DESKTOP-2SFC2TK.28900.0
+2026-03-01T04:08:05Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_03-45-03-769047_PPO\events.out.tfevents.1772307903.DESKTOP-2SFC2TK.28900.0
+2026-03-01T04:08:05Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_03-45-03-769047_PPO\events.out.tfevents.1772307903.DESKTOP-2SFC2TK.28900.0
+2026-03-01T04:08:05Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_03-45-03-769047_PPO\events.out.tfevents.1772307903.DESKTOP-2SFC2TK.28900.0
+2026-03-01T04:08:05Z [INFO]   Result: reward=3.25, wp_idx=3.8, celeb=0, reached=15.16%, elapsed=1384s
+2026-03-01T04:08:05Z [INFO] State saved to D:\MotrixLab\starter_kit_log\automl_20260301_002349\state.yaml
+2026-03-01T04:08:05Z [INFO]   Trial 7 complete. 13 remaining.
+2026-03-01T04:08:05Z [INFO] Trial 8/20: lr=4.62e-04, term=-25, alive=2.898499447586464
+2026-03-01T04:08:05Z [INFO] Launching training: automl_20260301_002349_stage1_flat_i7_1772309285
+2026-03-01T04:08:05Z [INFO]   HP: lr=4.62e-04, rollouts=24
+2026-03-01T04:08:05Z [INFO]   Reward: alive=2.898499447586464, term=-25
+2026-03-01T04:08:05Z [INFO]   Steps: 15,000,000
+2026-03-01T04:30:56Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_04-08-08-961372_PPO\events.out.tfevents.1772309288.DESKTOP-2SFC2TK.26644.0
+2026-03-01T04:30:56Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_04-08-08-961372_PPO\events.out.tfevents.1772309288.DESKTOP-2SFC2TK.26644.0
+2026-03-01T04:30:56Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_04-08-08-961372_PPO\events.out.tfevents.1772309288.DESKTOP-2SFC2TK.26644.0
+2026-03-01T04:30:56Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_04-08-08-961372_PPO\events.out.tfevents.1772309288.DESKTOP-2SFC2TK.26644.0
+2026-03-01T04:30:57Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_04-08-08-961372_PPO\events.out.tfevents.1772309288.DESKTOP-2SFC2TK.26644.0
+2026-03-01T04:30:57Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_04-08-08-961372_PPO\events.out.tfevents.1772309288.DESKTOP-2SFC2TK.26644.0
+2026-03-01T04:30:57Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_04-08-08-961372_PPO\events.out.tfevents.1772309288.DESKTOP-2SFC2TK.26644.0
+2026-03-01T04:30:57Z [INFO]   Result: reward=4.10, wp_idx=4.0, celeb=0, reached=14.37%, elapsed=1370s
+2026-03-01T04:30:57Z [INFO] State saved to D:\MotrixLab\starter_kit_log\automl_20260301_002349\state.yaml
+2026-03-01T04:30:57Z [INFO]   Trial 8 complete. 12 remaining.
+2026-03-01T04:30:57Z [INFO] Trial 9/20: lr=5.51e-04, term=-25, alive=1.851910448431534
+2026-03-01T04:30:57Z [INFO] Launching training: automl_20260301_002349_stage1_flat_i8_1772310657
+2026-03-01T04:30:57Z [INFO]   HP: lr=5.51e-04, rollouts=24
+2026-03-01T04:30:57Z [INFO]   Reward: alive=1.851910448431534, term=-25
+2026-03-01T04:30:57Z [INFO]   Steps: 15,000,000
+2026-03-01T04:53:44Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_04-31-00-567772_PPO\events.out.tfevents.1772310660.DESKTOP-2SFC2TK.28972.0
+2026-03-01T04:53:44Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_04-31-00-567772_PPO\events.out.tfevents.1772310660.DESKTOP-2SFC2TK.28972.0
+2026-03-01T04:53:45Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_04-31-00-567772_PPO\events.out.tfevents.1772310660.DESKTOP-2SFC2TK.28972.0
+2026-03-01T04:53:45Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_04-31-00-567772_PPO\events.out.tfevents.1772310660.DESKTOP-2SFC2TK.28972.0
+2026-03-01T04:53:45Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_04-31-00-567772_PPO\events.out.tfevents.1772310660.DESKTOP-2SFC2TK.28972.0
+2026-03-01T04:53:45Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_04-31-00-567772_PPO\events.out.tfevents.1772310660.DESKTOP-2SFC2TK.28972.0
+2026-03-01T04:53:46Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_04-31-00-567772_PPO\events.out.tfevents.1772310660.DESKTOP-2SFC2TK.28972.0
+2026-03-01T04:53:46Z [INFO]   Result: reward=4.24, wp_idx=4.0, celeb=0, reached=15.03%, elapsed=1367s
+2026-03-01T04:53:46Z [INFO] State saved to D:\MotrixLab\starter_kit_log\automl_20260301_002349\state.yaml
+2026-03-01T04:53:46Z [INFO]   Trial 9 complete. 11 remaining.
+2026-03-01T04:53:46Z [INFO] Trial 10/20: lr=6.33e-04, term=-25, alive=1.851910448431534
+2026-03-01T04:53:46Z [INFO] Launching training: automl_20260301_002349_stage1_flat_i9_1772312026
+2026-03-01T04:53:46Z [INFO]   HP: lr=6.33e-04, rollouts=24
+2026-03-01T04:53:46Z [INFO]   Reward: alive=1.851910448431534, term=-25
+2026-03-01T04:53:46Z [INFO]   Steps: 15,000,000
+2026-03-01T05:17:04Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_04-53-49-294762_PPO\events.out.tfevents.1772312029.DESKTOP-2SFC2TK.17656.0
+2026-03-01T05:17:05Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_04-53-49-294762_PPO\events.out.tfevents.1772312029.DESKTOP-2SFC2TK.17656.0
+2026-03-01T05:17:05Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_04-53-49-294762_PPO\events.out.tfevents.1772312029.DESKTOP-2SFC2TK.17656.0
+2026-03-01T05:17:05Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_04-53-49-294762_PPO\events.out.tfevents.1772312029.DESKTOP-2SFC2TK.17656.0
+2026-03-01T05:17:05Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_04-53-49-294762_PPO\events.out.tfevents.1772312029.DESKTOP-2SFC2TK.17656.0
+2026-03-01T05:17:06Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_04-53-49-294762_PPO\events.out.tfevents.1772312029.DESKTOP-2SFC2TK.17656.0
+2026-03-01T05:17:06Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_04-53-49-294762_PPO\events.out.tfevents.1772312029.DESKTOP-2SFC2TK.17656.0
+2026-03-01T05:17:06Z [INFO]   Result: reward=4.08, wp_idx=3.5, celeb=0, reached=15.68%, elapsed=1398s
+2026-03-01T05:17:06Z [INFO] State saved to D:\MotrixLab\starter_kit_log\automl_20260301_002349\state.yaml
+2026-03-01T05:17:06Z [INFO]   Trial 10 complete. 10 remaining.
+2026-03-01T05:17:06Z [INFO] Trial 11/20: lr=4.06e-04, term=-25, alive=2.3124558841709053
+2026-03-01T05:17:06Z [INFO] Launching training: automl_20260301_002349_stage1_flat_i10_1772313426
+2026-03-01T05:17:06Z [INFO]   HP: lr=4.06e-04, rollouts=24
+2026-03-01T05:17:06Z [INFO]   Reward: alive=2.3124558841709053, term=-25
+2026-03-01T05:17:06Z [INFO]   Steps: 15,000,000
+2026-03-01T05:40:17Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_05-17-09-393199_PPO\events.out.tfevents.1772313429.DESKTOP-2SFC2TK.9292.0
+2026-03-01T05:40:17Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_05-17-09-393199_PPO\events.out.tfevents.1772313429.DESKTOP-2SFC2TK.9292.0
+2026-03-01T05:40:18Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_05-17-09-393199_PPO\events.out.tfevents.1772313429.DESKTOP-2SFC2TK.9292.0
+2026-03-01T05:40:18Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_05-17-09-393199_PPO\events.out.tfevents.1772313429.DESKTOP-2SFC2TK.9292.0
+2026-03-01T05:40:18Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_05-17-09-393199_PPO\events.out.tfevents.1772313429.DESKTOP-2SFC2TK.9292.0
+2026-03-01T05:40:18Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_05-17-09-393199_PPO\events.out.tfevents.1772313429.DESKTOP-2SFC2TK.9292.0
+2026-03-01T05:40:19Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_05-17-09-393199_PPO\events.out.tfevents.1772313429.DESKTOP-2SFC2TK.9292.0
+2026-03-01T05:40:19Z [INFO]   Result: reward=3.93, wp_idx=3.8, celeb=0, reached=13.96%, elapsed=1391s
+2026-03-01T05:40:19Z [INFO] State saved to D:\MotrixLab\starter_kit_log\automl_20260301_002349\state.yaml
+2026-03-01T05:40:19Z [INFO]   Trial 11 complete. 9 remaining.
+2026-03-01T05:40:19Z [INFO] Trial 12/20: lr=4.54e-04, term=-25, alive=1.886169392843225
+2026-03-01T05:40:19Z [INFO] Launching training: automl_20260301_002349_stage1_flat_i11_1772314819
+2026-03-01T05:40:19Z [INFO]   HP: lr=4.54e-04, rollouts=24
+2026-03-01T05:40:19Z [INFO]   Reward: alive=1.886169392843225, term=-25
+2026-03-01T05:40:19Z [INFO]   Steps: 15,000,000
+2026-03-01T06:03:21Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_05-40-22-065536_PPO\events.out.tfevents.1772314822.DESKTOP-2SFC2TK.25124.0
+2026-03-01T06:03:21Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_05-40-22-065536_PPO\events.out.tfevents.1772314822.DESKTOP-2SFC2TK.25124.0
+2026-03-01T06:03:21Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_05-40-22-065536_PPO\events.out.tfevents.1772314822.DESKTOP-2SFC2TK.25124.0
+2026-03-01T06:03:21Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_05-40-22-065536_PPO\events.out.tfevents.1772314822.DESKTOP-2SFC2TK.25124.0
+2026-03-01T06:03:22Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_05-40-22-065536_PPO\events.out.tfevents.1772314822.DESKTOP-2SFC2TK.25124.0
+2026-03-01T06:03:22Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_05-40-22-065536_PPO\events.out.tfevents.1772314822.DESKTOP-2SFC2TK.25124.0
+2026-03-01T06:03:22Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_05-40-22-065536_PPO\events.out.tfevents.1772314822.DESKTOP-2SFC2TK.25124.0
+2026-03-01T06:03:22Z [INFO]   Result: reward=4.23, wp_idx=4.0, celeb=0, reached=14.30%, elapsed=1382s
+2026-03-01T06:03:22Z [INFO] State saved to D:\MotrixLab\starter_kit_log\automl_20260301_002349\state.yaml
+2026-03-01T06:03:22Z [INFO]   Trial 12 complete. 8 remaining.
+2026-03-01T06:03:22Z [INFO] Trial 13/20: lr=5.37e-04, term=-25, alive=1.851910448431534
+2026-03-01T06:03:22Z [INFO] Launching training: automl_20260301_002349_stage1_flat_i12_1772316202
+2026-03-01T06:03:22Z [INFO]   HP: lr=5.37e-04, rollouts=24
+2026-03-01T06:03:22Z [INFO]   Reward: alive=1.851910448431534, term=-25
+2026-03-01T06:03:22Z [INFO]   Steps: 15,000,000
+2026-03-01T06:26:04Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_06-03-25-660210_PPO\events.out.tfevents.1772316205.DESKTOP-2SFC2TK.12808.0
+2026-03-01T06:26:04Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_06-03-25-660210_PPO\events.out.tfevents.1772316205.DESKTOP-2SFC2TK.12808.0
+2026-03-01T06:26:04Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_06-03-25-660210_PPO\events.out.tfevents.1772316205.DESKTOP-2SFC2TK.12808.0
+2026-03-01T06:26:05Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_06-03-25-660210_PPO\events.out.tfevents.1772316205.DESKTOP-2SFC2TK.12808.0
+2026-03-01T06:26:05Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_06-03-25-660210_PPO\events.out.tfevents.1772316205.DESKTOP-2SFC2TK.12808.0
+2026-03-01T06:26:05Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_06-03-25-660210_PPO\events.out.tfevents.1772316205.DESKTOP-2SFC2TK.12808.0
+2026-03-01T06:26:05Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_06-03-25-660210_PPO\events.out.tfevents.1772316205.DESKTOP-2SFC2TK.12808.0
+2026-03-01T06:26:05Z [INFO]   Result: reward=4.23, wp_idx=4.0, celeb=0, reached=14.03%, elapsed=1361s
+2026-03-01T06:26:05Z [INFO] State saved to D:\MotrixLab\starter_kit_log\automl_20260301_002349\state.yaml
+2026-03-01T06:26:05Z [INFO]   Trial 13 complete. 7 remaining.
+2026-03-01T06:26:05Z [INFO] Trial 14/20: lr=6.92e-04, term=-25, alive=1.851910448431534
+2026-03-01T06:26:05Z [INFO] Launching training: automl_20260301_002349_stage1_flat_i13_1772317565
+2026-03-01T06:26:05Z [INFO]   HP: lr=6.92e-04, rollouts=24
+2026-03-01T06:26:05Z [INFO]   Reward: alive=1.851910448431534, term=-25
+2026-03-01T06:26:05Z [INFO]   Steps: 15,000,000
+2026-03-01T06:49:18Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_06-26-08-775214_PPO\events.out.tfevents.1772317568.DESKTOP-2SFC2TK.27868.0
+2026-03-01T06:49:18Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_06-26-08-775214_PPO\events.out.tfevents.1772317568.DESKTOP-2SFC2TK.27868.0
+2026-03-01T06:49:18Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_06-26-08-775214_PPO\events.out.tfevents.1772317568.DESKTOP-2SFC2TK.27868.0
+2026-03-01T06:49:19Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_06-26-08-775214_PPO\events.out.tfevents.1772317568.DESKTOP-2SFC2TK.27868.0
+2026-03-01T06:49:19Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_06-26-08-775214_PPO\events.out.tfevents.1772317568.DESKTOP-2SFC2TK.27868.0
+2026-03-01T06:49:19Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_06-26-08-775214_PPO\events.out.tfevents.1772317568.DESKTOP-2SFC2TK.27868.0
+2026-03-01T06:49:19Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_06-26-08-775214_PPO\events.out.tfevents.1772317568.DESKTOP-2SFC2TK.27868.0
+2026-03-01T06:49:19Z [INFO]   Result: reward=3.97, wp_idx=3.9, celeb=0, reached=13.46%, elapsed=1392s
+2026-03-01T06:49:19Z [INFO] State saved to D:\MotrixLab\starter_kit_log\automl_20260301_002349\state.yaml
+2026-03-01T06:49:19Z [INFO]   Trial 14 complete. 6 remaining.
+2026-03-01T06:49:19Z [INFO] Trial 15/20: lr=3.95e-04, term=-25, alive=1.851910448431534
+2026-03-01T06:49:19Z [INFO] Launching training: automl_20260301_002349_stage1_flat_i14_1772318959
+2026-03-01T06:49:19Z [INFO]   HP: lr=3.95e-04, rollouts=24
+2026-03-01T06:49:19Z [INFO]   Reward: alive=1.851910448431534, term=-25
+2026-03-01T06:49:19Z [INFO]   Steps: 15,000,000
+2026-03-01T07:12:45Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_06-49-22-939820_PPO\events.out.tfevents.1772318962.DESKTOP-2SFC2TK.15996.0
+2026-03-01T07:12:46Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_06-49-22-939820_PPO\events.out.tfevents.1772318962.DESKTOP-2SFC2TK.15996.0
+2026-03-01T07:12:46Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_06-49-22-939820_PPO\events.out.tfevents.1772318962.DESKTOP-2SFC2TK.15996.0
+2026-03-01T07:12:46Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_06-49-22-939820_PPO\events.out.tfevents.1772318962.DESKTOP-2SFC2TK.15996.0
+2026-03-01T07:12:46Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_06-49-22-939820_PPO\events.out.tfevents.1772318962.DESKTOP-2SFC2TK.15996.0
+2026-03-01T07:12:46Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_06-49-22-939820_PPO\events.out.tfevents.1772318962.DESKTOP-2SFC2TK.15996.0
+2026-03-01T07:12:47Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_06-49-22-939820_PPO\events.out.tfevents.1772318962.DESKTOP-2SFC2TK.15996.0
+2026-03-01T07:12:47Z [INFO]   Result: reward=4.12, wp_idx=3.5, celeb=0, reached=15.47%, elapsed=1406s
+2026-03-01T07:12:47Z [INFO] State saved to D:\MotrixLab\starter_kit_log\automl_20260301_002349\state.yaml
+2026-03-01T07:12:47Z [INFO]   Trial 15 complete. 5 remaining.
+2026-03-01T07:12:47Z [INFO] Trial 16/20: lr=5.65e-04, term=-75, alive=1.851910448431534
+2026-03-01T07:12:47Z [INFO] Launching training: automl_20260301_002349_stage1_flat_i15_1772320367
+2026-03-01T07:12:47Z [INFO]   HP: lr=5.65e-04, rollouts=24
+2026-03-01T07:12:47Z [INFO]   Reward: alive=1.851910448431534, term=-75
+2026-03-01T07:12:47Z [INFO]   Steps: 15,000,000
+2026-03-01T07:36:04Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_07-12-50-382223_PPO\events.out.tfevents.1772320370.DESKTOP-2SFC2TK.20096.0
+2026-03-01T07:36:04Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_07-12-50-382223_PPO\events.out.tfevents.1772320370.DESKTOP-2SFC2TK.20096.0
+2026-03-01T07:36:05Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_07-12-50-382223_PPO\events.out.tfevents.1772320370.DESKTOP-2SFC2TK.20096.0
+2026-03-01T07:36:05Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_07-12-50-382223_PPO\events.out.tfevents.1772320370.DESKTOP-2SFC2TK.20096.0
+2026-03-01T07:36:05Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_07-12-50-382223_PPO\events.out.tfevents.1772320370.DESKTOP-2SFC2TK.20096.0
+2026-03-01T07:36:05Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_07-12-50-382223_PPO\events.out.tfevents.1772320370.DESKTOP-2SFC2TK.20096.0
+2026-03-01T07:36:06Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_07-12-50-382223_PPO\events.out.tfevents.1772320370.DESKTOP-2SFC2TK.20096.0
+2026-03-01T07:36:06Z [INFO]   Result: reward=3.58, wp_idx=3.5, celeb=0, reached=15.27%, elapsed=1397s
+2026-03-01T07:36:06Z [INFO] State saved to D:\MotrixLab\starter_kit_log\automl_20260301_002349\state.yaml
+2026-03-01T07:36:06Z [INFO]   Trial 16 complete. 4 remaining.
+2026-03-01T07:36:06Z [INFO] Trial 17/20: lr=6.04e-04, term=-50, alive=1.851910448431534
+2026-03-01T07:36:06Z [INFO] Launching training: automl_20260301_002349_stage1_flat_i16_1772321766
+2026-03-01T07:36:06Z [INFO]   HP: lr=6.04e-04, rollouts=24
+2026-03-01T07:36:06Z [INFO]   Reward: alive=1.851910448431534, term=-50
+2026-03-01T07:36:06Z [INFO]   Steps: 15,000,000
+2026-03-01T07:59:20Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_07-36-09-257900_PPO\events.out.tfevents.1772321769.DESKTOP-2SFC2TK.32384.0
+2026-03-01T07:59:21Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_07-36-09-257900_PPO\events.out.tfevents.1772321769.DESKTOP-2SFC2TK.32384.0
+2026-03-01T07:59:21Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_07-36-09-257900_PPO\events.out.tfevents.1772321769.DESKTOP-2SFC2TK.32384.0
+2026-03-01T07:59:21Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_07-36-09-257900_PPO\events.out.tfevents.1772321769.DESKTOP-2SFC2TK.32384.0
+2026-03-01T07:59:21Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_07-36-09-257900_PPO\events.out.tfevents.1772321769.DESKTOP-2SFC2TK.32384.0
+2026-03-01T07:59:22Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_07-36-09-257900_PPO\events.out.tfevents.1772321769.DESKTOP-2SFC2TK.32384.0
+2026-03-01T07:59:22Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_07-36-09-257900_PPO\events.out.tfevents.1772321769.DESKTOP-2SFC2TK.32384.0
+2026-03-01T07:59:22Z [INFO]   Result: reward=3.68, wp_idx=3.5, celeb=0, reached=15.05%, elapsed=1394s
+2026-03-01T07:59:22Z [INFO] State saved to D:\MotrixLab\starter_kit_log\automl_20260301_002349\state.yaml
+2026-03-01T07:59:22Z [INFO]   Trial 17 complete. 3 remaining.
+2026-03-01T07:59:22Z [INFO] Trial 18/20: lr=7.00e-04, term=-25, alive=1.851910448431534
+2026-03-01T07:59:22Z [INFO] Launching training: automl_20260301_002349_stage1_flat_i17_1772323162
+2026-03-01T07:59:22Z [INFO]   HP: lr=7.00e-04, rollouts=24
+2026-03-01T07:59:22Z [INFO]   Reward: alive=1.851910448431534, term=-25
+2026-03-01T07:59:22Z [INFO]   Steps: 15,000,000
+2026-03-01T08:22:42Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_07-59-25-384135_PPO\events.out.tfevents.1772323165.DESKTOP-2SFC2TK.852.0
+2026-03-01T08:22:42Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_07-59-25-384135_PPO\events.out.tfevents.1772323165.DESKTOP-2SFC2TK.852.0
+2026-03-01T08:22:42Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_07-59-25-384135_PPO\events.out.tfevents.1772323165.DESKTOP-2SFC2TK.852.0
+2026-03-01T08:22:43Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_07-59-25-384135_PPO\events.out.tfevents.1772323165.DESKTOP-2SFC2TK.852.0
+2026-03-01T08:22:43Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_07-59-25-384135_PPO\events.out.tfevents.1772323165.DESKTOP-2SFC2TK.852.0
+2026-03-01T08:22:43Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_07-59-25-384135_PPO\events.out.tfevents.1772323165.DESKTOP-2SFC2TK.852.0
+2026-03-01T08:22:43Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_07-59-25-384135_PPO\events.out.tfevents.1772323165.DESKTOP-2SFC2TK.852.0
+2026-03-01T08:22:43Z [INFO]   Result: reward=3.96, wp_idx=3.6, celeb=0, reached=15.31%, elapsed=1400s
+2026-03-01T08:22:43Z [INFO] State saved to D:\MotrixLab\starter_kit_log\automl_20260301_002349\state.yaml
+2026-03-01T08:22:43Z [INFO]   Trial 18 complete. 2 remaining.
+2026-03-01T08:22:43Z [INFO] Trial 19/20: lr=4.56e-04, term=-25, alive=1.851910448431534
+2026-03-01T08:22:43Z [INFO] Launching training: automl_20260301_002349_stage1_flat_i18_1772324563
+2026-03-01T08:22:43Z [INFO]   HP: lr=4.56e-04, rollouts=24
+2026-03-01T08:22:43Z [INFO]   Reward: alive=1.851910448431534, term=-25
+2026-03-01T08:22:43Z [INFO]   Steps: 15,000,000
+2026-03-01T08:46:06Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_08-22-46-794170_PPO\events.out.tfevents.1772324566.DESKTOP-2SFC2TK.29984.0
+2026-03-01T08:46:06Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_08-22-46-794170_PPO\events.out.tfevents.1772324566.DESKTOP-2SFC2TK.29984.0
+2026-03-01T08:46:06Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_08-22-46-794170_PPO\events.out.tfevents.1772324566.DESKTOP-2SFC2TK.29984.0
+2026-03-01T08:46:06Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_08-22-46-794170_PPO\events.out.tfevents.1772324566.DESKTOP-2SFC2TK.29984.0
+2026-03-01T08:46:07Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_08-22-46-794170_PPO\events.out.tfevents.1772324566.DESKTOP-2SFC2TK.29984.0
+2026-03-01T08:46:07Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_08-22-46-794170_PPO\events.out.tfevents.1772324566.DESKTOP-2SFC2TK.29984.0
+2026-03-01T08:46:07Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_08-22-46-794170_PPO\events.out.tfevents.1772324566.DESKTOP-2SFC2TK.29984.0
+2026-03-01T08:46:07Z [INFO]   Result: reward=4.13, wp_idx=3.6, celeb=0, reached=14.68%, elapsed=1402s
+2026-03-01T08:46:07Z [INFO] State saved to D:\MotrixLab\starter_kit_log\automl_20260301_002349\state.yaml
+2026-03-01T08:46:07Z [INFO]   Trial 19 complete. 1 remaining.
+2026-03-01T08:46:07Z [INFO] Trial 20/20: lr=6.02e-04, term=-25, alive=1.537111561167537
+2026-03-01T08:46:07Z [INFO] Launching training: automl_20260301_002349_stage1_flat_i19_1772325967
+2026-03-01T08:46:07Z [INFO]   HP: lr=6.02e-04, rollouts=24
+2026-03-01T08:46:07Z [INFO]   Reward: alive=1.537111561167537, term=-25
+2026-03-01T08:46:07Z [INFO]   Steps: 15,000,000
+2026-03-01T09:09:36Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_08-46-10-620634_PPO\events.out.tfevents.1772325970.DESKTOP-2SFC2TK.17840.0
+2026-03-01T09:09:37Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_08-46-10-620634_PPO\events.out.tfevents.1772325970.DESKTOP-2SFC2TK.17840.0
+2026-03-01T09:09:37Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_08-46-10-620634_PPO\events.out.tfevents.1772325970.DESKTOP-2SFC2TK.17840.0
+2026-03-01T09:09:37Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_08-46-10-620634_PPO\events.out.tfevents.1772325970.DESKTOP-2SFC2TK.17840.0
+2026-03-01T09:09:37Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_08-46-10-620634_PPO\events.out.tfevents.1772325970.DESKTOP-2SFC2TK.17840.0
+2026-03-01T09:09:38Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_08-46-10-620634_PPO\events.out.tfevents.1772325970.DESKTOP-2SFC2TK.17840.0
+2026-03-01T09:09:38Z [INFO] No path found after runs\vbot_navigation_section011\26-03-01_08-46-10-620634_PPO\events.out.tfevents.1772325970.DESKTOP-2SFC2TK.17840.0
+2026-03-01T09:09:38Z [INFO]   Result: reward=3.97, wp_idx=3.4, celeb=0, reached=15.44%, elapsed=1409s
+2026-03-01T09:09:38Z [INFO] State saved to D:\MotrixLab\starter_kit_log\automl_20260301_002349\state.yaml
+2026-03-01T09:09:38Z [INFO]   Trial 20 complete. 0 remaining.
+2026-03-01T09:09:38Z [INFO] Unified search complete. Best lr: 6.07e-04, term: -25
+2026-03-01T09:09:38Z [INFO] State saved to D:\MotrixLab\starter_kit_log\automl_20260301_002349\state.yaml
+2026-03-01T09:09:38Z [INFO] Running full training for stage1_flat
+2026-03-01T09:09:38Z [INFO] HP: lr=6.07e-04, entropy=1.09e-02
+2026-03-01T09:09:38Z [INFO] Reward: alive=1.851910448431534, term=-25
+2026-03-01T09:09:38Z [INFO] Launching training: automl_20260301_002349_stage1_flat_i19_1772327378
+2026-03-01T09:09:38Z [INFO]   HP: lr=6.07e-04, rollouts=24
+2026-03-01T09:09:38Z [INFO]   Reward: alive=1.851910448431534, term=-25
+2026-03-01T09:09:38Z [INFO]   Steps: 50,000,000
+Resuming S9 AutoML...
+Traceback (most recent call last):
+  File "D:\MotrixLab\_resume_s9.py", line 28, in <module>
+    proc = subprocess.run(cmd, timeout=25200)
+  File "D:\Python310\lib\subprocess.py", line 503, in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+  File "D:\Python310\lib\subprocess.py", line 1168, in communicate
+    sts = self.wait(timeout=self._remaining_time(endtime))
+  File "D:\Python310\lib\subprocess.py", line 1204, in wait
+    return self._wait(timeout=timeout)
+  File "D:\Python310\lib\subprocess.py", line 1488, in _wait
+    raise TimeoutExpired(self.args, timeout)
+subprocess.TimeoutExpired: Command '['D:\\MotrixLab\\.venv\\Scripts\\python.exe', 'starter_kit_schedule/scripts/automl.py', '--resume', '--env', 'vbot_navigation_section011', '--checkpoint', 'runs\\vbot_navigation_section011\\26-02-28_13-15-37-944448_PPO\\checkpoints\\agent_15000.pt', '--freeze-preprocessor', '--env-overrides', '{"hard_tilt_deg": 70.0, "soft_tilt_deg": 50.0, "enable_base_contact_term": true, "enable_stagnation_truncate": true, "grace_period_steps": 100, "reset_yaw_scale": 0.0}']' timed out after 25200.0 seconds

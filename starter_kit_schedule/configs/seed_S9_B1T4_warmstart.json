@@ -1,0 +1,68 @@
+{
+  "run_tag": "seed_S9_B1T4_warmstart",
+  "env_name": "vbot_navigation_section011",
+  "starter_kit_dir": "D:\\\\MotrixLab\\\\starter_kit\\\\navigation2",
+  "reward_scales": {
+    "forward_velocity": 9.0791685121468,
+    "waypoint_approach": 614.9405691650044,
+    "zone_approach": 183.81901894232206,
+    "position_tracking": 1.1245899619373974,
+    "waypoint_facing": 1.4568376011047817,
+    "alive_bonus": 2.083772260547624,
+    "alive_decay_horizon": 4073.326689548307,
+    "waypoint_bonus": 56.246391020673876,
+    "phase_bonus": 95.02031000881183,
+    "celeb_walk_approach": 366.8088889770495,
+    "celeb_walk_bonus": 79.75160089493073,
+    "celeb_sit_reward": 7.8332481728320165,
+    "celebration_bonus": 54.00020681287863,
+    "termination": -100,
+    "orientation": -0.028117623148519167,
+    "lin_vel_z": -0.05014178726582158,
+    "ang_vel_xy": -0.03036760110673216,
+    "action_rate": -0.02223708408800784,
+    "impact_penalty": -0.1171484103155968,
+    "torque_saturation": -0.05933056117369135,
+    "swing_contact_penalty": -0.013985919751974243,
+    "stance_ratio": 0.003087360028678755,
+    "foot_clearance": 0.15191295377833336,
+    "foot_clearance_bump_boost": 18.01128408054373,
+    "foot_clearance_bump_boost_pre_margin": 1.5948903279624962,
+    "foot_clearance_bump_boost_post_margin": 0.3629529853004722,
+    "foot_clearance_pre_zone_ratio": 0.352188605310876,
+    "swing_contact_bump_scale": 0.17097321283731426,
+    "drag_foot_penalty": -0.12839356771926597,
+    "stagnation_penalty": -0.49483584241878154,
+    "crouch_penalty": -0.8562610352925535,
+    "dof_pos": -0.04571923574044041
+  },
+  "rl_overrides": {
+    "learning_rate": 0.000771134124491447,
+    "entropy_loss_scale": 0.005768940092623546,
+    "policy_hidden_layer_sizes": [
+      512,
+      256,
+      128
+    ],
+    "value_hidden_layer_sizes": [
+      512,
+      256,
+      128
+    ],
+    "rollouts": 24,
+    "learning_epochs": 6,
+    "mini_batches": 16,
+    "discount_factor": 0.999,
+    "max_env_steps": 10000000,
+    "seed": 42,
+    "check_point_interval": 101
+  },
+  "env_overrides": {
+    "hard_tilt_deg": 70.0,
+    "soft_tilt_deg": 50.0,
+    "enable_base_contact_term": true,
+    "enable_stagnation_truncate": true,
+    "grace_period_steps": 100,
+    "reset_yaw_scale": 0.0
+  }
+}

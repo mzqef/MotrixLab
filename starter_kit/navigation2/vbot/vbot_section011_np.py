@@ -890,6 +890,7 @@ class VBotSection011Env(NpEnv):
             "action_scale_mean": info["current_action_scale"].astype(np.float32).reshape(-1),
             "bump_entry_frac": in_bump_zone,
             "max_y_progress": max_y_reached,
+            "smiley_reached_frac": np.any(info["smileys_reached"], axis=1).astype(np.float32),
         }
         return state
 

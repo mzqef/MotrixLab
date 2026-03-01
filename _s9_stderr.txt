@@ -1,0 +1,39 @@
+warning: Found both a `uv.toml` file and a `[tool.uv]` section in an adjacent `pyproject.toml`. The `[tool.uv]` section will be ignored in favor of the `uv.toml` file.
+2026-03-01T02:48:45Z [INFO] Resuming AutoML: automl_20260301_002349
+2026-03-01T02:48:45Z [INFO] Starting AutoML pipeline: automl_20260301_002349
+2026-03-01T02:48:45Z [INFO] Mode: full, Budget: 48.0h
+2026-03-01T02:48:45Z [INFO] State saved to D:\MotrixLab\starter_kit_log\automl_20260301_002349\state.yaml
+2026-03-01T02:48:45Z [INFO] 
+============================================================
+2026-03-01T02:48:45Z [INFO] Starting stage: stage1_flat
+2026-03-01T02:48:45Z [INFO] ============================================================
+2026-03-01T02:48:45Z [INFO] State saved to D:\MotrixLab\starter_kit_log\automl_20260301_002349\state.yaml
+2026-03-01T02:48:45Z [INFO] Optimizing stage: stage1_flat
+2026-03-01T02:48:45Z [INFO] State saved to D:\MotrixLab\starter_kit_log\automl_20260301_002349\state.yaml
+2026-03-01T02:48:45Z [INFO] Running unified HP+reward search for stage1_flat: 20 trials
+2026-03-01T02:48:45Z [INFO]   Environment: vbot_navigation_section011
+2026-03-01T02:48:45Z [INFO]   Warm-start from: runs\vbot_navigation_section011\26-02-28_13-15-37-944448_PPO\checkpoints\agent_15000.pt
+2026-03-01T02:48:45Z [INFO]   Freeze preprocessor: True
+2026-03-01T02:48:45Z [INFO]   Reward search space: 32 parameters
+2026-03-01T02:48:45Z [INFO]   Resuming from trial 4 (skipping 4 completed)
+2026-03-01T02:48:45Z [INFO]   Current best: score=0.5992, wp_idx=3.943
+2026-03-01T02:48:45Z [INFO] Trial 5/20: lr=7.00e-04, term=-25, alive=1.9791454763848102
+2026-03-01T02:48:45Z [INFO] Launching training: automl_20260301_002349_stage1_flat_i4_1772304525
+2026-03-01T02:48:45Z [INFO]   HP: lr=7.00e-04, rollouts=24
+2026-03-01T02:48:45Z [INFO]   Reward: alive=1.9791454763848102, term=-25
+2026-03-01T02:48:45Z [INFO]   Steps: 15,000,000
+2026-03-01T02:50:22Z [WARNING] AutoML interrupted by user
+2026-03-01T02:50:22Z [INFO] State saved to D:\MotrixLab\starter_kit_log\automl_20260301_002349\state.yaml
+2026-03-01T02:50:22Z [INFO] Report generated: D:\MotrixLab\starter_kit_log\automl_20260301_002349\report.md
+Traceback (most recent call last):
+  File "D:\MotrixLab\_resume_s9.py", line 28, in <module>
+    proc = subprocess.run(cmd, timeout=25200)
+  File "D:\Python310\lib\subprocess.py", line 503, in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+  File "D:\Python310\lib\subprocess.py", line 1168, in communicate
+    sts = self.wait(timeout=self._remaining_time(endtime))
+  File "D:\Python310\lib\subprocess.py", line 1204, in wait
+    return self._wait(timeout=timeout)
+  File "D:\Python310\lib\subprocess.py", line 1485, in _wait
+    result = _winapi.WaitForSingleObject(self._handle,
+KeyboardInterrupt
