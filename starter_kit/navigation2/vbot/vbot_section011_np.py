@@ -37,12 +37,12 @@ from motrix_envs.math.quaternion import Quaternion
 from .cfg import VBotSection011EnvCfg, TerrainScaleHelper
 
 # ============================================================
-# 庆祝状态机常量
+# 庆祝状态机常量 (v58: X轴行走 + 蹲坐庆祝)
 # ============================================================
 CELEB_IDLE = 0        # 未开始庆祝
-CELEB_TURNING = 1     # 在高台上, 正在执行庆祝动作
-CELEB_SETTLING = 2    # 完成一次动作后等待稳定
-CELEB_DONE = 3        # 所有庆祝动作完成
+CELEB_WALKING = 1     # 走向X轴端点
+CELEB_SITTING = 2     # 蹲坐中
+CELEB_DONE = 3        # 庆祝完成
 
 # 机器人躯干矩形足印半尺寸 (m) — 来自vbot.xml collision_middle_box
 # 用于 footprint-contains 检测: 区域中心点是否落在机器人矩形投影内
@@ -209,14 +209,15 @@ class VBotSection011Env(NpEnv):
         self.PHASE_CELEBRATION = 3
         self.NUM_WAYPOINTS = 7  # 航点总数 = 3笑脸 + 3红包 + 1高台
 
-        # 庆祝参数 (多次跳跃庆祝)
+        # 庆祝参数 (v58: X轴行走 + 蹲坐)
         wn = cfg.waypoint_nav
         self.wp_radius = wn.waypoint_radius
         self.wp_final_radius = wn.final_radius
-        self.celeb_turn_threshold = getattr(wn, 'celebration_turn_threshold', 1.55)
-        self.required_turns = getattr(wn, 'required_turns', 3)
-        self.celeb_settle_z = getattr(wn, 'celebration_settle_z', 1.50)
-        print(f"[Info] 分阶段导航: {self.num_smileys}笑脸 → {self.num_red_packets}红包 → 高台 → 庆祝")
+        self.celeb_x_target = np.array(getattr(wn, 'celeb_x_waypoint', [4.0, 7.83]), dtype=np.float32)
+        self.celeb_walk_radius = getattr(wn, 'celeb_walk_radius', 1.0)
+        self.celeb_sit_z = getattr(wn, 'celeb_sit_z', 1.35)
+        self.celeb_sit_steps = getattr(wn, 'celeb_sit_steps', 30)
+        print(f"[Info] 分阶段导航: {self.num_smileys}笑脸 → {self.num_red_packets}红包 → 高台 → X轴行走+蹲坐庆祝")
 
     # ============================================================
     # 传感器 & 物理辅助
@@ -451,7 +452,6 @@ class VBotSection011Env(NpEnv):
         red_packet_bonus_tb = np.zeros(n, dtype=np.float32)  # TensorBoard individual tracking
         phase_bonus = np.zeros(n, dtype=np.float32)
         celeb_bonus = np.zeros(n, dtype=np.float32)
-        turn_reward = np.zeros(n, dtype=np.float32)
 
         # --- Phase APPROACH → 0: 进入bump区 (y >= -1.5) ---
         in_approach = (nav_phase == self.PHASE_APPROACH)
@@ -535,44 +535,50 @@ class VBotSection011Env(NpEnv):
         info["wp_idx"] = wp_idx
         info["nav_phase"] = nav_phase
 
-        # --- Phase 3: 庆祝动作 (v27: 执行N次) ---
+        # --- Phase 3: 庆祝动作 (v58: X轴行走 + 蹲坐) ---
         in_celeb = (nav_phase == self.PHASE_CELEBRATION)
-        turn_count = info["turn_count"]
+        celeb_sit_counter = info["celeb_sit_counter"]
+        celeb_walk_reward = np.zeros(n, dtype=np.float32)
 
-        # IDLE -> TURNING (进入庆祝阶段)
+        # IDLE -> WALKING (进入庆祝阶段)
         start_celeb = in_celeb & (celeb_state == CELEB_IDLE)
         if np.any(start_celeb):
-            celeb_state = np.where(start_celeb, CELEB_TURNING, celeb_state)
+            celeb_state = np.where(start_celeb, CELEB_WALKING, celeb_state)
 
-        # TURNING: 奖励向上运动, 检测动作完成
-        turning = in_celeb & (celeb_state == CELEB_TURNING)
-        if np.any(turning):
-            # 连续奖励: z越高越好 (platform standing z ≈ 1.55)
-            z_above_standing = np.maximum(current_z - 1.5, 0.0)
-            turn_reward += np.where(turning, scales.get("turn_reward", 8.0) * z_above_standing, 0.0)
+        # WALKING: 走向X轴端点
+        walking = in_celeb & (celeb_state == CELEB_WALKING)
+        if np.any(walking):
+            # 连续奖励: 接近X轴端点 (delta-based)
+            d_x_target = np.linalg.norm(robot_xy - self.celeb_x_target[np.newaxis, :], axis=1)
+            last_d_x = info.get("last_celeb_x_dist", d_x_target.copy())
+            x_delta = last_d_x - d_x_target  # 正 = 靠近
+            celeb_walk_reward += np.where(walking, np.clip(x_delta * scales.get("celeb_walk_approach", 200.0), -0.5, 2.5), 0.0)
+            info["last_celeb_x_dist"] = d_x_target.copy()
 
-            # 动作检测: z超过阈值 → 转入SETTLING等待稳定
-            turned = turning & (current_z > self.celeb_turn_threshold)
-            if np.any(turned):
-                turn_count = np.where(turned, turn_count + 1, turn_count)
-                # 每次完成给一次性奖励
-                celeb_bonus += np.where(turned, scales.get("per_turn_bonus", 15.0), 0.0)
-                # 检查是否完成所有庆祝
-                all_done = turned & (turn_count >= self.required_turns)
-                still_turning = turned & (turn_count < self.required_turns)
-                celeb_state = np.where(all_done, CELEB_DONE, celeb_state)
-                celeb_state = np.where(still_turning, CELEB_SETTLING, celeb_state)
-                # 完成全部庆祝的额外大奖
-                celeb_bonus += np.where(all_done, scales.get("celebration_bonus", 50.0), 0.0)
+            # 到达X轴端点 → 给一次性奖励, 进入SITTING
+            arrived_x = walking & (d_x_target < self.celeb_walk_radius)
+            if np.any(arrived_x):
+                celeb_bonus += np.where(arrived_x, scales.get("celeb_walk_bonus", 30.0), 0.0)
+                celeb_state = np.where(arrived_x, CELEB_SITTING, celeb_state)
 
-        # SETTLING: 等待稳定 (z回到standing以下), 然后重新进入TURNING
-        settling = in_celeb & (celeb_state == CELEB_SETTLING)
-        if np.any(settling):
-            settled = settling & (current_z < self.celeb_settle_z)
-            if np.any(settled):
-                celeb_state = np.where(settled, CELEB_TURNING, celeb_state)
+        # SITTING: 蹲坐 (z低于阈值, 保持N步)
+        sitting = in_celeb & (celeb_state == CELEB_SITTING)
+        if np.any(sitting):
+            # 连续奖励: z越低越好 (鼓励蹲下)
+            z_below = np.maximum(1.55 - current_z, 0.0)  # standing ≈ 1.55, 越低越好
+            celeb_walk_reward += np.where(sitting, scales.get("celeb_sit_reward", 5.0) * z_below, 0.0)
 
-        info["turn_count"] = turn_count
+            # 检测蹲坐: z < 阈值时累加计数器, 否则清零
+            is_low = current_z < self.celeb_sit_z
+            celeb_sit_counter = np.where(sitting & is_low, celeb_sit_counter + 1, np.where(sitting, 0, celeb_sit_counter))
+
+            # 蹲坐足够久 → DONE
+            sit_done = sitting & (celeb_sit_counter >= self.celeb_sit_steps)
+            if np.any(sit_done):
+                celeb_bonus += np.where(sit_done, scales.get("celebration_bonus", 50.0), 0.0)
+                celeb_state = np.where(sit_done, CELEB_DONE, celeb_state)
+
+        info["celeb_sit_counter"] = celeb_sit_counter
         info["celeb_state"] = celeb_state
 
         # zone_bonus 包含笑脸+红包+高台一次性奖励
@@ -581,7 +587,7 @@ class VBotSection011Env(NpEnv):
         info["_smiley_bonus_tb"] = smiley_bonus_tb
         info["_red_packet_bonus_tb"] = red_packet_bonus_tb
         info["_phase_bonus_tb"] = phase_bonus
-        return info, wp_bonus, celeb_bonus, turn_reward
+        return info, wp_bonus, celeb_bonus, celeb_walk_reward
 
     def _get_current_target(self, info, robot_xy):
         """v25 Ordered targeting: nearest side → middle → far side.
@@ -646,6 +652,12 @@ class VBotSection011Env(NpEnv):
             nav_phase == self.PHASE_RED_PACKETS, info["red_packets_reached"],
             self.red_packet_centers,
             self._rp_left_idx, self._rp_middle_idx, self._rp_right_idx)
+
+        # Phase 3 CELEB_WALKING: 目标 = X轴端点
+        celeb_state = info.get("celeb_state", np.full(n, CELEB_IDLE, dtype=np.int32))
+        celeb_walking = (nav_phase == self.PHASE_CELEBRATION) & (celeb_state == CELEB_WALKING)
+        if np.any(celeb_walking):
+            targets[celeb_walking] = self.celeb_x_target
 
         return targets
 
@@ -728,11 +740,13 @@ class VBotSection011Env(NpEnv):
         current_z = root_pos[:, 2]
         speed_xy = np.linalg.norm(base_lin_vel[:, :2], axis=1)
         # --- 航点 & 庆祝更新 ---
-        info, wp_bonus, celeb_bonus, turn_reward = \
+        info, wp_bonus, celeb_bonus, celeb_walk_reward = \
             self._update_waypoint_state(info, robot_xy, robot_heading, current_z)
 
         # --- 当前导航目标 (基于阶段 + 最近未收集区域) ---
         target_xy = self._get_current_target(info, robot_xy)
+        # v58: CELEB_WALKING阶段保持导航, 仅SITTING/DONE阶段停止
+        celeb_stop = (info["nav_phase"] == self.PHASE_CELEBRATION) & (info["celeb_state"] >= CELEB_SITTING)
         in_celeb = (info["nav_phase"] >= self.PHASE_CELEBRATION)
 
         # 导航命令
@@ -753,14 +767,14 @@ class VBotSection011Env(NpEnv):
 
         # 运动命令
         desired_vel_xy = np.clip(position_error * 1.0, -1.0, 1.0)
-        desired_vel_xy = np.where((reached_wp | in_celeb)[:, np.newaxis], 0.0, desired_vel_xy)
+        desired_vel_xy = np.where((reached_wp | celeb_stop)[:, np.newaxis], 0.0, desired_vel_xy)
 
         desired_heading = np.arctan2(position_error[:, 1], position_error[:, 0])
         heading_to_movement = self._wrap_angle(desired_heading - robot_heading)
         desired_yaw_rate = np.clip(heading_to_movement * 1.0, -1.0, 1.0)
         deadband_yaw = np.deg2rad(8)
         desired_yaw_rate = np.where(np.abs(heading_to_movement) < deadband_yaw, 0.0, desired_yaw_rate)
-        desired_yaw_rate = np.where(reached_wp | in_celeb, 0.0, desired_yaw_rate)
+        desired_yaw_rate = np.where(reached_wp | celeb_stop, 0.0, desired_yaw_rate)
 
         velocity_commands = np.column_stack([desired_vel_xy, desired_yaw_rate[:, np.newaxis] if desired_yaw_rate.ndim == 1 else desired_yaw_rate])
 
@@ -788,8 +802,8 @@ class VBotSection011Env(NpEnv):
         actual_torques = self._get_actuator_torques(data)                                    # [n, 12] raw unclipped PD
         torques_normalized = actual_torques / self.torque_limits[np.newaxis, :]               # can exceed ±1 when saturated
 
-        # 庆祝进度观测: 0=导航中, 0.5=在平台跳跃中, 1.0=跳跃完成
-        celeb_progress = info["celeb_state"].astype(np.float32) / 2.0
+        # v58: 庆祝进度观测: 0=导航中, 0.33=X轴行走, 0.67=蹲坐中, 1.0=完成
+        celeb_progress = info["celeb_state"].astype(np.float32) / 3.0
 
         obs = np.concatenate([
             noisy_linvel,                              # 3
@@ -825,7 +839,7 @@ class VBotSection011Env(NpEnv):
             data, info, velocity_commands, base_lin_vel, gyro, projected_gravity,
             joint_vel, distance_to_target, position_error, reached_wp,
             terminated, robot_heading, robot_xy, current_z, speed_xy,
-            wp_bonus, celeb_bonus, turn_reward, in_celeb
+            wp_bonus, celeb_bonus, celeb_walk_reward, in_celeb
         )
 
         state.obs = obs
@@ -872,7 +886,7 @@ class VBotSection011Env(NpEnv):
             "wp_idx_mean": info["wp_idx"].astype(np.float32),
             "nav_phase_mean": info["nav_phase"].astype(np.float32),
             "celeb_state_mean": info["celeb_state"].astype(np.float32),
-            "turn_count_mean": info["turn_count"].astype(np.float32),
+            "celeb_sit_counter_mean": info["celeb_sit_counter"].astype(np.float32),
             "action_scale_mean": info["current_action_scale"].astype(np.float32).reshape(-1),
             "bump_entry_frac": in_bump_zone,
             "max_y_progress": max_y_reached,
@@ -972,7 +986,7 @@ class VBotSection011Env(NpEnv):
     def _compute_reward(self, data, info, velocity_commands, base_lin_vel, gyro,
                          projected_gravity, joint_vel, distance_to_target, position_error,
                          reached_wp, terminated, robot_heading, robot_xy, current_z,
-                         speed_xy, wp_bonus, celeb_bonus, turn_reward, in_celeb):
+                         speed_xy, wp_bonus, celeb_bonus, celeb_walk_reward, in_celeb):
         scales = self._cfg.reward_config.scales
         n = self._num_envs
 
@@ -1276,14 +1290,15 @@ class VBotSection011Env(NpEnv):
             + scales.get("forward_velocity", 3.5) * forward_velocity
             + alive_bonus
         )
-        # 庆祝期间导航奖励降低, 用旋转奖励替代
-        nav_reward = np.where(in_celeb, alive_bonus, nav_reward)
+        # v58: 庆祝SITTING/DONE期间导航奖励降低; WALKING期间保持导航奖励
+        celeb_stop = in_celeb & (info["celeb_state"] >= CELEB_SITTING)
+        nav_reward = np.where(celeb_stop, alive_bonus, nav_reward)
 
         reward = (
             nav_reward
             + wp_bonus
             + celeb_bonus
-            + turn_reward
+            + celeb_walk_reward
             + height_progress
             + height_approach
             + slope_orientation_reward
@@ -1310,7 +1325,7 @@ class VBotSection011Env(NpEnv):
             "alive_bonus": alive_bonus,
             "wp_bonus": wp_bonus,
             "celeb_bonus": celeb_bonus,
-            "turn_reward": turn_reward,
+            "celeb_walk_reward": celeb_walk_reward,
             "smiley_bonus": smiley_total,
             "red_packet_bonus": red_packet_total,
             "zone_approach": zone_approach_reward,
@@ -1451,9 +1466,9 @@ class VBotSection011Env(NpEnv):
             "nav_phase": np.full(num_envs, self.PHASE_APPROACH, dtype=np.int32),
             "wp_idx": np.zeros(num_envs, dtype=np.int32),
             "platform_reached": np.zeros(num_envs, dtype=bool),
-            # 庆祝状态机 (v27: N次庆祝动作)
+            # 庆祝状态机 (v58: X轴行走 + 蹲坐)
             "celeb_state": np.full(num_envs, CELEB_IDLE, dtype=np.int32),
-            "turn_count": np.zeros(num_envs, dtype=np.int32),
+            "celeb_sit_counter": np.zeros(num_envs, dtype=np.int32),
             # 得分区追踪
             "smileys_reached": np.zeros((num_envs, self.num_smileys), dtype=bool),
             "red_packets_reached": np.zeros((num_envs, self.num_red_packets), dtype=bool),

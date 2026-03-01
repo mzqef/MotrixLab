@@ -113,7 +113,8 @@ class EvalMetrics:
     success_rate: float = 0.0
     termination_rate: float = 0.0
 
-    wp_idx_mean: float = 0.0  # section011: average waypoint index reached (0-3)
+    wp_idx_mean: float = 0.0  # section011: peak waypoint index reached (0-7)
+    celeb_state: float = 0.0   # peak celebration state (0=idle, 1=turning, 2=settling, 3=done)
 
     def compute_score(self, env_name: str = "") -> float:
         """Compute weighted AutoML score — environment-aware.
@@ -122,7 +123,19 @@ class EvalMetrics:
         Section011 (navigation2): wp_idx_mean (waypoint progression) is primary,
         since success_rate is always 0 (no single-target reached_fraction metric).
         """
-        if "section011" in env_name or "section012" in env_name or "section01" in env_name:
+        if "section012_stairs" in env_name:
+            # Section012-stairs: focused 3-waypoint scoring
+            # WP0=stair_base (trivial), WP1=stair_top, WP2=first_stone
+            # wp_idx ∈ [0, 3], key milestones: ≥2 = climbed stairs, ≥3 = collected valley reward
+            stair_rate = min(max(self.wp_idx_mean - 1.0, 0.0) / 1.0, 1.0)   # 0→1 as wp_idx goes 1→2
+            valley_rate = min(max(self.wp_idx_mean - 2.0, 0.0) / 1.0, 1.0)  # 0→1 as wp_idx goes 2→3
+            score = (
+                0.45 * stair_rate +                                    # 楼梯攀爬成功率 (核心)
+                0.30 * valley_rate +                                   # 河谷第一个奖励收集率
+                0.15 * (1.0 - self.termination_rate) +                  # 存活率
+                0.10 * min(self.episode_reward_mean / 30.0, 1.0)       # 奖励代理
+            )
+        elif "section011" in env_name or "section012" in env_name or "section01" in env_name:
             # Section011/012: waypoint-based progression scoring
             # section011: wp_idx ∈ [0, 7], section012: wp_idx ∈ [0, 14]
             max_wp = 14.0 if "section012" in env_name else 7.0
@@ -168,7 +181,7 @@ class AutoMLConfig:
     hp_method: str = "bayesian"  # bayesian | random | grid
     hp_trials_per_stage: int = 20
     hp_warmup_trials: int = 8  # v56: more random exploration before Bayesian (2 seeds + 8 warmup = 10 random, then Bayesian)
-    hp_eval_steps: int = 15_000_000  # v37: 15M steps — zones start appearing ~10M, Bayesian gets real signal
+    hp_eval_steps: int = 15_000_000  # v58: 15M steps — optimal for warm-start (25M collapses)
 
     # (Reward weights are searched jointly with HP — no separate reward search phase)
 
@@ -235,8 +248,8 @@ HP_SEARCH_SPACE = {
     # v49 Round: Boundaries expanded from v48-T14 analysis
     # T14 optimal: lr=4.51e-4, entropy=7.75e-3 (EXCEEDED old upper of 6e-3)
     # T7 optimal: lr=4.24e-4, entropy=4.11e-3, epochs=6, rollouts=24, mini_batches=16
-    "learning_rate": {"type": "loguniform", "low": 4e-4, "high": 1.5e-3},  # v56: raised floor (T3 failed at 2.2e-4)
-    "entropy_loss_scale": {"type": "loguniform", "low": 3e-3, "high": 1.5e-2},  # v49: widened (T14=7.75e-3 EXCEEDED old upper 6e-3)
+    "learning_rate": {"type": "loguniform", "low": 5e-5, "high": 2e-4},  # narrowed: T1 best_agent warm-start needs very low LR to avoid catastrophic forgetting
+    "entropy_loss_scale": {"type": "loguniform", "low": 1e-3, "high": 2e-2},  # widened for stair exploration
     # Network sizes FIXED — v47: larger policy net (512,256,128) matching value net
     "policy_hidden_layer_sizes": {
         "type": "categorical",
@@ -309,10 +322,11 @@ REWARD_SEARCH_SPACE_SECTION011 = {
     # ===== 一次性奖金 =====
     "waypoint_bonus": {"type": "uniform", "low": 10.0, "high": 60.0},        # T10=27.2 ±60%
     "phase_bonus": {"type": "uniform", "low": 40.0, "high": 180.0},          # T10=99.8 ±60%
-    # ===== 庆祝动作奖励 =====
-    "per_turn_bonus": {"type": "uniform", "low": 15.0, "high": 80.0},        # T10=46.8 ±60%
-    "celebration_bonus": {"type": "uniform", "low": 50.0, "high": 250.0},    # T10=126.6 ±60%
-    "turn_reward": {"type": "uniform", "low": 2.0, "high": 15.0},            # T10=7.55 ±70%
+    # ===== 庆祝動作奖励 (v58: X轴行走 + 蹲坐) =====
+    "celeb_walk_approach": {"type": "uniform", "low": 50.0, "high": 400.0},
+    "celeb_walk_bonus": {"type": "uniform", "low": 10.0, "high": 80.0},
+    "celeb_sit_reward": {"type": "uniform", "low": 1.0, "high": 15.0},
+    "celebration_bonus": {"type": "uniform", "low": 20.0, "high": 150.0},
     # ===== 惩罚 — T10 had light penalties; test slightly wider =====
     "termination": {"type": "choice", "values": [-100, -75, -50, -25]},       # v56: lighter range (T3/T4 died with -200/-100)
     "orientation": {"type": "uniform", "low": -0.03, "high": -0.003},         # T10=-0.011 ±65%
@@ -342,38 +356,47 @@ REWARD_SEARCH_SPACE_SECTION011 = {
 # Ranges centered on BASE_REWARD_SCALES values (section011 T14 winner), ±60%
 # Note: section012 shares BASE_REWARD_SCALES with section011, same reward keys
 REWARD_SEARCH_SPACE_SECTION012 = {
-    # ===== STAIR-FOCUSED MINIMAL SET (2026-02-26) =====
-    # Strategy: spawn at stair bottom, strip away all bonuses/celebration noise,
-    # focus search on the 3 levers that matter for climbing 0.10m discrete steps:
-    #   1) foot_clearance_stair_boost — force leg lifting over step edges
-    #   2) lin_vel_z — must be very light (section011 used -0.027, was 7.2x lighter than default)
-    #   3) torque_saturation — must be light to allow strong leg drive
+    # ===== ANTI-LAZY STAIR SEARCH v4 (2026-03-01) =====
+    # v3 diagnosis: stagnation/crouch/drag_foot penalties were in search space
+    #   but NEVER computed in _compute_reward! Ghost parameters.
+    #   Now fixed: all three ported from section011 into section012.
+    # Additional fixes: tighten search space floors to prevent degenerate configs:
+    #   - termination min=-25 (was -5), lin_vel_z min=-0.005, torque_sat min=-0.005
+    #   - alive_bonus max=0.3 (was 1.0) → 0.3×3000=900 max vs waypoint_bonus 50-300
     #
-    # ===== Navigation core (keep strong forward pull toward stair top) =====
-    "forward_velocity": {"type": "uniform", "low": 2.0, "high": 8.0},       # BASE=3.163 — need strong forward drive into stairs
-    "waypoint_approach": {"type": "uniform", "low": 200.0, "high": 800.0},  # BASE=280.5 — strong pull toward next WP
-    "waypoint_facing": {"type": "uniform", "low": 0.3, "high": 1.0},        # BASE=0.637 — keep heading aligned
-    # ===== 存活奖励 (ZERO to prevent backward-walk exploit) =====
-    "alive_bonus": {"type": "uniform", "low": 0.0, "high": 0.05},           # BASE=1.013 — effectively disabled: robot MUST navigate forward, not survive
+    # ===== Navigation core (DOMINANT — must outweigh survival) =====
+    "forward_velocity": {"type": "uniform", "low": 3.0, "high": 30.0},
+    "waypoint_approach": {"type": "uniform", "low": 300.0, "high": 5000.0},
+    "zone_approach": {"type": "uniform", "low": 30.0, "high": 400.0},
+    "waypoint_facing": {"type": "uniform", "low": 0.1, "high": 3.0},
+    "position_tracking": {"type": "uniform", "low": 0.1, "high": 2.0},
+    # ===== 存活奖励 (HARD CAPPED — standing still must never pay) =====
+    "alive_bonus": {"type": "uniform", "low": 0.01, "high": 0.3},             # v4: 0.3×3000=900 max, beaten by any waypoint_bonus
+    "alive_decay_horizon": {"type": "uniform", "low": 200.0, "high": 800.0},  # v4: faster decay, max 800 (was 1200)
+    # ===== 一次性奖金 (BOOSTED — reaching WP1 must be huge) =====
+    "waypoint_bonus": {"type": "uniform", "low": 50.0, "high": 300.0},
     # ===== 楼梯核心: 抬脚 + 步态 =====
-    "foot_clearance": {"type": "uniform", "low": 0.15, "high": 0.6},        # BASE=0.219 — higher floor: always reward leg lifting
-    "foot_clearance_stair_boost": {"type": "uniform", "low": 15.0, "high": 25.0},  # BASE=20.0 — AGGRESSIVE: force leg lifting over step edges
-    "foot_clearance_pre_zone_ratio": {"type": "uniform", "low": 0.3, "high": 0.9},  # BASE=0.5
-    "swing_contact_stair_scale": {"type": "uniform", "low": 0.1, "high": 0.6},   # BASE=0.5 — lighter: don't punish swing phase on stairs
-    "stance_ratio": {"type": "uniform", "low": 0.03, "high": 0.12},         # BASE=0.070
-    # ===== 惩罚 (RELAXED for vertical motion — key lesson from section011) =====
-    "lin_vel_z": {"type": "uniform", "low": -0.01, "high": -0.001},          # BASE=-0.005 — MUST be very light: stairs require vertical velocity
-    "torque_saturation": {"type": "uniform", "low": -0.015, "high": -0.002}, # BASE=-0.012 — light: allow strong motor effort for step climbing
-    "action_rate": {"type": "uniform", "low": -0.012, "high": -0.002},       # BASE=-0.007 — light: dynamic actions needed for stair negotiation
-    "orientation": {"type": "uniform", "low": -0.04, "high": -0.005},        # BASE=-0.026
-    "slope_orientation": {"type": "uniform", "low": 0.01, "high": 0.08},     # BASE=0.04 — compensate for orientation penalty on stairs
-    "ang_vel_xy": {"type": "uniform", "low": -0.06, "high": -0.008},         # BASE=-0.038
-    "impact_penalty": {"type": "uniform", "low": -0.15, "high": -0.02},      # BASE=-0.100
-    "swing_contact_penalty": {"type": "uniform", "low": -0.008, "high": -0.0005},  # BASE=-0.003
-    "termination": {"type": "choice", "values": [-100, -75, -50, -25]},      # lighter: don't over-punish falls during learning
-    # NOTE: transit_bonus, stone_bonus, bridge_*, celebration_*, traversal_bonus
-    # are INTENTIONALLY EXCLUDED — fixed at cfg.py defaults. Searching them adds
-    # noise when the only goal is "learn to climb stairs".
+    "foot_clearance": {"type": "uniform", "low": 0.05, "high": 2.0},
+    "foot_clearance_stair_boost": {"type": "uniform", "low": 5.0, "high": 80.0},
+    "foot_clearance_valley_boost": {"type": "uniform", "low": 3.0, "high": 30.0},
+    "foot_clearance_pre_zone_ratio": {"type": "uniform", "low": 0.1, "high": 1.0},
+    "swing_contact_stair_scale": {"type": "uniform", "low": 0.0, "high": 1.0},
+    "swing_contact_valley_scale": {"type": "uniform", "low": 0.05, "high": 0.8},
+    "stance_ratio": {"type": "uniform", "low": 0.0, "high": 0.25},
+    # ===== 惩罚 (TIGHTENED — no near-zero values allowed) =====
+    "lin_vel_z": {"type": "uniform", "low": -0.05, "high": -0.005},           # v4: floor -0.005 (was 0.0)
+    "torque_saturation": {"type": "uniform", "low": -0.1, "high": -0.005},    # v4: floor -0.005 (was 0.0)
+    "action_rate": {"type": "uniform", "low": -0.05, "high": -0.002},         # v4: floor -0.002 (was 0.0)
+    "orientation": {"type": "uniform", "low": -0.1, "high": -0.01},           # v4: floor -0.01 (was 0.0)
+    "slope_orientation": {"type": "uniform", "low": 0.0, "high": 0.3},
+    "ang_vel_xy": {"type": "uniform", "low": -0.15, "high": -0.005},          # v4: floor -0.005 (was 0.0)
+    "impact_penalty": {"type": "uniform", "low": -0.3, "high": -0.01},        # v4: floor -0.01 (was 0.0)
+    "swing_contact_penalty": {"type": "uniform", "low": -0.03, "high": -0.001},  # v4: floor -0.001 (was 0.0)
+    "drag_foot_penalty": {"type": "uniform", "low": -0.6, "high": -0.05},     # v4: MANDATORY floor -0.05 (was 0.0)
+    "stagnation_penalty": {"type": "uniform", "low": -8.0, "high": -1.0},     # v4: raised floor -1.0 (was -0.5)
+    "crouch_penalty": {"type": "uniform", "low": -5.0, "high": -0.5},         # v4: raised floor -0.5 (was -0.3)
+    "dof_pos": {"type": "uniform", "low": -0.06, "high": 0.0},
+    "termination": {"type": "choice", "values": [-50, -25, -10]},              # v4: removed -5 (too light)
 }
 
 # --- Section013 (金球/坡道/hfield, 25pt section, ball-navigation + celebration) ---
@@ -423,6 +446,7 @@ REWARD_SEARCH_SPACE_SECTION013 = {
 # Registry: env name pattern → search space
 _REWARD_SEARCH_SPACES = {
     "section013": REWARD_SEARCH_SPACE_SECTION013,
+    "section012_stairs": REWARD_SEARCH_SPACE_SECTION012,  # focused stairs+valley uses same reward space
     "section012": REWARD_SEARCH_SPACE_SECTION012,
     "section011": REWARD_SEARCH_SPACE_SECTION011,
     "section001": REWARD_SEARCH_SPACE_SECTION001,
@@ -494,8 +518,11 @@ REWARD_COMPONENT_CATEGORIES = {
     # Section011 terrain
     "height_progress": "terrain",
     "traversal_bonus": "terrain",
-    # Section011 celebration
-    "turn_reward": "navigation",
+    # Section011 celebration (v58: X轴行走 + 蹲坐)
+    "celeb_walk_approach": "navigation",
+    "celeb_walk_bonus": "navigation",
+    "celeb_sit_reward": "navigation",
+    "turn_reward": "navigation",  # section013 legacy
     "phase_completion_bonus": "navigation",
     # Section011 gait quality
     "stance_ratio": "gait",
@@ -1071,12 +1098,13 @@ class AutoMLPipeline:
             episode_length_mean=eval_result.get("final_episode_length", 0.0),
             success_rate=eval_result.get("final_reached_fraction", 0.0),
             termination_rate=termination_rate,
-            wp_idx_mean=eval_result.get("final_wp_idx_mean", 0.0),
+            wp_idx_mean=eval_result.get("peak_wp_idx_mean", eval_result.get("final_wp_idx_mean", 0.0)),
+            celeb_state=eval_result.get("peak_celeb_state", 0.0),
         )
 
         logger.info(
             f"  Result: reward={metrics.episode_reward_mean:.2f}, "
-            f"wp_idx={metrics.wp_idx_mean:.2f}, "
+            f"wp_idx={metrics.wp_idx_mean:.1f}, celeb={metrics.celeb_state:.0f}, "
             f"reached={metrics.success_rate:.2%}, elapsed={elapsed:.0f}s"
         )
 
@@ -1107,6 +1135,7 @@ class AutoMLPipeline:
                     "episode_reward_mean": metrics.episode_reward_mean,
                     "success_rate": metrics.success_rate,
                     "wp_idx_mean": metrics.wp_idx_mean,
+                    "celeb_state": metrics.celeb_state,
                 },
                 "reward_scales": reward_scales,
                 "reward_components": reward_components,

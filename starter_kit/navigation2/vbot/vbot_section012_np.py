@@ -47,15 +47,20 @@ from motrix_envs import registry
 from motrix_envs.np.env import NpEnv, NpEnvState
 from motrix_envs.math.quaternion import Quaternion
 
-from .cfg import VBotSection012EnvCfg, TerrainScaleHelper
+from .cfg import VBotSection012EnvCfg, VBotSection012StairsEnvCfg, TerrainScaleHelper
 
 # ============================================================
-# 庆祝状态机常量 (多次跳跃)
+# 庆祝状态机常量 (v58: X轴行走 + 蹲坐庆祝, 与section011一致)
 # ============================================================
-CELEB_IDLE = 0
-CELEB_TURNING = 1
-CELEB_SETTLING = 2
-CELEB_DONE = 3
+CELEB_IDLE = 0        # 未开始庆祝
+CELEB_WALKING = 1     # 走向X轴端点
+CELEB_SITTING = 2     # 蹲坐中
+CELEB_DONE = 3        # 庆祝完成
+
+# 机器人躯干矩形足印半尺寸 (m) — 来自vbot.xml collision_middle_box
+# 用于 footprint-contains 检测: 区域中心点是否落在机器人矩形投影内
+ROBOT_HALF_X = 0.25  # 前后半长
+ROBOT_HALF_Y = 0.15  # 左右半宽
 
 
 @registry.env("vbot_navigation_section012", "np")
@@ -176,6 +181,8 @@ class VBotSection012Env(NpEnv):
         self.wp_z_max = np.array([w.z_max for w in wps], dtype=np.float32)    # [N]
         self.wp_labels = [w.label for w in wps]
         self.wp_kinds = [w.kind for w in wps]
+        # reward航点使用footprint-contains检测 (radius<=0时启用)
+        self.wp_use_footprint = np.array([w.radius <= 0.0 for w in wps], dtype=bool)  # [N]
 
         # 预计算每个航点的奖金值 (从reward_scales查找)
         scales = cfg.reward_config.scales
@@ -184,17 +191,20 @@ class VBotSection012Env(NpEnv):
             for w in wps
         ], dtype=np.float32)  # [N]
 
-        # 庆祝配置
-        self.required_turns = route.required_turns
-        self.celeb_turn_threshold = route.celebration_turn_threshold
-        self.celeb_settle_z = route.celebration_settle_z
+        # 庆祝配置 (v58: X轴行走 + 蹲坐, 与section011一致)
+        # 庆祝X轴目标: goal航点X + celeb_x_offset
+        goal_xy = self.wp_xy[-1]
+        self.celeb_x_target = np.array([goal_xy[0] + route.celeb_x_offset, goal_xy[1]], dtype=np.float32)
+        self.celeb_walk_radius = route.celeb_walk_radius
+        self.celeb_sit_z = route.celeb_sit_z
+        self.celeb_sit_steps = route.celeb_sit_steps
 
         # 终点航点 (最后一个goal类型航点的坐标，用作fallback目标)
         self.goal_xy = self.wp_xy[-1].copy()
 
         labels = ", ".join(f"{w.label}({w.kind})" for w in wps)
         print(f"[Info] 有序路线导航: {self.num_route_waypoints}航点, "
-              f"{self.required_turns}次庆祝动作")
+              f"庆祝: X轴行走+蹲坐")
         print(f"[Info] 路线: {labels}")
 
     # ============================================================
@@ -302,6 +312,39 @@ class VBotSection012Env(NpEnv):
     def _wrap_angle(a):
         return (a + np.pi) % (2 * np.pi) - np.pi
 
+    @staticmethod
+    def _footprint_contains_point(center_xy, robot_xy, robot_heading, mask):
+        """检测区域中心点是否落在机器人矩形足印(XY平面投影)内。
+
+        向量化: 每个env可能对应不同航点中心, center_xy已按env索引。
+        仅对mask=True的env计算 (其余返回False)。
+
+        Args:
+            center_xy: [n, 2] 各env当前目标航点坐标
+            robot_xy: [n, 2] 机器人位置
+            robot_heading: [n] 机器人航向角 (yaw)
+            mask: [n] bool — 仅对True的env做footprint检测
+
+        Returns:
+            [n] bool — True 表示机器人足印包含该中心点
+        """
+        n = robot_xy.shape[0]
+        result = np.zeros(n, dtype=bool)
+        if not np.any(mask):
+            return result
+        # 相对偏移 (世界坐标)
+        dx = center_xy[:, 0] - robot_xy[:, 0]  # [n]
+        dy = center_xy[:, 1] - robot_xy[:, 1]  # [n]
+        # 旋转到机器人局部坐标 (反向旋转 heading)
+        cos_h = np.cos(robot_heading)
+        sin_h = np.sin(robot_heading)
+        local_x = dx * cos_h + dy * sin_h   # 前后方向
+        local_y = -dx * sin_h + dy * cos_h  # 左右方向
+        # 检查是否在矩形半尺寸内
+        inside = (np.abs(local_x) <= ROBOT_HALF_X) & (np.abs(local_y) <= ROBOT_HALF_Y)
+        result = np.where(mask, inside, False)
+        return result
+
     def _euler_to_quat(self, roll, pitch, yaw):
         cy, sy = np.cos(yaw * 0.5), np.sin(yaw * 0.5)
         cp, sp = np.cos(pitch * 0.5), np.sin(pitch * 0.5)
@@ -403,16 +446,17 @@ class VBotSection012Env(NpEnv):
 
         向量化实现: 每步仅检查当前目标航点，到达后自动推进到下一个。
         wp_idx = 已完成航点数量 (单调递增, 0 → num_route_waypoints)。
+        庆祝: X轴行走 + 蹲坐 (与section011一致)。
         """
         wp_current = info["wp_current"]    # [n] int32 — 当前目标航点索引
         wp_reached = info["wp_reached"]    # [n, N] bool — 各航点是否已到达
         celeb_state = info["celeb_state"]  # [n] int32
-        turn_count = info["turn_count"]    # [n] int32
+        celeb_sit_counter = info["celeb_sit_counter"]  # [n] int32
         n = self._num_envs
 
         milestone_bonus = np.zeros(n, dtype=np.float32)
         celeb_bonus = np.zeros(n, dtype=np.float32)
-        turn_reward = np.zeros(n, dtype=np.float32)
+        celeb_walk_reward = np.zeros(n, dtype=np.float32)
 
         # --- 航点推进 (可能连续推进多步, 处理紧邻航点) ---
         max_advances = min(3, self.num_route_waypoints)  # 每step最多推进3个航点
@@ -430,7 +474,16 @@ class VBotSection012Env(NpEnv):
 
             dist = np.linalg.norm(robot_xy - target_xy, axis=1)
             z_ok = (current_z >= target_z_lo) & (current_z <= target_z_hi)
-            arrived = not_done & (dist < target_r) & z_ok
+
+            # footprint-contains 检测: radius<=0 的航点使用机器人矩形足印检测
+            use_fp = self.wp_use_footprint[safe_idx]  # [n] bool
+            if np.any(use_fp):
+                fp_arrived = self._footprint_contains_point(target_xy, robot_xy, robot_heading, use_fp)
+                radius_arrived = dist < target_r
+                proximity = np.where(use_fp, fp_arrived, radius_arrived)
+            else:
+                proximity = dist < target_r
+            arrived = not_done & proximity & z_ok
 
             # first arrival only
             already = wp_reached[np.arange(n), safe_idx]
@@ -450,45 +503,52 @@ class VBotSection012Env(NpEnv):
         info["wp_reached"] = wp_reached
         info["wp_idx"] = wp_idx
 
-        # --- 庆祝: 到达所有航点后跳跃 ---
+        # --- 庆祝: 到达所有航点后 X轴行走 + 蹲坐 (与section011一致) ---
         all_done = (wp_current >= self.num_route_waypoints)
+        scales = self._cfg.reward_config.scales
 
-        # IDLE → TURNING
+        # IDLE → WALKING (进入庆祝阶段)
         start_celeb = all_done & (celeb_state == CELEB_IDLE)
         if np.any(start_celeb):
-            celeb_state = np.where(start_celeb, CELEB_TURNING, celeb_state)
+            celeb_state = np.where(start_celeb, CELEB_WALKING, celeb_state)
 
-        # TURNING: 奖励向上运动, 检测动作完成
-        turning = all_done & (celeb_state == CELEB_TURNING)
-        if np.any(turning):
-            z_above_standing = np.maximum(current_z - 1.5, 0.0)
-            turn_reward += np.where(
-                turning, self._cfg.reward_config.scales.get("turn_reward", 8.0) * z_above_standing, 0.0
-            )
-            turned = turning & (current_z > self.celeb_turn_threshold)
-            if np.any(turned):
-                turn_count = np.where(turned, turn_count + 1, turn_count)
-                celeb_bonus += np.where(
-                    turned, self._cfg.reward_config.scales.get("per_turn_bonus", 15.0), 0.0
-                )
-                all_turns_done = turned & (turn_count >= self.required_turns)
-                still_turning = turned & (turn_count < self.required_turns)
-                celeb_state = np.where(all_turns_done, CELEB_DONE, celeb_state)
-                celeb_state = np.where(still_turning, CELEB_SETTLING, celeb_state)
-                celeb_bonus += np.where(
-                    all_turns_done, self._cfg.reward_config.scales.get("celebration_bonus", 80.0), 0.0
-                )
+        # WALKING: 走向X轴端点
+        walking = all_done & (celeb_state == CELEB_WALKING)
+        if np.any(walking):
+            # 连续奖励: 接近X轴端点 (delta-based)
+            d_x_target = np.linalg.norm(robot_xy - self.celeb_x_target[np.newaxis, :], axis=1)
+            last_d_x = info.get("last_celeb_x_dist", d_x_target.copy())
+            x_delta = last_d_x - d_x_target  # 正 = 靠近
+            celeb_walk_reward += np.where(walking, np.clip(x_delta * scales.get("celeb_walk_approach", 200.0), -0.5, 2.5), 0.0)
+            info["last_celeb_x_dist"] = d_x_target.copy()
 
-        # SETTLING → TURNING (等待稳定)
-        landing = all_done & (celeb_state == CELEB_SETTLING)
-        if np.any(landing):
-            landed = landing & (current_z < self.celeb_settle_z)
-            celeb_state = np.where(landed, CELEB_TURNING, celeb_state)
+            # 到达X轴端点 → 给一次性奖励, 进入SITTING
+            arrived_x = walking & (d_x_target < self.celeb_walk_radius)
+            if np.any(arrived_x):
+                celeb_bonus += np.where(arrived_x, scales.get("celeb_walk_bonus", 30.0), 0.0)
+                celeb_state = np.where(arrived_x, CELEB_SITTING, celeb_state)
 
+        # SITTING: 蹲坐 (z低于阈值, 保持N步)
+        sitting = all_done & (celeb_state == CELEB_SITTING)
+        if np.any(sitting):
+            # 连续奖励: z越低越好 (鼓励蹲下)
+            z_below = np.maximum(1.55 - current_z, 0.0)  # standing ≈ 1.55, 越低越好
+            celeb_walk_reward += np.where(sitting, scales.get("celeb_sit_reward", 5.0) * z_below, 0.0)
+
+            # 检测蹲坐: z < 阈值时累加计数器, 否则清零
+            is_low = current_z < self.celeb_sit_z
+            celeb_sit_counter = np.where(sitting & is_low, celeb_sit_counter + 1, np.where(sitting, 0, celeb_sit_counter))
+
+            # 蹲坐足够久 → DONE
+            sit_done = sitting & (celeb_sit_counter >= self.celeb_sit_steps)
+            if np.any(sit_done):
+                celeb_bonus += np.where(sit_done, scales.get("celebration_bonus", 50.0), 0.0)
+                celeb_state = np.where(sit_done, CELEB_DONE, celeb_state)
+
+        info["celeb_sit_counter"] = celeb_sit_counter
         info["celeb_state"] = celeb_state
-        info["turn_count"] = turn_count
 
-        return info, milestone_bonus, celeb_bonus, turn_reward
+        return info, milestone_bonus, celeb_bonus, celeb_walk_reward
 
     def _get_current_target(self, info, robot_xy):
         """获取当前导航目标 — 有序航点索引直接查表"""
@@ -570,7 +630,7 @@ class VBotSection012Env(NpEnv):
         speed_xy = np.linalg.norm(base_lin_vel[:, :2], axis=1)
 
         # --- 航点 & 庆祝更新 ---
-        info, wp_bonus, celeb_bonus, turn_reward = \
+        info, wp_bonus, celeb_bonus, celeb_walk_reward = \
             self._update_waypoint_state(info, robot_xy, robot_heading, speed_xy, gyro[:, 2], current_z)
 
         # --- 当前导航目标 ---
@@ -622,8 +682,8 @@ class VBotSection012Env(NpEnv):
         actual_torques = self._get_actuator_torques(data)
         torques_normalized = actual_torques / self.torque_limits[np.newaxis, :]
 
-        # 庆祝进度观测
-        celeb_progress = info["celeb_state"].astype(np.float32) / 2.0
+        # 庆祝进度观测 (v4fix: /3.0 not /2.0 — celeb_state ∈ {0,1,2,3})
+        celeb_progress = info["celeb_state"].astype(np.float32) / 3.0
 
         obs = np.concatenate([
             noisy_linvel,                              # 3
@@ -655,7 +715,7 @@ class VBotSection012Env(NpEnv):
             data, info, base_lin_vel, gyro, projected_gravity,
             joint_vel, distance_to_target, position_error, reached_wp,
             terminated, robot_heading, robot_xy, current_z, speed_xy,
-            wp_bonus, celeb_bonus, turn_reward, in_celeb
+            wp_bonus, celeb_bonus, celeb_walk_reward, in_celeb
         )
 
         state.obs = obs
@@ -695,6 +755,7 @@ class VBotSection012Env(NpEnv):
         state.info["metrics"] = {
             "distance_to_target": distance_to_target,
             "reached_fraction": reached_wp.astype(np.float32),
+            "stair_cleared_fraction": (info["wp_idx"] >= 2).astype(np.float32),
             "wp_idx_mean": info["wp_idx"].astype(np.float32),
             "wp_current_mean": info["wp_current"].astype(np.float32),
             "celeb_state_mean": info["celeb_state"].astype(np.float32),
@@ -795,7 +856,7 @@ class VBotSection012Env(NpEnv):
     def _compute_reward(self, data, info, base_lin_vel, gyro,
                          projected_gravity, joint_vel, distance_to_target, position_error,
                          reached_wp, terminated, robot_heading, robot_xy, current_z,
-                         speed_xy, wp_bonus, celeb_bonus, turn_reward, in_celeb):
+                         speed_xy, wp_bonus, celeb_bonus, celeb_walk_reward, in_celeb):
         scales = self._cfg.reward_config.scales
         n = self._num_envs
 
@@ -828,12 +889,22 @@ class VBotSection012Env(NpEnv):
         # ===== 稳定性惩罚 =====
         orientation_penalty = np.sum(np.square(projected_gravity[:, :2]), axis=1)
         
-        # v58: 楼梯方向补偿 — 在楼梯上(y∈[12.0, 14.5])期望pitch≈26.5° (sin≈0.447)
+        # v59b: 多区域方向补偿 — 入口楼梯 + 河谷斜坡 + 远端楼梯
+        # 使用方向无关匹配: min(|gy-mag|, |gy+mag|), 因为robot在河谷和远端楼梯双向行走
         current_y_for_slope = robot_xy[:, 1]
-        on_stairs = (current_y_for_slope > 12.0) & (current_y_for_slope < 14.5)
-        expected_gy = np.where(on_stairs, 0.447, 0.0)
-        gy_error = np.abs(projected_gravity[:, 1] - expected_gy)
-        slope_compensation = np.where(on_stairs, np.exp(-np.square(gy_error) / 0.05), 0.0)
+        on_stairs = (current_y_for_slope > 12.0) & (current_y_for_slope < 14.5)           # 入口右楼梯 26.5°
+        on_valley_south = (current_y_for_slope > 14.33) & (current_y_for_slope < 17.0)    # 南侧河谷斜坡 ~14°
+        on_valley_north = (current_y_for_slope > 19.0) & (current_y_for_slope < 21.33)    # 北侧河谷斜坡 ~14°
+        on_far_stairs = (current_y_for_slope > 21.33) & (current_y_for_slope < 23.33)     # 远端左梯37°+右梯27°
+        # 各区域期望|gy|幅度 (取sin of slope angle)
+        expected_gy_mag = np.where(on_stairs, 0.447,
+                         np.where(on_valley_south | on_valley_north, 0.201,
+                         np.where(on_far_stairs, 0.600, 0.0)))
+        on_any_slope = on_stairs | on_valley_south | on_valley_north | on_far_stairs
+        # 方向无关误差: 允许正/负倾斜都能获得补偿 (远端楼梯上下、河谷锯齿路线)
+        gy_actual = projected_gravity[:, 1]
+        gy_error = np.minimum(np.abs(gy_actual - expected_gy_mag), np.abs(gy_actual + expected_gy_mag))
+        slope_compensation = np.where(on_any_slope, np.exp(-np.square(gy_error) / 0.05), 0.0)
         slope_orientation_reward = scales.get("slope_orientation", 0.04) * slope_compensation
 
         lin_vel_z_penalty = np.square(np.clip(base_lin_vel[:, 2], -50.0, 50.0))
@@ -841,6 +912,9 @@ class VBotSection012Env(NpEnv):
 
         actual_torques_r = self._get_actuator_torques(data)
         torque_penalty = np.sum(np.square(np.clip(actual_torques_r, -200.0, 200.0)), axis=1)
+        # v4fix: dof_pos_penalty — deviation from default standing angles (was ghost parameter)
+        _joint_pos = self.get_dof_pos(data)
+        dof_pos_penalty = np.sum(np.square(_joint_pos - self.default_angles), axis=1)
         safe_joint_vel = np.clip(joint_vel, -100.0, 100.0)
         dof_vel_penalty = np.sum(np.square(safe_joint_vel), axis=1)
         last_dof_vel = info.get("last_dof_vel", np.zeros_like(joint_vel))
@@ -863,6 +937,10 @@ class VBotSection012Env(NpEnv):
         z_delta = current_z - last_z
         info["last_z"] = current_z.copy()
         height_progress = scales.get("height_progress", 12.0) * np.maximum(z_delta, 0.0)
+
+        # v4fix: 高度振荡惩罚 — penalize rapid Z bouncing on stairs (ported from section011)
+        z_osc = np.abs(z_delta)
+        height_osc_penalty = scales.get("height_oscillation", -2.0) * np.maximum(z_osc - 0.015, 0.0)
 
         # ===== 地形里程碑 (Y轴进度) =====
         current_y = robot_xy[:, 1]
@@ -916,6 +994,58 @@ class VBotSection012Env(NpEnv):
             * terrain_swing_scale
         )
 
+        # ===== 拖脚惩罚 (Drag-Foot Penalty) =====
+        # 腿有接触 + 小腿关节角速度低 = 拖地行为 (foot_clearance的盲区)
+        drag_foot_scale = scales.get("drag_foot_penalty", 0.0)
+        if drag_foot_scale < 0:
+            if foot_clearance_scale > 0:
+                drag_in_contact = ~in_swing
+            else:
+                foot_forces_df = self._get_foot_contact_forces(data)
+                force_mag_df = np.linalg.norm(foot_forces_df, axis=2)
+                drag_in_contact = force_mag_df > 0.5
+                calf_indices = [2, 5, 8, 11]
+                calf_vel = np.abs(joint_vel[:, calf_indices])
+            low_vel = calf_vel < 1.0
+            dragging = drag_in_contact & low_vel
+            drag_foot_raw = np.sum(dragging.astype(np.float32), axis=1)
+            drag_foot_penalty = drag_foot_scale * drag_foot_raw
+        else:
+            drag_foot_penalty = np.zeros(n, dtype=np.float32)
+
+        # ===== 停滞渐进惩罚 (Stagnation Ramp Penalty) =====
+        # 停滞检测只会截断episode, 不给惩罚信号 → 添加渐进惩罚
+        stagnation_penalty_scale = scales.get("stagnation_penalty", 0.0)
+        if stagnation_penalty_scale < 0:
+            stag_window = getattr(self._cfg, 'stagnation_window_steps', 1000)
+            stag_grace = getattr(self._cfg, 'stagnation_grace_steps', 500)
+            stag_anchor_step = info.get("stagnation_anchor_step", np.zeros(n, dtype=np.int32))
+            stag_ep_steps = info.get("steps", np.zeros(n, dtype=np.int32))
+            stag_since = stag_ep_steps - stag_anchor_step
+            stag_ratio = np.clip((stag_since.astype(np.float32) / stag_window - 0.5) * 2.0, 0.0, 1.0)
+            past_grace = stag_ep_steps >= stag_grace
+            stagnation_penalty = stagnation_penalty_scale * stag_ratio * past_grace.astype(np.float32)
+            stagnation_penalty = np.where(in_celeb, 0.0, stagnation_penalty)
+        else:
+            stagnation_penalty = np.zeros(n, dtype=np.float32)
+
+        # ===== 蹲坐惩罚 (Crouch Penalty) =====
+        # 机器人坐下时base高度低于正常站立高度
+        crouch_penalty_scale = scales.get("crouch_penalty", 0.0)
+        if crouch_penalty_scale < 0:
+            # section012地形: 楼梯区y∈12-14.3 z从1.3→2.3, 河谷区y>14.3 z≈1.8-2.8
+            terrain_z_est = np.where(
+                current_y < 12.0, 1.29,                                    # 入口平台
+                np.where(current_y < 14.3,
+                         1.32 + (current_y - 12.0) / 2.3 * 0.97,          # 右楼梯线性插值 1.32→2.29
+                np.where(current_y < 16.0, 1.80,                           # 河谷底部 (保守)
+                         1.50)))                                            # 河谷远端
+            clearance = current_z - terrain_z_est
+            min_clearance = 0.20  # 正常站立clearance≈0.25m, 低于0.20m=蹲坐
+            crouch_penalty = np.where(clearance < min_clearance, crouch_penalty_scale, 0.0)
+        else:
+            crouch_penalty = np.zeros(n, dtype=np.float32)
+
         # ===== 步态质量 =====
         gait = self._compute_gait_rewards(data, info, base_lin_vel, robot_heading, projected_gravity)
         gait_stance = scales.get("stance_ratio", 0.08) * gait["stance_reward"]
@@ -937,6 +1067,7 @@ class VBotSection012Env(NpEnv):
             + scales.get("lin_vel_z", -0.06) * lin_vel_z_penalty
             + scales.get("ang_vel_xy", -0.01) * ang_vel_xy_penalty
             + scales.get("torques", -5e-6) * torque_penalty
+            + scales.get("dof_pos", 0.0) * dof_pos_penalty
             + scales.get("dof_vel", -3e-5) * dof_vel_penalty
             + scales.get("dof_acc", -1.5e-7) * dof_acc_penalty
             + scales.get("action_rate", -0.005) * action_rate_penalty
@@ -944,6 +1075,10 @@ class VBotSection012Env(NpEnv):
             + scales.get("torque_saturation", -0.01) * torque_sat_penalty
             + termination_penalty
             + swing_penalty
+            + height_osc_penalty
+            + drag_foot_penalty
+            + stagnation_penalty
+            + crouch_penalty
         )
 
         # ===== 综合奖励 =====
@@ -954,13 +1089,15 @@ class VBotSection012Env(NpEnv):
             + scales.get("forward_velocity", 3.0) * forward_velocity
             + alive_bonus
         )
-        nav_reward = np.where(in_celeb, alive_bonus, nav_reward)
+        # v4fix: 只在SITTING/DONE阶段停止导航奖励, WALKING阶段保持导航 (match section011)
+        celeb_stop = in_celeb & (info["celeb_state"] >= CELEB_SITTING)
+        nav_reward = np.where(celeb_stop, alive_bonus, nav_reward)
 
         reward = (
             nav_reward
             + wp_bonus
             + celeb_bonus
-            + turn_reward
+            + celeb_walk_reward
             + height_progress
             + traversal_total
             + foot_clearance_reward
@@ -982,7 +1119,7 @@ class VBotSection012Env(NpEnv):
             "alive_bonus": alive_bonus,
             "wp_bonus": wp_bonus,
             "celeb_bonus": celeb_bonus,
-            "turn_reward": turn_reward,
+            "celeb_walk_reward": celeb_walk_reward,
             "height_progress": height_progress,
             "slope_orientation": slope_orientation_reward,
             "traversal_bonus": traversal_total,
@@ -994,6 +1131,11 @@ class VBotSection012Env(NpEnv):
             "gait_stance": gait_stance,
             "impact_penalty": scales.get("impact_penalty", -0.02) * impact_penalty,
             "torque_saturation": scales.get("torque_saturation", -0.01) * torque_sat_penalty,
+            "dof_pos_penalty": scales.get("dof_pos", 0.0) * dof_pos_penalty,
+            "height_osc_penalty": height_osc_penalty,
+            "drag_foot_penalty": drag_foot_penalty,
+            "stagnation_penalty": stagnation_penalty,
+            "crouch_penalty": crouch_penalty,
         }
         return reward
 
@@ -1098,9 +1240,9 @@ class VBotSection012Env(NpEnv):
             "wp_current": np.zeros(num_envs, dtype=np.int32),
             "wp_reached": np.zeros((num_envs, self.num_route_waypoints), dtype=bool),
             "wp_idx": np.zeros(num_envs, dtype=np.int32),
-            # 庆祝状态机
+            # 庆祝状态机 (v58: X轴行走 + 蹲坐)
             "celeb_state": np.full(num_envs, CELEB_IDLE, dtype=np.int32),
-            "turn_count": np.zeros(num_envs, dtype=np.int32),
+            "celeb_sit_counter": np.zeros(num_envs, dtype=np.int32),
             # 累积奖金 (终止清零用)
             "accumulated_bonus": np.zeros(num_envs, dtype=np.float32),
             "oob_terminated": np.zeros(num_envs, dtype=bool),
@@ -1111,3 +1253,7 @@ class VBotSection012Env(NpEnv):
         }
 
         return obs, info
+
+
+# 聚焦楼梯+河谷训练: 复用同一Env类, 不同cfg → 不同航点路线
+registry.register_env("vbot_navigation_section012_stairs", VBotSection012Env, "np")
