@@ -897,8 +897,8 @@ class VBotSection001Env(NpEnv):
         # 设置 base 的 XYZ位置（DOF 3-5）
         dof_pos[:, 3:6] = robot_init_xyz
 
-        # 随机初始朝向（全方向，不总是面向+Y）
-        random_yaw = np.random.uniform(-np.pi, np.pi, size=num_envs)
+        # 随机初始朝向（全方向，2π随机，不面向目标）
+        random_yaw = np.random.uniform(0.0, 2.0 * np.pi, size=num_envs)
         for i in range(num_envs):
             quat = self._euler_to_quat(0, 0, random_yaw[i])
             dof_pos[i, self._base_quat_start:self._base_quat_end] = quat / (np.linalg.norm(quat) + 1e-8)

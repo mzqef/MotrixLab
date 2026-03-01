@@ -23,7 +23,7 @@ from absl import app, flags
 from skrl import config
 
 # Determine which starter_kit to import based on env name
-_NAVIGATION2_ENVS = {"vbot_navigation_section011", "vbot_navigation_section012", "vbot_navigation_section013", "vbot_navigation_long_course"}
+_NAVIGATION2_ENVS = {"vbot_navigation_section011", "vbot_navigation_section012", "vbot_navigation_section012_stairs", "vbot_navigation_section013", "vbot_navigation_long_course"}
 _env_name_for_import = None
 for _i, _arg in enumerate(sys.argv):
     if _arg == "--env" and _i + 1 < len(sys.argv):

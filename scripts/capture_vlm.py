@@ -39,6 +39,7 @@ from absl import app, flags
 _NAVIGATION2_ENVS = {
     "vbot_navigation_section011",
     "vbot_navigation_section012",
+    "vbot_navigation_section012_stairs",
     "vbot_navigation_section013",
     "vbot_navigation_long_course",
 }

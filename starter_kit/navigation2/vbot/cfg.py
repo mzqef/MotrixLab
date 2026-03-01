@@ -68,13 +68,15 @@ DEFAULT_TERRAIN_ZONES: List[TerrainZone] = [
     TerrainZone(y_min=8.83,  y_max=11.83, action_scale=0.40, label="s012_wave",
                clearance_boost_key="foot_clearance_wave_boost", pre_zone_margin=0.0, post_zone_margin=0.0,
                swing_scale_key="swing_contact_wave_scale"),                              # 入口波浪高度场 (hfield 0.1m amplitude)
-    TerrainZone(y_min=12.33, y_max=14.33, action_scale=0.80, label="s012_stairs_up",
+    TerrainZone(y_min=11.83, y_max=14.33, action_scale=0.80, label="s012_stairs_up",
                clearance_boost_key="foot_clearance_stair_boost", pre_zone_margin=1.0, post_zone_margin=0.3,
                swing_scale_key="swing_contact_stair_scale"),                             # 楼梯上行 (0.50→0.80: 最大腿部幅度)
-    TerrainZone(y_min=14.33, y_max=21.33, action_scale=0.20, label="s012_bridge_valley"),  # 桥+河谷+平台
-    TerrainZone(y_min=21.33, y_max=23.33, action_scale=0.20, label="s012_stairs_down",
+    TerrainZone(y_min=14.33, y_max=21.33, action_scale=0.50, label="s012_bridge_valley",
+               clearance_boost_key="foot_clearance_valley_boost", pre_zone_margin=0.5, post_zone_margin=0.3,
+               swing_scale_key="swing_contact_valley_scale"),                              # 桥+河谷+平台 (石头R=0.75, 斜坡11.6°)
+    TerrainZone(y_min=21.33, y_max=23.33, action_scale=0.80, label="s012_stairs_down",
                clearance_boost_key="foot_clearance_stair_boost", pre_zone_margin=1.0,
-               swing_scale_key="swing_contact_stair_scale"),                             # 楼梯下行
+               swing_scale_key="swing_contact_stair_scale"),                             # 远端楼梯上下 (左梯ΔZ=0.15上桥, 右梯ΔZ=0.10出口)
     # === Section 013 (y ≈ 25.33 → 34.33) ===
     TerrainZone(y_min=27.33, y_max=30.83, action_scale=0.40, label="s013_ramp_hfield"), # 21.8°坡+高度场
     TerrainZone(y_min=30.83, y_max=33.83, action_scale=0.40, label="s013_ball_zone"),   # 球障碍+最终平台
@@ -198,9 +200,11 @@ BASE_REWARD_SCALES: dict[str, float] = {
     "foot_clearance_bump_boost": 7.167,            # T14: ~same (v47=8.0)
     "foot_clearance_stair_boost": 20.0,            # v58: 极强抬脚奖励 (原3.0), 强制跨越0.10m台阶
     "foot_clearance_wave_boost": 3.0,              # v57: section012 entry wave hfield (0.1m amplitude, similar to bump)
+    "foot_clearance_valley_boost": 10.0,            # v59: 河谷石头区 (bump=7.2, stair=20.0, stones R=0.75 need strong clearance)
     "foot_clearance_pre_zone_ratio": 0.5,          # v54→v56: matches old T10 pre-bump ratio (was 0.75, old code used 0.5)
     "swing_contact_stair_scale": 0.5,              # v54: centralized (was section012 fallback default)
     "swing_contact_wave_scale": 0.5,               # v57: section012 entry wave — reduce swing penalty on uneven ground
+    "swing_contact_valley_scale": 0.3,             # v59: 河谷石头区频繁碰撞, 更宽容 (bump=0.21, stair=0.5)
     "alive_decay_horizon": 2383.0,                 # T14: 1.59× longer (v47=1500)
     # ===== v49: 拖脚惩罚 + 停滞惩罚 =====
     "drag_foot_penalty": -0.15,                    # v49→v50: 支撑相低速腿惩罚 (每条拖地腿, 统一尺度)
@@ -286,10 +290,11 @@ class OrderedRoute:
     可复用于任意section: 只需在cfg中定义不同的 waypoints 列表。
     """
     waypoints: list = field(default_factory=list)   # List[Waypoint]
-    # 庆祝配置
-    required_turns: int = 3                         # 庆祝动作次数 (可配置)
-    celebration_turn_threshold: float = 1.55        # 动作检测z阈值
-    celebration_settle_z: float = 1.50              # 稳定判定z阈值
+    # 庆祝配置 (v58: X轴行走 + 蹲坐, 与section011一致)
+    celeb_x_offset: float = 4.0                     # X轴行走偏移量 (从goal航点X+offset)
+    celeb_walk_radius: float = 1.0                  # X端点到达半径
+    celeb_sit_z: float = 1.35                       # 蹲坐z阈值 (站立≈1.56, 蹲坐<1.35)
+    celeb_sit_steps: int = 30                       # 蹲坐保持步数 (30步=0.3秒)
 
 
 @registry.envcfg("vbot_navigation_long_course")
@@ -488,16 +493,16 @@ class VBotSection012EnvCfg(VBotStairsEnvCfg):
     soft_tilt_deg: float = 50.0            # 软终止倾斜角度 (grace期后终止)
     enable_base_contact_term: bool = True   # 基座接触地面终止
     enable_stagnation_truncate: bool = True  # 停滞检测截断
+    reset_yaw_scale: float = 0.0  # 固定朝向+Y (无随机), 让robot直面楼梯
 
     @dataclass
     class InitState:
-        # 起始位置：右侧楼梯底部 (跳过波浪地形，强制学习爬楼梯)
-        # 右楼梯: x=2, y=12.43→14.23, 地面z≈1.32
-        pos = [2.0, 12.0, 1.8]
-        pos_randomization_range = [-0.5, -0.3, 0.5, 0.3]  # 紧凑出生: x∈[1.5,2.5], y∈[11.7,12.3]
-
-        default_joint_angles = {
-            "FR_hip_joint": -0.0,
+            # 起始位置：右侧楼梯底部前方，最右侧 (避免中间通道滑坡)
+            # 右楼梯: x=2中心, 半宽=3.0 → x∈[-1,5], y=12.43→14.23, z=1.32→2.29
+            pos = [-0.5, 12.0, 2.0]  # 最右侧起始: x=-0.5 (楼梯宽度内), y=12.0, z=2.45
+            pos_randomization_range = [-0.3, -0.3, 0.3, 0.3]  # x∈[3.7,4.3], y∈[11.7,12.3]
+            default_joint_angles = {
+                "FR_hip_joint": -0.0,
             "FR_thigh_joint": 0.9,
             "FR_calf_joint": -1.8,
             "FL_hip_joint": 0.0,
@@ -517,11 +522,11 @@ class VBotSection012EnvCfg(VBotStairsEnvCfg):
 
     @dataclass
     class Section012Route(OrderedRoute):
-        """右侧优先全收集路线: 石头红包 → 桥下红包 → 远端上桥 → 桥上红包 → 原路返回 → 终点 → 庆祝
+        """锯齿路线: 石头+桥下红包交替收集 → 远端上桥 → 桥上红包 → 原路返回 → 终点 → 庆祝
 
         路线逻辑:
-          1) 从入口右转，沿右侧河床收集5个石头贺礼红包 (固定顺序)
-          2) 穿越河谷到左侧桥下，收集2个桥下拜年红包
+          1) 从入口右转→石头2(右近)→石头1(左近)→桥下近→石头3(中)→桥下远→石头4(左远)→石头5(右远)
+          2) 锯齿交替收集, 最小化回头路
           3) 从远端 (出口侧) 爬左楼梯上桥
           4) 过桥收集桥上拜年红包
           5) 原路返回到远端桥头，下楼梯
@@ -532,32 +537,31 @@ class VBotSection012EnvCfg(VBotStairsEnvCfg):
         """
         waypoints: list = field(default_factory=lambda: [
             # === 阶段0: 楼梯技能引导 (出生点→楼梯顶部, 强化前进梯度) ===
-            Waypoint(xy=(2.0, 12.0),    label="right_approach",     kind="virtual",  radius=1.5,
+            Waypoint(xy=(-0.25, 12.0),    label="right_approach",     kind="virtual",  radius=1.5,
                      bonus_key="transit_bonus", bonus_default=10.0),
-            Waypoint(xy=(2.0, 14.5),    label="stair_top",          kind="virtual",  radius=1.2,
+            Waypoint(xy=(-0.25, 14.5),    label="stair_top",          kind="virtual",  radius=1.2,
                      bonus_key="transit_bonus", bonus_default=20.0),  # 楼梯顶部: 直线前进梯度, 避免斜方向引导
-            # === 阶段1: 右侧路线 — 收集石头贺礼红包 (5个, 各+3竞赛分) ===
-            Waypoint(xy=(0.36, 15.84),  label="stone_1_near_left",  kind="reward",   radius=1.2,
+            # === 阶段1: 锯齿路线 — 石头+桥下红包交替收集, 最小化回头路 ===
+            Waypoint(xy=(0.36, 15.84),  label="stone_1_near_left",  kind="reward",   radius=0.0,
                      bonus_key="stone_bonus", bonus_default=10.0),
-            Waypoint(xy=(3.5, 15.84),   label="stone_2_near_right", kind="reward",   radius=1.2,
+            Waypoint(xy=(3.5, 15.84),   label="stone_2_near_right", kind="reward",   radius=0.0,
                      bonus_key="stone_bonus", bonus_default=10.0),
-            Waypoint(xy=(2.0, 17.83),   label="stone_3_center",     kind="reward",   radius=1.2,
+            Waypoint(xy=(2.0, 17.83),   label="stone_3_center",     kind="reward",   radius=0.0,
                      bonus_key="stone_bonus", bonus_default=10.0),
-            Waypoint(xy=(0.36, 19.72),  label="stone_4_far_left",   kind="reward",   radius=1.2,
-                     bonus_key="stone_bonus", bonus_default=10.0),
-            Waypoint(xy=(3.5, 19.72),   label="stone_5_far_right",  kind="reward",   radius=1.2,
-                     bonus_key="stone_bonus", bonus_default=10.0),
-            # === 阶段2: 桥下红包收集 (2个, 各+5竞赛分) ===
-            Waypoint(xy=(-3.0, 19.5),   label="under_bridge_far",   kind="reward",   radius=1.5,
+            Waypoint(xy=(-3.0, 16.0),   label="under_bridge_near",  kind="reward",   radius=0.0,
                      z_max=2.2, bonus_key="under_bridge_bonus", bonus_default=15.0),
-            Waypoint(xy=(-3.0, 16.0),   label="under_bridge_near",  kind="reward",   radius=1.5,
+            Waypoint(xy=(-3.0, 19.5),   label="under_bridge_far",   kind="reward",   radius=0.0,
                      z_max=2.2, bonus_key="under_bridge_bonus", bonus_default=15.0),
+            Waypoint(xy=(0.36, 19.72),  label="stone_4_far_left",   kind="reward",   radius=0.0,
+                     bonus_key="stone_bonus", bonus_default=10.0),
+            Waypoint(xy=(3.5, 19.72),   label="stone_5_far_right",  kind="reward",   radius=0.0,
+                     bonus_key="stone_bonus", bonus_default=10.0),
             # === 阶段3: 远端上桥 → 桥上红包 → 原路返回 ===
             Waypoint(xy=(-3.0, 22.5),   label="bridge_climb_base",  kind="virtual",  radius=1.5,
                      bonus_key="transit_bonus", bonus_default=10.0),
             Waypoint(xy=(-3.0, 20.0),   label="bridge_far_entry",   kind="virtual",  radius=1.5,
                      z_min=2.3, bonus_key="bridge_entry_bonus", bonus_default=20.0),
-            Waypoint(xy=(-3.0, 17.83),  label="bridge_hongbao",     kind="reward",   radius=2.0,
+            Waypoint(xy=(-3.0, 17.83),  label="bridge_hongbao",     kind="reward",   radius=0.0,
                      z_min=2.3, bonus_key="bridge_hongbao_bonus", bonus_default=30.0),
             Waypoint(xy=(-3.0, 20.0),   label="bridge_turnaround",  kind="virtual",  radius=1.5,
                      z_min=2.3, bonus_key="transit_bonus", bonus_default=5.0),
@@ -567,9 +571,11 @@ class VBotSection012EnvCfg(VBotStairsEnvCfg):
             Waypoint(xy=(0.0, 24.33),   label="exit_platform",      kind="goal",     radius=0.8,
                      bonus_key="exit_bonus", bonus_default=30.0),
         ])
-        required_turns: int = 3
-        celebration_turn_threshold: float = 1.55
-        celebration_settle_z: float = 1.50
+        # 庆祝参数 (v58: X轴行走 + 蹲坐, 与section011一致)
+        celeb_x_offset: float = 4.0           # X轴行走偏移量 (从exit_platform X+offset)
+        celeb_walk_radius: float = 1.0        # X端点到达半径
+        celeb_sit_z: float = 1.40             # 蹲坐z阈值 (出口平台z≈1.294, 站立≈1.56)
+        celeb_sit_steps: int = 30             # 蹲坐保持步数 (30步=0.3秒)
     @dataclass
     class CourseBounds:
         """赛道边界 (超出=终止+清零得分)
@@ -586,6 +592,45 @@ class VBotSection012EnvCfg(VBotStairsEnvCfg):
     course_bounds: CourseBounds = field(default_factory=CourseBounds)
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)
+
+
+@registry.envcfg("vbot_navigation_section012_stairs")
+@dataclass
+class VBotSection012StairsEnvCfg(VBotSection012EnvCfg):
+    """集中训练楼梯攀爬 + 河谷第一个红包收集
+
+    简化路线: 3航点 (楼梯底部 → 楼梯顶部 → 河谷第一颗石头)
+    出生位置: 与section012相同 (楼梯底部)
+    更短episode时间: 30秒 (专注楼梯+河谷入口)
+
+    指标:
+      - wp_idx >= 2: 楼梯攀爬成功率
+      - wp_idx >= 3: 河谷第一个奖励收集成功率
+    """
+    max_episode_seconds: float = 30.0
+    max_episode_steps: int = 3000
+
+    @dataclass
+    class StairsValleyRoute(OrderedRoute):
+        """聚焦楼梯→河谷路线: 3航点"""
+        waypoints: list = field(default_factory=lambda: [
+            # WP0: 楼梯底部 (立即到达, 仅用于初始朝向引导)
+            Waypoint(xy=(-0.25, 12.0), label="stair_base", kind="virtual", radius=1.5,
+                     bonus_key="transit_bonus", bonus_default=5.0),
+            # WP1: 楼梯顶部 (核心指标: 爬楼梯成功)
+            Waypoint(xy=(-0.25, 14.5), label="stair_top", kind="virtual", radius=1.2,
+                     bonus_key="transit_bonus", bonus_default=30.0),
+            # WP2: 河谷第一颗石头 (核心指标: 河谷导航+收集)
+            Waypoint(xy=(0.36, 15.84), label="first_stone", kind="reward", radius=0.0,
+                     bonus_key="stone_bonus", bonus_default=20.0),
+        ])
+        # 无庆祝 (聚焦训练)
+        celeb_x_offset: float = 0.0
+        celeb_walk_radius: float = 999.0
+        celeb_sit_z: float = 0.0
+        celeb_sit_steps: int = 99999
+
+    ordered_route: StairsValleyRoute = field(default_factory=StairsValleyRoute)
 
 
 @registry.envcfg("vbot_navigation_section013")
@@ -607,7 +652,7 @@ class VBotSection013EnvCfg(VBotStairsEnvCfg):
     - 随机地形 5分
     - 最终庆祝 5分
 
-    架构: 与Section011共享分阶段导航+庆祝FSM, 69维观测
+    架构: 与Section011共享分阶段导航+庆祝FSM(walk+sit), 69维观测
     """
     model_file: str = os.path.dirname(__file__) + "/xmls/scene_section013.xml"
     max_episode_seconds: float = 120.0  # 与section011一致: 停滞检测替代固定时间限制
@@ -674,18 +719,19 @@ class VBotSection013EnvCfg(VBotStairsEnvCfg):
 
     @dataclass
     class WaypointNav:
-        """分阶段导航配置: 金球收集 + 最终平台 + 跳跃庆祝
+        """分阶段导航配置: 金球收集 + 最终平台 + walk+sit庆祝
 
         Phase APPROACH: 入口 → 坡道/hfield区域
         Phase BALLS: 收集3个金球得分区 (任意顺序)
         Phase CLIMB: 到达最终平台
-        Phase CELEBRATION: 庆祝动作 (10次)
+        Phase CELEBRATION: walk + sit庆祝 (与Section011/012一致)
         """
         waypoint_radius = 1.2  # 金球区到达半径
         final_radius = 0.8     # 最终平台精确到达
-        celebration_turn_threshold = 1.85  # 最终平台z=1.494, 站立+0.3=1.79, 跳+0.06
-        required_turns = 10
-        celebration_settle_z = 1.75  # 稳定判定
+        celeb_x_offset = 4.0   # X轴行走偏移量 (从celebration_center X+offset)
+        celeb_walk_radius = 1.0  # X端点到达半径
+        celeb_sit_z = 1.85     # 蹲坐z阈值 (最终平台z=1.494, 站立≈1.79, 蹲坐<1.85)
+        celeb_sit_steps = 30   # 蹲坐保持步数 (30步=0.3秒)
 
     scoring_zones: ScoringZones = field(default_factory=ScoringZones)
     waypoint_nav: WaypointNav = field(default_factory=WaypointNav)

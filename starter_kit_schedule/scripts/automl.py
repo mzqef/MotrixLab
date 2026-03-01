@@ -367,7 +367,7 @@ REWARD_SEARCH_SPACE_SECTION012 = {
     # ===== Navigation core (DOMINANT — must outweigh survival) =====
     "forward_velocity": {"type": "uniform", "low": 3.0, "high": 30.0},
     "waypoint_approach": {"type": "uniform", "low": 300.0, "high": 5000.0},
-    "zone_approach": {"type": "uniform", "low": 30.0, "high": 400.0},
+    # zone_approach removed — s012 uses ordered waypoints, not parallel zones
     "waypoint_facing": {"type": "uniform", "low": 0.1, "high": 3.0},
     "position_tracking": {"type": "uniform", "low": 0.1, "high": 2.0},
     # ===== 存活奖励 (HARD CAPPED — standing still must never pay) =====

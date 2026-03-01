@@ -77,6 +77,34 @@ class navigation2:
         policy_hidden_layer_sizes: tuple[int, ...] = (512, 256, 128)   # match section011 T4 checkpoint
         value_hidden_layer_sizes: tuple[int, ...] = (512, 256, 128)   # section011 proven
 
+    @rlcfg("vbot_navigation_section012_stairs")
+    @dataclass
+    class VBotSection012StairsPPOConfig(PPOCfg):
+        """VBot Section012-Stairs 聚焦楼梯+河谷训练 PPO 配置"""
+        seed: int = 42
+        num_envs: int = 2048
+        play_num_envs: int = 16
+        max_env_steps: int = 50_000_000
+        check_point_interval: int = 500
+
+        learning_rate: float = 0.0003568963889028796
+        lr_scheduler_type: str | None = None
+        rollouts: int = 24
+        learning_epochs: int = 6
+        mini_batches: int = 16
+        discount_factor: float = 0.999
+        lambda_param: float = 0.99
+        grad_norm_clip: float = 1.0
+        entropy_loss_scale: float = 0.004318625492723052
+
+        ratio_clip: float = 0.2
+        value_clip: float = 0.2
+        clip_predicted_values: bool = True
+
+        share_policy_value_features: bool = False
+        policy_hidden_layer_sizes: tuple[int, ...] = (512, 256, 128)
+        value_hidden_layer_sizes: tuple[int, ...] = (512, 256, 128)
+
     @rlcfg("vbot_navigation_section013")
     @dataclass
     class VBotSection013PPOConfig(PPOCfg):

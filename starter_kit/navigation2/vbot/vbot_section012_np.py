@@ -881,10 +881,12 @@ class VBotSection012Env(NpEnv):
 
         wp_facing = scales.get("waypoint_facing", 0.15) * heading_tracking
 
-        # 存活奖励 (条件式)
+        # 存活奖励 (条件式 + 时间衰减)
         gz = np.clip(-projected_gravity[:, 2], 0.0, 1.0)
         upright_factor = np.where(gz > 0.9, 1.0, np.where(gz > 0.7, 0.5, 0.0))
-        alive_bonus = scales.get("alive_bonus", 0.05) * upright_factor
+        alive_decay_horizon = scales.get("alive_decay_horizon", 3000.0)
+        alive_time_decay = np.clip(1.0 - ep_steps / alive_decay_horizon, 0.0, 1.0)
+        alive_bonus = scales.get("alive_bonus", 0.05) * upright_factor * alive_time_decay
 
         # ===== 稳定性惩罚 =====
         orientation_penalty = np.sum(np.square(projected_gravity[:, :2]), axis=1)

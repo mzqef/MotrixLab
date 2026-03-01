@@ -1,0 +1,63 @@
+{
+  "run_tag": "s012_stage2_T0",
+  "env_name": "vbot_navigation_section012",
+  "starter_kit_dir": "D:\\MotrixLab\\starter_kit\\navigation2",
+  "reward_scales": {
+    "forward_velocity": 23.765596333028356,
+    "waypoint_approach": 414.71446769431276,
+    "zone_approach": 247.1607433797164,
+    "waypoint_facing": 2.532398590884483,
+    "position_tracking": 0.770451133031695,
+    "alive_bonus": 0.4616692873849746,
+    "alive_decay_horizon": 306.2498127194159,
+    "waypoint_bonus": 66.64559068828316,
+    "foot_clearance": 0.09982327630357712,
+    "foot_clearance_stair_boost": 34.73877594405461,
+    "foot_clearance_pre_zone_ratio": 0.18999550397631473,
+    "swing_contact_stair_scale": 0.2051009184360778,
+    "stance_ratio": 0.22919033928518195,
+    "lin_vel_z": -0.04361694873541496,
+    "torque_saturation": -0.04787959164672726,
+    "action_rate": -0.0031459480351711255,
+    "orientation": -0.02728595336800814,
+    "slope_orientation": 0.2337702373825823,
+    "ang_vel_xy": -0.10029570983387535,
+    "impact_penalty": -0.2065191600278783,
+    "swing_contact_penalty": -0.025133385818020496,
+    "drag_foot_penalty": -0.012543224556501031,
+    "stagnation_penalty": -4.783605766804784,
+    "crouch_penalty": -3.325052333653497,
+    "dof_pos": -0.033762062134175805,
+    "termination": -25
+  },
+  "rl_overrides": {
+    "learning_rate": 0.0001828400915751417,
+    "entropy_loss_scale": 0.005598863360829353,
+    "policy_hidden_layer_sizes": [
+      512,
+      256,
+      128
+    ],
+    "value_hidden_layer_sizes": [
+      512,
+      256,
+      128
+    ],
+    "rollouts": 24,
+    "learning_epochs": 6,
+    "mini_batches": 16,
+    "discount_factor": 0.999,
+    "max_env_steps": 100000000,
+    "seed": 42,
+    "check_point_interval": 500
+  },
+  "checkpoint": "D:\\MotrixLab\\starter_kit_schedule\\checkpoints\\vbot_navigation_section011_A_T4_warmup_agent.pt",
+  "freeze_preprocessor": false,
+  "env_overrides": {
+    "hard_tilt_deg": 85.0,
+    "soft_tilt_deg": 0.0,
+    "enable_base_contact_term": false,
+    "enable_stagnation_truncate": true,
+    "grace_period_steps": 200
+  }
+}
