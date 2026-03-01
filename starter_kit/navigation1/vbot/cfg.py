@@ -471,9 +471,10 @@ class VBotSection001EnvCfg(VBotStairsEnvCfg):
     # 机器人在 [spawn_inner_radius, spawn_outer_radius] 环形区域内生成
     # Stage 1 (Easy):   inner=2, outer=5   — 近距离学基本功  ✅ COMPLETED (66.58% peak)
     # Stage 2 (Medium): inner=5, outer=8   — 中等距离
-    # Stage 3 (Hard):   inner=8, outer=11  — 竞赛距离        ← CURRENT
-    spawn_inner_radius: float = 8.0   # 课程 Stage 3: 最近距离 (was 5.0 in Stage 2)
-    spawn_outer_radius: float = 11.0  # 课程 Stage 3: 最远距离 (was 8.0 in Stage 2)
+    # Stage 3 (Hard):   inner=8, outer=11  — 竞赛距离
+    # Stage 4 (Competition): inner=10, outer=12 — 平台边缘  ← CURRENT
+    spawn_inner_radius: float = 10.0  # 课程 Stage 4: 最近距离 (was 8.0 in Stage 3)
+    spawn_outer_radius: float = 12.0  # 课程 Stage 4: 最远距离 (was 11.0 in Stage 3)
 
     init_state: InitState = field(default_factory=InitState)
     commands: Commands = field(default_factory=Commands)

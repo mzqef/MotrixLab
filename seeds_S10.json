@@ -1,0 +1,116 @@
+[
+  {
+    "hp_config": {
+      "discount_factor": 0.999,
+      "entropy_loss_scale": 0.01089904456171082,
+      "grad_norm_clip": 1.0,
+      "lambda_param": 0.99,
+      "learning_epochs": 6,
+      "learning_rate": 0.0006073008040245019,
+      "mini_batches": 16,
+      "policy_hidden_layer_sizes": [
+        512,
+        256,
+        128
+      ],
+      "ratio_clip": 0.2,
+      "rollouts": 24,
+      "value_hidden_layer_sizes": [
+        512,
+        256,
+        128
+      ]
+    },
+    "reward_config": {
+      "action_rate": -0.03120741701238927,
+      "alive_bonus": 1.851910448431534,
+      "alive_decay_horizon": 1625.9490812741783,
+      "ang_vel_xy": -0.10980531566663332,
+      "celeb_sit_reward": 13.403636599134522,
+      "celeb_walk_approach": 383.95443581004,
+      "celeb_walk_bonus": 59.35544657806113,
+      "celebration_bonus": 127.47137817177759,
+      "crouch_penalty": -0.471155427244609,
+      "dof_pos": -0.04955004632776089,
+      "drag_foot_penalty": -0.2543279271167027,
+      "foot_clearance": 0.3436949289594717,
+      "foot_clearance_bump_boost": 21.497339698092063,
+      "foot_clearance_bump_boost_post_margin": 0.07593666772963621,
+      "foot_clearance_bump_boost_pre_margin": 1.5305289049737165,
+      "foot_clearance_pre_zone_ratio": 0.32324356461408715,
+      "forward_velocity": 9.222519801310991,
+      "impact_penalty": -0.07094619042988416,
+      "lin_vel_z": -0.07010203240619636,
+      "orientation": -0.008046027513477272,
+      "phase_bonus": 165.60492760224957,
+      "position_tracking": 1.7706309433868335,
+      "stagnation_penalty": -1.4819896899565594,
+      "stance_ratio": 0.0040253148190612185,
+      "swing_contact_bump_scale": 0.3719573424350169,
+      "swing_contact_penalty": -0.01860980129978261,
+      "termination": -25,
+      "torque_saturation": -0.09696345810001432,
+      "waypoint_approach": 572.7474212509027,
+      "waypoint_bonus": 11.353681791178769,
+      "waypoint_facing": 0.7704597813183178,
+      "zone_approach": 332.11069575351735
+    }
+  },
+  {
+    "hp_config": {
+      "discount_factor": 0.999,
+      "entropy_loss_scale": 0.006183016758383101,
+      "grad_norm_clip": 1.0,
+      "lambda_param": 0.99,
+      "learning_epochs": 6,
+      "learning_rate": 0.00046221437697417834,
+      "mini_batches": 16,
+      "policy_hidden_layer_sizes": [
+        512,
+        256,
+        128
+      ],
+      "ratio_clip": 0.2,
+      "rollouts": 24,
+      "value_hidden_layer_sizes": [
+        512,
+        256,
+        128
+      ]
+    },
+    "reward_config": {
+      "action_rate": -0.0610685310349248,
+      "alive_bonus": 2.898499447586464,
+      "alive_decay_horizon": 1519.0603343059802,
+      "ang_vel_xy": -0.10000197016958201,
+      "celeb_sit_reward": 10.882767965839339,
+      "celeb_walk_approach": 224.50525892589278,
+      "celeb_walk_bonus": 42.593351722600914,
+      "celebration_bonus": 112.18269226340225,
+      "crouch_penalty": -1.0605659833780008,
+      "dof_pos": -0.02741964874063276,
+      "drag_foot_penalty": -0.4164964945142725,
+      "foot_clearance": 0.4531824972657742,
+      "foot_clearance_bump_boost": 8.040946554027462,
+      "foot_clearance_bump_boost_post_margin": 0.10871134451993686,
+      "foot_clearance_bump_boost_pre_margin": 1.3159506393905822,
+      "foot_clearance_pre_zone_ratio": 0.7416375124941782,
+      "forward_velocity": 8.653462392480995,
+      "impact_penalty": -0.02541859220929274,
+      "lin_vel_z": -0.04006234434872951,
+      "orientation": -0.016431842592183086,
+      "phase_bonus": 140.33251649722973,
+      "position_tracking": 1.1374754483331113,
+      "stagnation_penalty": -2.3163490329396152,
+      "stance_ratio": 0.0047552223070418025,
+      "swing_contact_bump_scale": 0.4618797280493355,
+      "swing_contact_penalty": -0.017771633562475242,
+      "termination": -25,
+      "torque_saturation": -0.06828993110800537,
+      "waypoint_approach": 629.7441459998424,
+      "waypoint_bonus": 17.639090966069656,
+      "waypoint_facing": 1.0155878067310706,
+      "zone_approach": 294.28497033863977
+    }
+  }
+]

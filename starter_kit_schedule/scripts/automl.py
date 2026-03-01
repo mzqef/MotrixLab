@@ -1203,7 +1203,7 @@ class AutoMLPipeline:
             hp = results.get("hp_config", {})
             report += f"- Learning Rate: {hp.get('learning_rate', 'N/A'):.2e}\n"
 
-        with open(report_path, "w") as f:
+        with open(report_path, "w", encoding="utf-8") as f:
             f.write(report)
 
         logger.info(f"Report generated: {report_path}")

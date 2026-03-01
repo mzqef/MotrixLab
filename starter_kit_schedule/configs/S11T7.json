@@ -1,0 +1,72 @@
+{
+  "run_tag": "S11T7_warmS10T7_2pi_yaw_soft_term",
+  "env_name": "vbot_navigation_section011",
+  "starter_kit_dir": "D:\\MotrixLab\\starter_kit\\navigation2",
+  "reward_scales": {
+    "action_rate": -0.0610685310349248,
+    "alive_bonus": 2.898499447586464,
+    "alive_decay_horizon": 1519.0603343059802,
+    "ang_vel_xy": -0.10000197016958201,
+    "celeb_sit_reward": 10.882767965839339,
+    "celeb_walk_approach": 224.50525892589278,
+    "celeb_walk_bonus": 42.593351722600914,
+    "celebration_bonus": 112.18269226340225,
+    "crouch_penalty": -1.0605659833780008,
+    "dof_pos": -0.02741964874063276,
+    "drag_foot_penalty": -0.4164964945142725,
+    "foot_clearance": 0.4531824972657742,
+    "foot_clearance_bump_boost": 8.040946554027462,
+    "foot_clearance_bump_boost_post_margin": 0.10871134451993686,
+    "foot_clearance_bump_boost_pre_margin": 1.3159506393905822,
+    "foot_clearance_pre_zone_ratio": 0.7416375124941782,
+    "forward_velocity": 8.653462392480995,
+    "impact_penalty": -0.02541859220929274,
+    "lin_vel_z": -0.04006234434872951,
+    "orientation": -0.016431842592183086,
+    "phase_bonus": 140.33251649722973,
+    "position_tracking": 1.1374754483331113,
+    "stagnation_penalty": -2.3163490329396152,
+    "stance_ratio": 0.0047552223070418025,
+    "swing_contact_bump_scale": 0.4618797280493355,
+    "swing_contact_penalty": -0.017771633562475242,
+    "termination": -25,
+    "torque_saturation": -0.06828993110800537,
+    "waypoint_approach": 629.7441459998424,
+    "waypoint_bonus": 17.639090966069656,
+    "waypoint_facing": 1.0155878067310706,
+    "zone_approach": 294.28497033863977
+  },
+  "rl_overrides": {
+    "discount_factor": 0.999,
+    "entropy_loss_scale": 0.006183016758383101,
+    "grad_norm_clip": 1.0,
+    "lambda_param": 0.99,
+    "learning_epochs": 6,
+    "learning_rate": 0.00011555359424354459,
+    "mini_batches": 16,
+    "policy_hidden_layer_sizes": [
+      512,
+      256,
+      128
+    ],
+    "ratio_clip": 0.2,
+    "rollouts": 24,
+    "value_hidden_layer_sizes": [
+      512,
+      256,
+      128
+    ],
+    "max_env_steps": 100000000,
+    "check_point_interval": 500
+  },
+  "checkpoint": "runs\\vbot_navigation_section011\\26-03-01_21-54-50-028233_PPO\\checkpoints\\agent_12000.pt",
+  "freeze_preprocessor": true,
+  "env_overrides": {
+    "hard_tilt_deg": 85.0,
+    "soft_tilt_deg": 0.0,
+    "enable_base_contact_term": false,
+    "enable_stagnation_truncate": false,
+    "grace_period_steps": 100,
+    "reset_yaw_scale": 1.0
+  }
+}
